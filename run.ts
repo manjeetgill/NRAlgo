@@ -1,10 +1,10 @@
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
-import { root, openStore, migrate } from './backend/database.mjs';
+import { root, openStore, migrate } from './backend/database.js';
 
 const store = openStore();
 try { await migrate(store); } finally { await store.close(); }
-const children = [];
+const children: ChildProcess[] = [];
 let stopping = false;
 function stop(code = 0) {
   if (stopping) return;
@@ -12,19 +12,20 @@ function stop(code = 0) {
   process.exitCode = code;
   for (const child of children) {
     if (child.exitCode !== null) continue;
-    try { process.kill(-child.pid, 'SIGTERM'); } catch {}
+    try { if (child.pid) process.kill(-child.pid, 'SIGTERM'); } catch {}
   }
   setTimeout(() => {
     for (const child of children) if (child.exitCode === null) {
-      try { process.kill(-child.pid, 'SIGKILL'); } catch {}
+      try { if (child.pid) process.kill(-child.pid, 'SIGKILL'); } catch {}
     }
   }, 10000).unref();
 }
-for (const [command, args, cwd] of [
-  [process.execPath, ['backend/main.mjs'], root],
-  [process.execPath, ['backend/worker.mjs'], root],
+const commands: [string, string[], string][] = [
+  [process.execPath, ['--import', 'tsx', 'backend/main.ts'], root],
+  [process.execPath, ['--import', 'tsx', 'backend/worker.ts'], root],
   ['npm', ['run', 'dev'], `${root}frontend`],
-]) {
+];
+for (const [command, args, cwd] of commands) {
   const child = spawn(command, args, { cwd, stdio: 'inherit', detached: true });
   children.push(child);
   child.on('error', error => { console.error(error.message); stop(1); });

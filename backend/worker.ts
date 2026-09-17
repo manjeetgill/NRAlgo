@@ -1,22 +1,23 @@
 import { setTimeout as delay } from 'node:timers/promises';
-import { openStore, isMain, now, audit, lockSettings } from './database.mjs';
-import { replay } from './simulator.mjs';
+import { openStore, isMain, now, audit, lockSettings, type Store } from './database.js';
+import { replay } from './simulator.js';
+import type { Job, Strategy } from './types.js';
 
-export async function recover(store) {
+export async function recover(store: Store) {
   await store.transaction(async q => {
     await lockSettings(q, store);
     await q("UPDATE jobs SET status='queued' WHERE status='running'");
     await q("UPDATE strategies SET status='queued' WHERE status='running'");
   });
 }
-export async function processOne(store) {
+export async function processOne(store: Store) {
   const work = await store.transaction(async q => {
     if ((await lockSettings(q, store)).halted) return null;
-    const [job] = await q("SELECT * FROM jobs WHERE status='queued' ORDER BY created_at LIMIT 1");
+    const [job] = await q<Job>("SELECT * FROM jobs WHERE status='queued' ORDER BY created_at LIMIT 1");
     if (!job) return null;
     await q("UPDATE jobs SET status='running',updated_at=$1 WHERE id=$2", [now(), job.id]);
     await q("UPDATE strategies SET status='running' WHERE id=$1", [job.strategy_id]);
-    const [strategy] = await q('SELECT * FROM strategies WHERE id=$1', [job.strategy_id]);
+    const [strategy] = await q<Strategy>('SELECT * FROM strategies WHERE id=$1', [job.strategy_id]);
     return { job, strategy };
   });
   if (!work) return false;

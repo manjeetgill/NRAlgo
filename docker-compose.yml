@@ -38,7 +38,7 @@ services:
       context: .
       target: backend
     environment: *database
-    command: [node, backend/database.mjs]
+    command: [node, dist/backend/database.js]
     depends_on:
       db:
         condition: service_healthy
@@ -65,7 +65,7 @@ services:
     build:
       context: .
       target: backend
-    command: [node, backend/worker.mjs]
+    command: [node, dist/backend/worker.js]
     environment: *database
     depends_on:
       api:

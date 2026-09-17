@@ -1,13 +1,21 @@
+FROM node:22-alpine AS backend-build
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --registry=https://registry.npmjs.org
+COPY tsconfig.json run.ts ./
+COPY backend ./backend
+RUN npm run build:backend
+
 FROM node:22-alpine AS backend
 WORKDIR /app
 ENV NODE_ENV=production API_HOST=0.0.0.0
 COPY package*.json ./
 RUN npm ci --omit=dev --registry=https://registry.npmjs.org
-COPY backend ./backend
+COPY --from=backend-build /app/dist/backend ./dist/backend
 RUN mkdir /app/.runtime && chown node:node /app/.runtime
 USER node
 EXPOSE 8000
-CMD ["node", "backend/main.mjs"]
+CMD ["node", "dist/backend/main.js"]
 
 FROM node:22-alpine AS web-build
 WORKDIR /app

@@ -14,7 +14,7 @@ deploy:
 	docker info > /dev/null
 	docker compose config --quiet
 	docker compose build --pull
-	docker compose run --rm --no-deps api node --input-type=module -e "import {createApp} from './backend/main.mjs'; createApp({}, process.env); console.log('Production configuration valid.');"
+	docker compose run --rm --no-deps api node --input-type=module -e "import {createApp} from './dist/backend/main.js'; createApp({}, process.env); console.log('Production configuration valid.');"
 	docker compose up -d --wait --wait-timeout 180
 logs:
 	docker compose logs --tail=100 -f

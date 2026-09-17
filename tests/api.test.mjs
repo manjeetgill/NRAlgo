@@ -1,13 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { openStore, migrate } from '../backend/database.mjs';
-import { createApp, hashPassword } from '../backend/main.mjs';
-import { processOne, recover } from '../backend/worker.mjs';
-import { replay } from '../backend/simulator.mjs';
-import { createBreezeData, loadBreeze } from '../backend/breeze.mjs';
+import { openStore, migrate, root } from '../dist/backend/database.js';
+import { fileURLToPath } from 'node:url';
+import { createApp, hashPassword } from '../dist/backend/main.js';
+import { processOne, recover } from '../dist/backend/worker.js';
+import { replay } from '../dist/backend/simulator.js';
+import { createBreezeData, loadBreeze } from '../dist/backend/breeze.js';
 import { createRequire } from 'node:module';
 
 const creds = { username: 'testowner', password: 'test-password-long' };
+test('compiled backend retains the original workspace path', () => {
+  assert.equal(root, fileURLToPath(new URL('../', import.meta.url)));
+});
 test('production cannot fall back to a local database', () => {
   const previous = process.env.APP_ENV;
   process.env.APP_ENV = 'production';

@@ -1,7 +1,7 @@
 # NRAlgo
 
 Personal, paper-only trading MVP. **Next.js + TypeScript** UI, **Node.js + Express**
-API/worker, SQLite locally and PostgreSQL on **AWS Lightsail**. No Python required.
+API/worker written in **TypeScript**, SQLite locally and PostgreSQL on **AWS Lightsail**. No Python required.
 
 ## Local development
 
@@ -14,6 +14,11 @@ make run
 
 Open http://localhost:3000. `make run` opens the browser when ready; Ctrl+C stops
 all services. Use `NEXUS_NO_BROWSER=1 make run` to skip browser opening.
+The `tsx` development runner executes `run.ts` and backend `.ts` files. React
+components remain `.tsx`. Strict type checking covers the backend and launcher.
+Production containers compile to ignored `dist/` JavaScript and run with Node,
+without TypeScript/tsx installed. `npm start` requires `npm run build:backend` first.
+The `.mjs` regression tests intentionally exercise the compiled production code.
 `make check` runs tests/typechecking; `make build` builds Next.js. Local SQLite is
 stored in `.runtime/workspace.db`; Node 22.13 labels its SQLite API experimental.
 
@@ -137,7 +142,7 @@ security updates. Docker restart policies do not restart a merely unhealthy proc
 - Exactly one worker. Replays use synthetic prices and fictitious index units, not
   exchange contracts. Illustrative costs exclude taxes; results do not prove profit.
 - Breeze JS SDK 1.0.31 has a data-only wrapper, not a connected broker UI/live engine.
-  The SDK disables TLS at import: **only load it through `backend/breeze.mjs`**, which
+  The SDK disables TLS at import: **only load it through `backend/breeze.ts`**, which
   restores verification synchronously. Patched Axios/CSV overrides and explicit
   `adm-zip` dependency are tested with mocks. Recheck safeguards on SDK updates.
   A clean dependency audit is not a complete SDK security review.

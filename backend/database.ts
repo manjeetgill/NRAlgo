@@ -1,16 +1,25 @@
-import { DatabaseSync } from 'node:sqlite';
+import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import pg from 'pg';
+import type { Settings } from './types.js';
 
-export const root = fileURLToPath(new URL('../', import.meta.url));
+type Parameter = string | number | boolean | null;
+export type Query = <T = Record<string, unknown>>(sql: string, params?: Parameter[]) => Promise<T[]>;
+export interface Store {
+  postgres: boolean;
+  transaction<T>(fn: (query: Query) => Promise<T>): Promise<T>;
+  close(): Promise<void>;
+}
+
+export const root = fileURLToPath(new URL(import.meta.url.endsWith('.ts') ? '../' : '../../', import.meta.url));
 export const now = () => new Date().toISOString();
-export const isMain = (url) => process.argv[1] && url === pathToFileURL(resolve(process.argv[1])).href;
+export const isMain = (url: string) => Boolean(process.argv[1] && url === pathToFileURL(resolve(process.argv[1])).href);
 
 // Parameterized SQL, same table names/types as the original Python application.
 // SQLite's single connection is serialized across async request handlers.
-export function openStore(url = process.env.DATABASE_URL) {
+export function openStore(url = process.env.DATABASE_URL): Store {
   const postgres = Boolean(url && /^(postgres|postgresql|postgresql\+psycopg):\/\//.test(url));
   if (process.env.APP_ENV === 'production' && !postgres) {
     throw new Error('Production requires a PostgreSQL DATABASE_URL; SQLite is local-only.');
@@ -20,27 +29,27 @@ export function openStore(url = process.env.DATABASE_URL) {
   if (!postgres && filename !== ':memory:') mkdirSync(dirname(filename), { recursive: true });
   const sqlite = postgres ? null : new DatabaseSync(filename);
   sqlite?.exec('PRAGMA journal_mode=WAL; PRAGMA busy_timeout=15000;');
-  const pool = postgres ? new pg.Pool({ connectionString: url.replace('postgresql+psycopg:', 'postgresql:'), max: 5 }) : null;
+  const pool = postgres ? new pg.Pool({ connectionString: url!.replace('postgresql+psycopg:', 'postgresql:'), max: 5 }) : null;
   let tail = Promise.resolve();
-  const store = {
+  const store: Store = {
     postgres,
     async transaction(fn) {
-      let release;
+      let release!: () => void;
       const previous = tail;
       tail = new Promise(r => { release = r; });
       await previous;
-      let client;
+      let client: pg.PoolClient | null = null;
       try {
         client = pool ? await pool.connect() : null;
-        const query = async (sql, params = []) => {
-          if (client) return (await client.query(sql, params)).rows;
-          const args = [];
-          const statement = sqlite.prepare(sql.replace(/\$(\d+)/g, (_, n) => {
+        const query: Query = async <T>(sql: string, params: Parameter[] = []): Promise<T[]> => {
+          if (client) return (await client.query(sql, params)).rows as T[];
+          const args: SQLInputValue[] = [];
+          const statement = sqlite!.prepare(sql.replace(/\$(\d+)/g, (_, n) => {
             const value = params[Number(n) - 1];
             args.push(typeof value === 'boolean' ? Number(value) : value);
             return '?';
           }));
-          return statement.all(...args);
+          return statement.all(...args) as T[];
         };
         await query(postgres ? 'BEGIN' : 'BEGIN IMMEDIATE');
         try {
@@ -55,7 +64,7 @@ export function openStore(url = process.env.DATABASE_URL) {
   return store;
 }
 
-export async function migrate(store) {
+export async function migrate(store: Store) {
   await store.transaction(async q => {
     if (store.postgres) await q('SELECT pg_advisory_xact_lock(684201)');
     await q('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY)');
@@ -73,8 +82,8 @@ export async function migrate(store) {
     await q('INSERT INTO schema_migrations (version) VALUES (1)');
   });
 }
-export const audit = (q, message) => q('INSERT INTO events (message,created_at) VALUES ($1,$2)', [message, now()]);
-export const lockSettings = async (q, store) => (await q(`SELECT * FROM settings WHERE id=1${store.postgres ? ' FOR UPDATE' : ''}`))[0];
+export const audit = (q: Query, message: string) => q('INSERT INTO events (message,created_at) VALUES ($1,$2)', [message, now()]);
+export const lockSettings = async (q: Query, store: Store) => (await q<Settings>(`SELECT * FROM settings WHERE id=1${store.postgres ? ' FOR UPDATE' : ''}`))[0];
 
 if (isMain(import.meta.url)) {
   const store = openStore();

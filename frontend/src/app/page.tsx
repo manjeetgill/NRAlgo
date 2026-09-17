@@ -984,23 +984,23 @@ export default function Home() {
                 [
                   Zap,
                   "02 / API",
-                  "Node.js + Express",
+                  "Node.js + Express + TypeScript",
                   "Validates strategy settings, checks your owner session, and queues paper work. The browser never runs trading code.",
-                  "backend/main.mjs",
+                  "backend/main.ts",
                 ],
                 [
                   Database,
                   "03 / STORAGE",
                   "SQL + PostgreSQL",
                   "SQLite keeps local setup light. Parameterized SQL supports PostgreSQL in Docker. Versioned migrations preserve your database.",
-                  "backend/database.mjs",
+                  "backend/database.ts",
                 ],
                 [
                   Activity,
                   "04 / EXECUTION",
                   "Node.js paper worker",
                   "A separate process reads queued jobs, runs a deterministic price replay, and stores fills. It continues if you close the browser.",
-                  "backend/worker.mjs",
+                  "backend/worker.ts",
                 ],
               ].map(([Icon, label, title, description, file]) => {
                 const Symbol = Icon as typeof Code2;

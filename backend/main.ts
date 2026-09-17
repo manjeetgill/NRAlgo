@@ -1,16 +1,21 @@
-import express from 'express';
+import express, { type ErrorRequestHandler, type Response } from 'express';
 import { z } from 'zod';
 import { randomBytes, randomUUID, scryptSync, timingSafeEqual, createHash } from 'node:crypto';
-import { openStore, isMain, now, audit, lockSettings } from './database.mjs';
+import { openStore, isMain, now, audit, lockSettings, type Store, type Query } from './database.js';
+import type { Owner, LoginSession, Job, Strategy, Settings } from './types.js';
+
+declare global {
+  namespace Express { interface Locals { session: LoginSession } }
+}
 
 const seconds = () => Date.now() / 1000;
-const digest = s => createHash('sha256').update(s).digest('hex');
-const equal = (a, b) => timingSafeEqual(Buffer.from(digest(String(a))), Buffer.from(digest(String(b))));
-export function hashPassword(password, salt = randomBytes(16).toString('hex')) {
+const digest = (s: string) => createHash('sha256').update(s).digest('hex');
+const equal = (a: unknown, b: unknown) => timingSafeEqual(Buffer.from(digest(String(a))), Buffer.from(digest(String(b))));
+export function hashPassword(password: string, salt = randomBytes(16).toString('hex')) {
   // 64-byte scrypt preserves login compatibility with existing Python hashes.
   return `${salt}:${scryptSync(password, Buffer.from(salt, 'hex'), 64, { N: 16384, r: 8, p: 1 }).toString('hex')}`;
 }
-const fail = (status, detail) => { throw Object.assign(new Error(detail), { status, detail }); };
+const fail = (status: number, detail: string): never => { throw Object.assign(new Error(detail), { status, detail }); };
 const credentials = z.object({ username: z.string().min(3).max(80).regex(/^[a-zA-Z0-9_.@-]+$/), password: z.string().min(12).max(128), setup_token: z.string().max(200).default('') });
 const strategyInput = z.object({
   name: z.string().trim().min(2).max(60), symbol: z.enum(['NIFTY', 'BANKNIFTY', 'SENSEX']).default('NIFTY'),
@@ -18,7 +23,7 @@ const strategyInput = z.object({
   slow: z.number().int().min(3).max(80).default(21), mode: z.literal('paper').default('paper'),
 }).refine(s => s.fast < s.slow);
 
-export function createApp(store, env = process.env) {
+export function createApp(store: Store, env: NodeJS.ProcessEnv = process.env) {
   const production = env.APP_ENV === 'production';
   const origin = env.APP_ORIGIN || 'http://localhost:3000', setupToken = env.SETUP_TOKEN || '';
   let validOrigin = false;
@@ -33,7 +38,7 @@ export function createApp(store, env = process.env) {
     next();
   });
   app.use(express.json({ limit: '16kb' }));
-  async function issueSession(q, res) {
+  async function issueSession(q: Query, res: Response) {
     const raw = randomBytes(48).toString('base64url'), csrf = randomBytes(32).toString('base64url');
     await q('DELETE FROM sessions WHERE expires<$1', [seconds()]);
     await q('INSERT INTO sessions (token_hash,csrf,expires) VALUES ($1,$2,$3)', [digest(raw), csrf, seconds() + 28800]);
@@ -63,7 +68,7 @@ export function createApp(store, env = process.env) {
   app.post('/api/auth/login', async (req, res) => {
     const data = credentials.parse(req.body);
     const result = await store.transaction(async q => {
-      const [owner] = await q(`SELECT * FROM owners WHERE id=1${store.postgres ? ' FOR UPDATE' : ''}`);
+      const [owner] = await q<Owner>(`SELECT * FROM owners WHERE id=1${store.postgres ? ' FOR UPDATE' : ''}`);
       if (!owner) fail(409, 'Create the workspace first.');
       if (owner.locked_until > seconds()) fail(429, 'Too many attempts. Try again in a minute.');
       if (!equal(hashPassword(data.password, owner.password_hash.split(':')[0]), owner.password_hash) || !equal(data.username, owner.username)) {
@@ -80,7 +85,7 @@ export function createApp(store, env = process.env) {
   });
   app.use('/api', async (req, res, next) => {
     const raw = (req.headers.cookie || '').split(';').map(v => v.trim()).find(v => v.startsWith('nexus_session='))?.slice(14) || '';
-    const [session] = await store.transaction(q => q('SELECT * FROM sessions WHERE token_hash=$1', [digest(raw)]));
+    const [session] = await store.transaction(q => q<LoginSession>('SELECT * FROM sessions WHERE token_hash=$1', [digest(raw)]));
     if (!session || session.expires < seconds()) fail(401, 'Please sign in.');
     if (req.method !== 'GET' && !equal(req.headers['x-csrf-token'] || '', session.csrf)) fail(403, 'Session verification failed. Refresh and try again.');
     res.locals.session = session; next();
@@ -90,10 +95,10 @@ export function createApp(store, env = process.env) {
     res.clearCookie('nexus_session', { path: '/', secure: production, httpOnly: true, sameSite: 'strict' }).json({ ok: true });
   });
   app.get('/api/workspace', async (req, res) => res.json(await store.transaction(async q => ({
-    username: (await q('SELECT username FROM owners WHERE id=1'))[0].username, csrf: res.locals.session.csrf,
-    halted: Boolean((await q('SELECT halted FROM settings WHERE id=1'))[0].halted),
+    username: (await q<Owner>('SELECT username FROM owners WHERE id=1'))[0].username, csrf: res.locals.session.csrf,
+    halted: Boolean((await q<Settings>('SELECT halted FROM settings WHERE id=1'))[0].halted),
     strategies: await q('SELECT id,name,symbol,fast,slow,capital,status,pnl FROM strategies ORDER BY created_at DESC'),
-    jobs: (await q('SELECT id,strategy_id,status,created_at,result FROM jobs ORDER BY created_at DESC LIMIT 30')).map(j => ({ ...j, result: JSON.parse(j.result) })),
+    jobs: (await q<Job>('SELECT id,strategy_id,status,created_at,result FROM jobs ORDER BY created_at DESC LIMIT 30')).map(j => ({ ...j, result: JSON.parse(j.result) })),
     events: await q('SELECT * FROM events ORDER BY id DESC LIMIT 50'),
   }))));
   app.post('/api/strategies', async (req, res) => {
@@ -108,7 +113,7 @@ export function createApp(store, env = process.env) {
     const id = randomUUID();
     await store.transaction(async q => {
       if ((await lockSettings(q, store)).halted) fail(409, 'Workspace is paused. Resume before starting a replay.');
-      const [s] = await q('SELECT * FROM strategies WHERE id=$1', [req.params.id]);
+      const [s] = await q<Strategy>('SELECT * FROM strategies WHERE id=$1', [String(req.params.id)]);
       if (!s || ['queued','running'].includes(s.status)) fail(409, 'Strategy not found or already queued/running.');
       await q("UPDATE strategies SET status='queued' WHERE id=$1", [s.id]);
       await q("INSERT INTO jobs (id,strategy_id,status,result,created_at,updated_at) VALUES ($1,$2,'queued','{}',$3,$4)", [id,s.id,now(),now()]);
@@ -130,11 +135,13 @@ export function createApp(store, env = process.env) {
     res.json({ ok: true });
   });
   app.use((req, res) => res.status(404).json({ detail: 'Not found' }));
-  app.use((err, req, res, next) => {
-    const status = err instanceof z.ZodError ? 422 : (err.status || 500);
-    if (status === 500) console.error('API request failed:', err.code || err.name);
-    res.status(status).json({ detail: err instanceof z.ZodError ? 'Invalid request fields.' : err.detail || (status === 413 ? 'Request too large' : status === 400 ? 'Invalid JSON' : 'Request failed') });
-  });
+  const errorHandler: ErrorRequestHandler = (err: unknown, req, res, next) => {
+    const error = err as { status?: number; code?: string; name?: string; detail?: string };
+    const status = err instanceof z.ZodError ? 422 : (error.status || 500);
+    if (status === 500) console.error('API request failed:', error.code || error.name);
+    res.status(status).json({ detail: err instanceof z.ZodError ? 'Invalid request fields.' : error.detail || (status === 413 ? 'Request too large' : status === 400 ? 'Invalid JSON' : 'Request failed') });
+  };
+  app.use(errorHandler);
   return app;
 }
 if (isMain(import.meta.url)) {
