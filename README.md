@@ -1,4 +1,6 @@
-# Nexus Algo
+# NRAlgo — Nexus Algo
+
+My First Algo platform.
 
 A localhost-first personal trading workspace: Next.js + React + TypeScript +
 Tailwind, with a FastAPI backend and a separate Python paper replay worker.
