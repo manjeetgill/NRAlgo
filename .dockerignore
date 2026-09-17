@@ -1,8 +1,6 @@
-.venv
+node_modules
 .env
 .env.*
-__pycache__
-*.pyc
 .git
 .runtime
 tests
@@ -10,4 +8,13 @@ frontend/node_modules
 frontend/.next
 frontend/out
 *.tsbuildinfo
-.pytest_cache
+**/.env*
+backups
+.github
+README.md
+LICENSE
+Makefile
+run.mjs
+frontend/AGENTS.md
+frontend/CLAUDE.md
+**/.DS_Store

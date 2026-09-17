@@ -1,5 +1,24 @@
+# One host, one worker. Only Caddy publishes public ports.
+x-service: &service
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+x-app: &app
+  <<: *service
+  init: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  stop_grace_period: 30s
+x-database: &database
+  DATABASE_URL: postgresql://nexus:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db:5432/nexus
+  APP_ENV: production
+
 services:
   db:
+    <<: *service
     image: postgres:17-alpine
     environment:
       POSTGRES_USER: nexus
@@ -12,45 +31,73 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
-    restart: unless-stopped
   migrate:
-    build: .
-    environment:
-      DATABASE_URL: postgresql+psycopg://nexus:${POSTGRES_PASSWORD}@db:5432/nexus
-    command: [alembic, upgrade, head]
+    <<: *app
+    restart: "no"
+    build:
+      context: .
+      target: backend
+    environment: *database
+    command: [node, backend/database.mjs]
     depends_on:
       db:
         condition: service_healthy
   api:
-    build: .
+    <<: *app
+    build:
+      context: .
+      target: backend
     environment:
-      APP_ENV: production
-      APP_ORIGIN: ${APP_ORIGIN:?Set the HTTPS origin}
+      <<: *database
+      APP_ORIGIN: https://${APP_DOMAIN:?Set APP_DOMAIN to your hostname}
       SETUP_TOKEN: ${SETUP_TOKEN:?Set a random setup token}
-      DATABASE_URL: postgresql+psycopg://nexus:${POSTGRES_PASSWORD}@db:5432/nexus
     depends_on:
       migrate:
         condition: service_completed_successfully
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
-    restart: unless-stopped
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:8000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
   worker:
-    build: .
-    command: [python, -m, backend.worker]
-    environment:
-      DATABASE_URL: postgresql+psycopg://nexus:${POSTGRES_PASSWORD}@db:5432/nexus
+    <<: *app
+    build:
+      context: .
+      target: backend
+    command: [node, backend/worker.mjs]
+    environment: *database
     depends_on:
-      migrate:
-        condition: service_completed_successfully
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
-    restart: unless-stopped
+      api:
+        condition: service_healthy
   web:
-    build: ./frontend
-    ports: ["127.0.0.1:3000:3000"]
-    depends_on: [api]
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
-    restart: unless-stopped
+    <<: *app
+    build:
+      context: .
+      target: web
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+  caddy:
+    <<: *service
+    image: caddy:2-alpine
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?Set APP_DOMAIN to your hostname}
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      web:
+        condition: service_healthy
 volumes:
   postgres_data:
+  caddy_data:
+  caddy_config:

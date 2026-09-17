@@ -109,7 +109,7 @@ async function api(
   const result = await response
     .json()
     .catch(() => ({
-      detail: "API unavailable. Check that the Python server is running.",
+      detail: "API unavailable. Check that the Node.js server is running.",
     }));
   if (!response.ok) {
     const message = Array.isArray(result.detail)
@@ -321,12 +321,12 @@ export default function Home() {
               Trade with clarity.
             </h1>
             <p>
-              A home for your trading ideas—from the first line of Python to
+              A home for your trading ideas—from the first line of JavaScript to
               your next paper strategy.
             </p>
             <div className="auth-pills">
               <span>
-                <Code2 size={15} /> Python powered
+                <Code2 size={15} /> JavaScript powered
               </span>
               <span>
                 <FlaskConical size={15} /> Paper first
@@ -403,7 +403,7 @@ export default function Home() {
                 onClick={() => void load().catch((e) => setError(e.message))}
                 variant="secondary"
               >
-                {error ? "Retry connection" : "Connecting to Python…"}
+                {error ? "Retry connection" : "Connecting to Node.js…"}
               </Button>
             )}
             <div className="auth-note">
@@ -515,7 +515,7 @@ export default function Home() {
                         void mutate(
                           `/strategies/${s.id}/run`,
                           {},
-                          "Replay queued for the Python worker.",
+                          "Replay queued for the Node.js worker.",
                         )
                       }
                     >
@@ -568,7 +568,7 @@ export default function Home() {
         <div className="sidebar-bottom">
           <div className="build-card">
             <span className="tiny-label">BUILT TO LEARN</span>
-            <strong>Your ideas, in Python.</strong>
+            <strong>Your ideas, in JavaScript.</strong>
             <p>Explore the tools behind your workspace.</p>
             <button onClick={() => setPage("Learn the stack")}>
               Explore the stack <ArrowUpRight size={14} />
@@ -861,7 +861,7 @@ export default function Home() {
                     <span className="badge neutral">PLANNED</span>
                     <h3>{name}</h3>
                     <p>
-                      Python adapter and broker authorization will be added in
+                      JavaScript adapters and broker authorization will be added in
                       the live integration phase.
                     </p>
                     <Button variant="secondary" disabled>
@@ -984,23 +984,23 @@ export default function Home() {
                 [
                   Zap,
                   "02 / API",
-                  "Python + FastAPI",
+                  "Node.js + Express",
                   "Validates strategy settings, checks your owner session, and queues paper work. The browser never runs trading code.",
-                  "backend/main.py",
+                  "backend/main.mjs",
                 ],
                 [
                   Database,
                   "03 / STORAGE",
-                  "SQLAlchemy + PostgreSQL",
-                  "SQLite keeps local setup light. The same models support PostgreSQL in Docker deployment. Alembic versions the database schema.",
-                  "backend/database.py",
+                  "SQL + PostgreSQL",
+                  "SQLite keeps local setup light. Parameterized SQL supports PostgreSQL in Docker. Versioned migrations preserve your database.",
+                  "backend/database.mjs",
                 ],
                 [
                   Activity,
                   "04 / EXECUTION",
-                  "Python paper worker",
+                  "Node.js paper worker",
                   "A separate process reads queued jobs, runs a deterministic price replay, and stores fills. It continues if you close the browser.",
-                  "backend/worker.py",
+                  "backend/worker.mjs",
                 ],
               ].map(([Icon, label, title, description, file]) => {
                 const Symbol = Icon as typeof Code2;
@@ -1021,7 +1021,7 @@ export default function Home() {
               <LockKeyhole size={12} /> Personal workspace · Paper research only
             </span>
             <span>
-              Next.js + Python <span className="footer-dot">•</span> Built to
+              Next.js + Node.js <span className="footer-dot">•</span> Built to
               grow with you
             </span>
           </footer>

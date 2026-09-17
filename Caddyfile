@@ -1,0 +1,8 @@
+{$APP_DOMAIN} {
+    encode zstd gzip
+    header Strict-Transport-Security "max-age=31536000"
+    request_body {
+        max_size 1MB
+    }
+    reverse_proxy web:3000
+}

@@ -1,0 +1,25 @@
+{
+  "name": "nralgo",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.13.0" },
+  "scripts": {
+    "dev": "node --env-file-if-exists=.env run.mjs",
+    "start": "node --env-file-if-exists=.env backend/main.mjs",
+    "worker": "node --env-file-if-exists=.env backend/worker.mjs",
+    "migrate": "node --env-file-if-exists=.env backend/database.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "check": "npm test && npm --prefix frontend run typecheck",
+    "build": "npm --prefix frontend run build"
+  },
+  "dependencies": {
+    "adm-zip": "0.6.1",
+    "breezeconnect": "1.0.31",
+    "express": "^5.1.0",
+    "pg": "^8.16.0",
+    "zod": "^4.0.0"
+  },
+  "overrides": {
+    "breezeconnect": { "axios": "0.33.0", "csv-parse": "7.0.2" }
+  }
+}

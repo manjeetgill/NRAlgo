@@ -3,17 +3,75 @@ on: [push, pull_request]
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      APP_DOMAIN: localhost
+      POSTGRES_PASSWORD: ci-only-database-password
+      SETUP_TOKEN: ci-only-setup-token-at-least-32-characters
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.14'
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - run: pip install -r requirements.txt
-      - run: python -m pytest -q
-      - run: npm ci --prefix frontend
-      - run: npm --prefix frontend run build
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+      - run: npm ci && npm ci --prefix frontend
+      - run: npm test
+      - run: npm run build
+      - run: npm audit --omit=dev --audit-level=high
+      - name: Build and start production containers
+        run: docker compose up -d --build --wait --wait-timeout 180
+      - name: Test HTTPS, owner setup and PostgreSQL worker
+        run: |
+          node --input-type=module <<'JS'
+          import https from 'node:https';
+          import assert from 'node:assert/strict';
+          import { setTimeout as delay } from 'node:timers/promises';
+          let cookie = '', csrf = '';
+          function request(path, body) {
+            return new Promise((resolve, reject) => {
+              // Only this localhost test uses Caddy's private test CA.
+              const req = https.request(`https://localhost${path}`, {
+                rejectUnauthorized: false, method: body ? 'POST' : 'GET',
+                headers: { Cookie: cookie, 'X-CSRF-Token': csrf, Origin: 'https://localhost', 'Content-Type': 'application/json' },
+              }, res => {
+                let data = '';
+                res.on('data', chunk => data += chunk);
+                res.on('end', () => {
+                  if (res.headers['set-cookie']) cookie = res.headers['set-cookie'][0].split(';')[0];
+                  try { data = JSON.parse(data); } catch {}
+                  if (data.csrf) csrf = data.csrf;
+                  resolve({ status: res.statusCode, data, headers: res.headers });
+                });
+              });
+              req.on('error', reject); req.setTimeout(10000, () => req.destroy(new Error('Timeout')));
+              req.end(body ? JSON.stringify(body) : undefined);
+            });
+          }
+          for (let i = 0; ; i++) {
+            try { assert.equal((await request('/api/health')).status, 200); break; }
+            catch (error) { if (i === 29) throw error; await delay(1000); }
+          }
+          assert.equal((await request('/')).status, 200);
+          assert.equal((await request('/api/workspace')).status, 401);
+          const creds = { username: 'ciowner', password: 'ci-password-not-for-real-use' };
+          assert.equal((await request('/api/auth/setup', creds)).status, 403);
+          const setup = await request('/api/auth/setup', { ...creds, setup_token: process.env.SETUP_TOKEN });
+          assert.equal(setup.status, 200);
+          assert.match(setup.headers['set-cookie'][0], /Secure/);
+          const strategy = await request('/api/strategies', { name: 'CI replay', capital: 100000 });
+          assert.equal(strategy.status, 201);
+          assert.equal((await request(`/api/strategies/${strategy.data.id}/run`, {})).status, 202);
+          for (let i = 0; ; i++) {
+            const job = (await request('/api/workspace')).data.jobs[0];
+            if (job.status === 'completed') { assert.equal(job.result.source, 'synthetic'); break; }
+            assert.notEqual(job.status, 'failed'); assert.ok(i < 30, 'Worker timeout'); await delay(1000);
+          }
+          JS
+      - name: Container diagnostics
+        if: failure()
+        run: docker compose logs --tail=100
+      - name: Stop disposable CI containers
+        if: always()
+        run: docker compose down

@@ -1,5 +1,0 @@
-# Replace this example with your domain. Run Caddy on the VPS host.
-algo.example.com {
-    encode zstd gzip
-    reverse_proxy 127.0.0.1:3000
-}
