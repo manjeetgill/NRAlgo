@@ -15,6 +15,14 @@ const StrategiesScreen = dynamic(
     ),
   { loading: ScreenLoading },
 );
+/** Rule descriptions are separately chunked from calculation and execution features. */
+const StrategyLibraryScreen = dynamic(
+  () =>
+    import("@/features/strategy-library/strategy-library-screen").then(
+      (module) => module.StrategyLibraryScreen,
+    ),
+  { loading: ScreenLoading },
+);
 const StrategyLabScreen = dynamic(
   () =>
     import("@/features/strategy-lab/strategy-lab-screen").then(
@@ -122,6 +130,8 @@ export function WorkspaceContent({
           onOpenStrategy={onOpenStrategy}
         />
       );
+    case "Strategy library":
+      return <StrategyLibraryScreen />;
     case "Strategy lab":
       return (
         <StrategyLabScreen

@@ -5,6 +5,8 @@ Updated 18 September 2026. Paths are relative to the repository root. This cover
 ## Dependency direction
 
 New screen infrastructure:
+- [frontend/src/features/strategy-library/strategy-library-screen.tsx](../frontend/src/features/strategy-library/strategy-library-screen.tsx): rule catalog and explicit configuration navigation.
+- [frontend/src/features/strategy-library/strategy-templates.ts](../frontend/src/features/strategy-library/strategy-templates.ts): versioned EMA, RSI and channel rule descriptions and parameter defaults.
 - [frontend/src/features/spread-builder/spread-payoff.ts](../frontend/src/features/spread-builder/spread-payoff.ts): exact expiry extrema and breakevens with unbounded tail handling.
 - [frontend/src/features/research/research-workbench.tsx](../frontend/src/features/research/research-workbench.tsx): shared saved definitions, actual historical runs and quote-derived payoff for Algo lab and Spread builder.
 - [frontend/src/features/spread-builder/spread-builder-screen.tsx](../frontend/src/features/spread-builder/spread-builder-screen.tsx): dedicated options research entry point; starts with no fabricated contracts.
