@@ -75,12 +75,18 @@ function getResultPreview(result: Result | null) {
 export function KotakMarketDataPanel({
   csrf,
   prefilledInstruments = [],
+  initialTool = "quotes",
 }: {
   csrf: string;
   prefilledInstruments?: string[];
+  /** Initial navigation intent from Overview; selection remains local after this panel mounts. */
+  initialTool?: Tool;
 }) {
-  const [selectedTool, setSelectedTool] = useState<Tool>("quotes");
-  const [exchange, setExchange] = useState("nse_cm");
+  // Honor the caller's research shortcut and select an exchange supported by that tool.
+  const [selectedTool, setSelectedTool] = useState<Tool>(initialTool);
+  const [exchange, setExchange] = useState(
+    getSupportedExchanges(initialTool)[0],
+  );
   const [instrumentInput, setInstrumentInput] = useState(
     prefilledInstruments.join(",") || "Nifty 50",
   );

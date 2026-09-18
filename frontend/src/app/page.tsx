@@ -28,18 +28,17 @@ import {
   LayoutDashboard,
   LockKeyhole,
   LogOut,
-  Pause,
   Play,
   Plus,
   Radio,
   ShieldCheck,
-  SlidersHorizontal,
   TrendingUp,
   Wallet,
   X,
   Zap,
 } from "lucide-react";
 import { requestApiJson } from "@/lib/api";
+import { OverviewScreen } from "@/features/overview/overview-screen";
 import { Button } from "@/components/ui/button";
 import { AccountPanel } from "@/components/account-panel";
 import { StrategyLabPanel } from "@/components/strategy-lab-panel";
@@ -100,85 +99,12 @@ type Page =
   | "Account & security"
   | "Activity log"
   | "Learn the stack";
-type DashboardMode = "paper" | "live";
 const money = (n: number) =>
   new Intl.NumberFormat("en-IN", {
     style: "currency",
     currency: "INR",
     maximumFractionDigits: 2,
   }).format(n);
-
-/** Render an accessible SVG of the most recent synthetic replay, including its empty state. */
-function ReplayEquityChart({ values }: { values: number[] }) {
-  const low = Math.min(0, ...values),
-    high = Math.max(1, ...values),
-    span = high - low || 1;
-  const points = values
-    .map(
-      (v, i) =>
-        `${(i / Math.max(1, values.length - 1)) * 720},${175 - ((v - low) / span) * 145}`,
-    )
-    .join(" ");
-  return (
-    <div className="chart">
-      <div className="chart-labels">
-        <span>{money(high)}</span>
-        <span>{money((high + low) / 2)}</span>
-        <span>{money(low)}</span>
-      </div>
-      <svg
-        viewBox="0 0 720 200"
-        role="img"
-        aria-label="Profit and loss over the most recent synthetic replay"
-        preserveAspectRatio="none"
-      >
-        <defs>
-          <linearGradient id="area" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#30b18a" stopOpacity=".2" />
-            <stop offset="100%" stopColor="#30b18a" stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        {[30, 103, 175].map((y) => (
-          <line
-            key={y}
-            x1="0"
-            y1={y}
-            x2="720"
-            y2={y}
-            stroke="#e9edf3"
-            strokeDasharray="4 5"
-          />
-        ))}
-        {values.length > 0 && (
-          <>
-            <polygon points={`0,200 ${points} 720,200`} fill="url(#area)" />
-            <polyline
-              points={points}
-              fill="none"
-              stroke="#27a580"
-              strokeWidth="2.5"
-              vectorEffect="non-scaling-stroke"
-            />
-          </>
-        )}
-      </svg>
-      <div className="chart-times">
-        <span>Bar 1</span>
-        <span>60</span>
-        <span>120</span>
-        <span>180</span>
-        <span>240</span>
-      </div>
-      {!values.length && (
-        <div className="chart-empty">
-          <TrendingUp size={26} />
-          <strong>Your first results start here</strong>
-          <span>Create a strategy and run a paper replay.</span>
-        </div>
-      )}
-    </div>
-  );
-}
 
 /** Coordinate authentication, snapshot polling, navigation and synthetic-strategy forms. */
 export default function TradingWorkspacePage() {
@@ -190,8 +116,15 @@ export default function TradingWorkspacePage() {
     invite_required: boolean;
   } | null>(null);
   const [page, setPage] = useState<Page>("Overview");
-  const [dashboardMode, setDashboardMode] = useState<DashboardMode>("paper");
-  const [marketPrefill, setMarketPrefill] = useState<string[]>([]);
+  // Overview's option-chain shortcut opens the existing explorer at the requested tool.
+  const [marketInitialTool, setMarketInitialTool] = useState<
+    "quotes" | "chain"
+  >("quotes");
+  /** Navigate to market research without requesting execution or altering the account mode. */
+  function onExploreOptionChain() {
+    setMarketInitialTool("chain");
+    setPage("Market data");
+  }
   const [registering, setRegistering] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -466,7 +399,6 @@ export default function TradingWorkspacePage() {
       </main>
     );
 
-  const latest = workspace.jobs.find((j) => j.status === "completed");
   const trades = workspace.jobs.flatMap((j) =>
     (j.result.trades || []).map((t, index) => ({
       ...t,
@@ -477,7 +409,6 @@ export default function TradingWorkspacePage() {
       date: j.created_at,
     })),
   );
-  const pnl = workspace.strategies.reduce((sum, s) => sum + s.pnl, 0);
   const navigation = [
     { name: "Overview" as Page, icon: LayoutDashboard },
     { name: "Strategies" as Page, icon: Blocks },
@@ -683,9 +614,11 @@ export default function TradingWorkspacePage() {
           <div className="topbar-right">
             <span className="local-badge">
               <i />{" "}
-              {page === "Live trading" || dashboardMode === "live"
+              {page === "Live trading"
                 ? "Live trading controls"
-                : "Paper research"}
+                : page === "Overview"
+                  ? "Account overview"
+                  : "Paper research"}
             </span>
             <span className="topbar-divider" />
             <ShieldCheck size={16} />
@@ -693,18 +626,13 @@ export default function TradingWorkspacePage() {
           </div>
         </header>
         <main className="content">
-          <div className="heading">
-            <div>
-              <p className="eyebrow">YOUR TRADING COMMAND CENTER</p>
-              <h1>
-                {page === "Overview" ? "A clearer view of your edge." : page}
-              </h1>
-              <p>
-                {page === "Overview"
-                  ? dashboardMode === "paper"
-                    ? "Paper-only strategy and simulator performance."
-                    : "Read-only Kotak account positions and marked P&L."
-                  : page === "Strategies"
+          {page !== "Overview" && (
+            <div className="heading">
+              <div>
+                <p className="eyebrow">YOUR TRADING COMMAND CENTER</p>
+                <h1>{page}</h1>
+                <p>
+                  {page === "Strategies"
                     ? "Turn your ideas into repeatable rules."
                     : page === "Brokers" || page === "Market data"
                       ? "Connect Kotak Neo and explore market data."
@@ -713,42 +641,43 @@ export default function TradingWorkspacePage() {
                         : page === "Activity log"
                           ? "A timeline of what changed in your workspace."
                           : "Build a useful project. Learn how each piece fits."}
-              </p>
+                </p>
+              </div>
+              <Button
+                onClick={() => {
+                  if (page === "Live trading") {
+                    setPage("Strategies");
+                    return;
+                  }
+                  if (page === "Strategy lab") {
+                    setPage("Brokers");
+                    return;
+                  }
+                  if (page === "Broker paper" || page === "Market data") {
+                    setPage("Brokers");
+                    return;
+                  }
+                  setFormError("");
+                  setModal(true);
+                }}
+              >
+                <Plus size={17} />{" "}
+                {page === "Live trading"
+                  ? "Paper strategies"
+                  : page === "Strategy lab" ||
+                      page === "Broker paper" ||
+                      page === "Market data"
+                    ? "Connect market data"
+                    : "New strategy"}
+              </Button>
             </div>
-            <Button
-              onClick={() => {
-                if (page === "Live trading" || dashboardMode === "live") {
-                  setPage("Strategies");
-                  return;
-                }
-                if (page === "Strategy lab") {
-                  setPage("Brokers");
-                  return;
-                }
-                if (page === "Broker paper" || page === "Market data") {
-                  setPage("Brokers");
-                  return;
-                }
-                setFormError("");
-                setModal(true);
-              }}
-            >
-              <Plus size={17} />{" "}
-              {page === "Live trading" || dashboardMode === "live"
-                ? "Paper strategies"
-                : page === "Strategy lab" ||
-                    page === "Broker paper" ||
-                    page === "Market data"
-                  ? "Connect market data"
-                  : "New strategy"}
-            </Button>
-          </div>
+          )}
           {error && (
             <div className="error" role="alert">
               {error}
             </div>
           )}
-          {dashboardMode === "paper" &&
+          {page !== "Overview" &&
             page !== "Live trading" &&
             page !== "Market data" &&
             page !== "Strategy lab" &&
@@ -772,8 +701,7 @@ export default function TradingWorkspacePage() {
                 <Button
                   variant="secondary"
                   onClick={() => {
-                    setDashboardMode("live");
-                    setPage("Overview");
+                    setPage("Live trading");
                   }}
                 >
                   View live dashboard
@@ -786,7 +714,7 @@ export default function TradingWorkspacePage() {
           {page === "Market data" && (
             <KotakMarketDataPanel
               csrf={workspace.csrf}
-              prefilledInstruments={marketPrefill}
+              initialTool={marketInitialTool}
             />
           )}
           {page === "Live trading" && (
@@ -795,262 +723,34 @@ export default function TradingWorkspacePage() {
           {page === "Strategy lab" && (
             <StrategyLabPanel csrf={workspace.csrf} />
           )}
-          {page === "Overview" && dashboardMode === "live" && (
-            <KotakAccountReports
-              csrf={workspace.csrf}
-              loadOnMount
-              summaryOnly={page === "Overview" && dashboardMode === "live"}
-              onOpenMarket={(instruments) => {
-                setMarketPrefill(instruments);
-                setPage("Market data");
-              }}
+          {page === "Overview" && (
+            <OverviewScreen
+              key={workspace.csrf}
+              workspace={workspace}
+              onNavigate={setPage}
+              onExploreOptionChain={onExploreOptionChain}
             />
           )}
-          {(page === "Strategies" ||
-            (page === "Overview" && dashboardMode === "paper")) && (
-            <>
-              {page === "Overview" && (
-                <>
-                  <section
-                    className="dashboard-mode"
-                    aria-label="Dashboard source"
-                  >
-                    <span>Dashboard source</span>
-                    <div role="group" aria-label="Select dashboard source">
-                      <Button
-                        type="button"
-                        variant={
-                          dashboardMode === "paper" ? "primary" : "secondary"
-                        }
-                        onClick={() => setDashboardMode("paper")}
-                      >
-                        Paper
-                      </Button>
-                      <Button
-                        type="button"
-                        variant={
-                          dashboardMode === "live" ? "primary" : "secondary"
-                        }
-                        onClick={() => setDashboardMode("live")}
-                      >
-                        Live · read only
-                      </Button>
-                    </div>
-                  </section>
-                  <section className="metrics">
-                    <article>
-                      <div>
-                        <span>Paper P&L</span>
-                        <TrendingUp size={16} />
-                      </div>
-                      <h2 className={pnl >= 0 ? "positive" : "negative"}>
-                        {money(pnl)}
-                      </h2>
-                      <p>Sum of each strategy’s latest replay</p>
-                    </article>
-                    <article>
-                      <div>
-                        <span>Configured capital</span>
-                        <Wallet size={16} />
-                      </div>
-                      <h2>
-                        {money(
-                          workspace.strategies.reduce(
-                            (n, s) => n + s.capital,
-                            0,
-                          ),
-                        )}
-                      </h2>
-                      <p>Virtual allocation · not deposited funds</p>
-                    </article>
-                    <article>
-                      <div>
-                        <span>Strategies</span>
-                        <Blocks size={16} />
-                      </div>
-                      <h2>
-                        {workspace.strategies.length}
-                        <small> configured</small>
-                      </h2>
-                      <p>
-                        {
-                          workspace.jobs.filter((j) =>
-                            ["queued", "running"].includes(j.status),
-                          ).length
-                        }{" "}
-                        replays in progress
-                      </p>
-                    </article>
-                    <article>
-                      <div>
-                        <span>Broker connections</span>
-                        <Radio size={16} />
-                      </div>
-                      <h2>
-                        0<small> connected</small>
-                      </h2>
-                      <button
-                        className="text-link"
-                        onClick={() => setPage("Brokers")}
-                      >
-                        Explore integrations <ArrowRight size={13} />
-                      </button>
-                    </article>
-                  </section>
-                  <div className="overview-grid">
-                    <section className="panel">
-                      <div className="panel-heading">
-                        <div>
-                          <h3>Performance</h3>
-                          <p>Latest completed sample-data replay</p>
-                        </div>
-                        <span className="badge neutral">240 BARS</span>
-                      </div>
-                      <ReplayEquityChart values={latest?.result.equity || []} />
-                      <div className="chart-footer">
-                        <span>
-                          <i /> Paper equity curve
-                        </span>
-                        <span>
-                          {latest
-                            ? `Max drawdown ${money(latest.result.drawdown || 0)}`
-                            : "Waiting for your first replay"}
-                        </span>
-                      </div>
-                    </section>
-                    <section className="panel risk">
-                      <div className="panel-heading">
-                        <div>
-                          <h3>Execution controls</h3>
-                          <p>Built into the paper simulator</p>
-                        </div>
-                        <ShieldCheck size={20} />
-                      </div>
-                      <div className="risk-line">
-                        <span className="icon-tile">
-                          <SlidersHorizontal size={16} />
-                        </span>
-                        <div>
-                          <strong>Replay loss threshold</strong>
-                          <small>Stops new entries at 2% loss</small>
-                        </div>
-                        <span className="enabled">On</span>
-                      </div>
-                      <div className="risk-line">
-                        <span className="icon-tile">
-                          <Wallet size={16} />
-                        </span>
-                        <div>
-                          <strong>Virtual capital limit</strong>
-                          <small>Up to ₹5 lakh per strategy</small>
-                        </div>
-                        <span className="enabled">On</span>
-                      </div>
-                      <div className="pause-box">
-                        <div>
-                          <Pause size={15} />
-                          <strong>Workspace pause</strong>
-                        </div>
-                        <p>Cancel pending replays and block new runs.</p>
-                        <Button
-                          variant={workspace.halted ? "secondary" : "danger"}
-                          disabled={busy}
-                          onClick={() =>
-                            void submitWorkspaceAction(
-                              "/controls",
-                              { halted: !workspace.halted },
-                              workspace.halted
-                                ? "Paper workspace resumed."
-                                : "Paper workspace paused.",
-                            )
-                          }
-                        >
-                          {workspace.halted ? (
-                            <Play size={14} />
-                          ) : (
-                            <Pause size={14} />
-                          )}{" "}
-                          {workspace.halted
-                            ? "Resume paper workspace"
-                            : "Pause all replays"}
-                        </Button>
-                      </div>
-                    </section>
-                  </div>
-                </>
-              )}
-              <section className="panel strategies-panel">
-                <div className="panel-heading">
-                  <div>
-                    <h3>
-                      Your strategies{" "}
-                      <span className="count">
-                        {workspace.strategies.length}
-                      </span>
-                    </h3>
-                    <p>EMA crossover · Long-only · Synthetic index units</p>
-                  </div>
-                  {page === "Overview" ? (
-                    <button
-                      className="text-link"
-                      onClick={() => setPage("Strategies")}
-                    >
-                      View strategies <ArrowRight size={14} />
-                    </button>
-                  ) : (
-                    <input
-                      className="search-input"
-                      aria-label="Search strategies"
-                      value={search}
-                      onChange={(e) => setSearch(e.target.value)}
-                      placeholder="Search strategies…"
-                    />
-                  )}
-                </div>
-                {strategyTable}
-              </section>
-            </>
-          )}
-          {page === "Overview" && dashboardMode === "live" && (
-            <>
-              <section className="dashboard-mode" aria-label="Dashboard source">
-                <span>Dashboard source</span>
-                <div role="group" aria-label="Select dashboard source">
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    onClick={() => setDashboardMode("paper")}
-                  >
-                    Paper
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="primary"
-                    onClick={() => setDashboardMode("live")}
-                  >
-                    Live · read only
-                  </Button>
-                </div>
-              </section>
-              <section className="environment">
-                <span className="environment-icon">
-                  <ShieldCheck size={18} />
-                </span>
+          {page === "Strategies" && (
+            <section className="panel strategies-panel">
+              <div className="panel-heading">
                 <div>
-                  <strong>Live broker dashboard — read only</strong>
-                  <span>
-                    Values above come from Kotak positions and quotes. They
-                    never affect paper cash, paper orders, or replay P&amp;L.
-                  </span>
+                  <h3>
+                    Your strategies{" "}
+                    <span className="count">{workspace.strategies.length}</span>
+                  </h3>
+                  <p>EMA crossover · Long-only · Synthetic index units</p>
                 </div>
-                <Button
-                  variant="secondary"
-                  onClick={() => setPage("Live trading")}
-                >
-                  View live positions
-                </Button>
-              </section>
-            </>
+                <input
+                  className="search-input"
+                  aria-label="Search strategies"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search strategies…"
+                />
+              </div>
+              {strategyTable}
+            </section>
           )}
           {page === "Brokers" && (
             <>
@@ -1197,16 +897,18 @@ export default function TradingWorkspacePage() {
               })}
             </section>
           )}
-          <footer>
-            <span>
-              <LockKeyhole size={12} /> Personal workspace · Separate paper and
-              live controls
-            </span>
-            <span>
-              Next.js + Node.js <span className="footer-dot">•</span> Built to
-              grow with you
-            </span>
-          </footer>
+          {page !== "Overview" && (
+            <footer>
+              <span>
+                <LockKeyhole size={12} /> Personal workspace · Separate paper
+                and live controls
+              </span>
+              <span>
+                Next.js + Node.js <span className="footer-dot">•</span> Built to
+                grow with you
+              </span>
+            </footer>
+          )}
         </main>
       </div>
       <dialog
