@@ -187,8 +187,8 @@ export const kotakAccountAdapter: BrokerAccountAdapter = {
   },
   /** Read the server's tick cache only; this does not refetch broker account reports. */
   async readPriceTicks() {
-    // GET reads the shared cache and renews its viewer lease; it does not poll broker reports.
-    const feed = await requestApiJson("/market/kotak/feed");
+    // The provider-neutral endpoint keeps Overview independent from Kotak route names.
+    const feed = await requestApiJson("/market/feed");
     return (Array.isArray(feed.records) ? feed.records : []).map(
       /** Invalid prices/times stay non-finite so the pure valuation model rejects them. */
       (row: WireRow) => ({

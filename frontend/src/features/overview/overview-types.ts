@@ -7,7 +7,6 @@ export type OverviewDestination =
   | "Strategies"
   | "Strategy lab"
   | "Broker paper"
-  | "Market data"
   | "Brokers"
   | "Live trading"
   | "Account & security"

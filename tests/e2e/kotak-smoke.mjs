@@ -286,108 +286,6 @@ try {
   await page
     .getByRole("button", { name: "Stop Kotak live polling", exact: true })
     .click();
-  await page.getByRole("button", { name: "Market data", exact: true }).click();
-  const explorer = page.getByRole("region", {
-    name: "Kotak market data explorer",
-  });
-  await explorer
-    .getByRole("button", { name: "Fetch market data", exact: true })
-    .click();
-  await explorer
-    .getByLabel("Market data result")
-    .filter({ hasText: "Nifty 50" })
-    .waitFor();
-  await explorer.getByLabel("Quote filter").selectOption("depth");
-  await explorer
-    .getByRole("button", { name: "Fetch market data", exact: true })
-    .click();
-  await explorer
-    .getByLabel("Market data result")
-    .filter({ hasText: "depth" })
-    .waitFor();
-  await explorer.getByRole("button", { name: "Expiries", exact: true }).click();
-  await explorer
-    .getByRole("button", { name: "Fetch market data", exact: true })
-    .click();
-  await explorer
-    .getByLabel("Market data result")
-    .filter({ hasText: "2026-09-24" })
-    .waitFor();
-  await explorer
-    .getByRole("button", { name: "Option / futures chain", exact: true })
-    .click();
-  await explorer
-    .getByRole("button", { name: "Fetch market data", exact: true })
-    .click();
-  await explorer
-    .getByLabel("Market data result")
-    .filter({ hasText: "indicative" })
-    .waitFor();
-  await explorer.getByRole("button", { name: "History", exact: true }).click();
-  await explorer.getByLabel("Instrument token(s) / index name").fill("123");
-  await explorer.getByLabel("From date", { exact: true }).fill("2026-09-17");
-  await explorer.getByLabel("To date", { exact: true }).fill("2026-09-17");
-  await explorer
-    .getByRole("button", { name: "Fetch market data", exact: true })
-    .click();
-  await explorer
-    .getByLabel("Market data result")
-    .filter({ hasText: "totalCandles" })
-    .waitFor();
-  await explorer
-    .getByRole("button", { name: "Instruments", exact: true })
-    .click();
-  await explorer
-    .getByRole("button", { name: "Fetch market data", exact: true })
-    .click();
-  await explorer
-    .getByRole("link", { name: "nse_cm master · 2026-09-18" })
-    .waitFor();
-  await explorer
-    .getByRole("button", { name: "WebSocket stream", exact: true })
-    .click();
-  await explorer
-    .getByLabel("Instrument token(s) / index name")
-    .fill("Nifty 50");
-  await explorer
-    .getByRole("button", { name: "Start / reconnect feed", exact: true })
-    .click();
-  await explorer
-    .getByLabel("Market data result")
-    .filter({ hasText: "24123.45" })
-    .waitFor();
-  await page.setViewportSize({ width: 390, height: 844 });
-  assert.ok(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth <= innerWidth,
-    ),
-  );
-  await page.screenshot({
-    path: "tests/artifacts/kotak-market-data-mobile.png",
-    fullPage: true,
-  });
-  await page.setViewportSize({ width: 1280, height: 900 });
-  await explorer
-    .getByRole("button", { name: "Unsubscribe active set", exact: true })
-    .click();
-  await explorer
-    .getByLabel("Market data result")
-    .filter({ hasText: '"records": []' })
-    .waitFor();
-  await explorer
-    .getByRole("button", { name: "Snapshot active set", exact: true })
-    .click();
-  await explorer
-    .getByLabel("Market data result")
-    .filter({ hasText: "24123.45" })
-    .waitFor();
-  await explorer
-    .getByRole("button", { name: "Stop feed", exact: true })
-    .click();
-  await explorer
-    .getByLabel("Market data result")
-    .filter({ hasText: '"state": "stopped"' })
-    .waitFor();
   /** Render real Lightweight Charts in Chromium and prove cached ticks never refetch history. */
   await page.getByRole("button", { name: "Option chain", exact: true }).click();
   const liveChain = page.getByRole("region", {
@@ -479,7 +377,7 @@ try {
   );
   assert.deepEqual(errors, []);
   console.debug(
-    "Kotak browser smoke passed: cash/options paper fills, research, chart lifecycle, cached live marks, market-data APIs, native feed controls, MFA and mobile. No real broker calls.",
+    "Kotak browser smoke passed: cash/options paper fills, research, chart lifecycle, cached live marks and MFA. No real broker calls.",
   );
 } finally {
   await browser?.close();

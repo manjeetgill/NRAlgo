@@ -59,7 +59,6 @@ test("Next route is composition only and each destination owns a screen file", (
     "brokers/brokers",
     "learning/learning",
     "live-trading/live-trading",
-    "market-data/market-data",
     "orders/orders",
     "overview/overview",
     "paper-trading/paper-trading",

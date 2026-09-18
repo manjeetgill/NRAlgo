@@ -195,7 +195,7 @@ test("stream operations use only subscription and cached-price endpoints", /** N
           /** Inspect each path without leaking request headers. */ (call) =>
             call.url,
         ),
-        ["/api/market/live-feed", "/api/market/kotak/feed"],
+        ["/api/market/live-feed", "/api/market/feed"],
       );
     },
   );

@@ -78,8 +78,7 @@ Screens call feature hooks/adapters → same-origin API → authenticated applic
 | [backend/market-data-provider.ts](../backend/market-data-provider.ts) | Broker-independent discovery, display/fill quotes, history and shared-feed contract. |
 | [backend/kotak-market-data-provider.ts](../backend/kotak-market-data-provider.ts) | Maps the provider contract onto the authenticated Kotak client. |
 | [backend/kotak-market-data-client.ts](../backend/kotak-market-data-client.ts) | Session-bound Kotak auth, allowlisted transports, normalized reads and guarded execution connection factory. |
-| [backend/kotak-market-data-contracts.ts](../backend/kotak-market-data-contracts.ts) | Bounded explorer request schemas, approved endpoint construction and response parsers. |
-| [backend/kotak-market-data-routes.ts](../backend/kotak-market-data-routes.ts) | Authenticated explorer operation/feed endpoints and request-budget enforcement. |
+| [backend/kotak-market-data-contracts.ts](../backend/kotak-market-data-contracts.ts) | Bounded Kotak request schemas, approved endpoint construction and response parsers used behind the provider boundary. |
 | [backend/kotak-market-data-stream.ts](../backend/kotak-market-data-stream.ts) | Server WebSocket lifecycle, bounded binary decoding, feed cache and viewer lease cleanup. |
 | [backend/instrument-master.ts](../backend/instrument-master.ts) | Allowlisted master CSV loading, freshness and exact contract/tick/lot resolution. |
 | [backend/broker-portfolio-normalizer.ts](../backend/broker-portfolio-normalizer.ts) | Normalizes positions, funds, reports and valuation coefficients while preserving unknown values. |
@@ -155,7 +154,6 @@ Screens call feature hooks/adapters → same-origin API → authenticated applic
 | [frontend/src/features/strategies/strategies-screen.tsx](../frontend/src/features/strategies/strategies-screen.tsx) | Actual saved research library, search/filter and cash/spread editor navigation. |
 | [frontend/src/features/strategy-lab/strategy-lab-screen.tsx](../frontend/src/features/strategy-lab/strategy-lab-screen.tsx) | Research basket editor, quotes, payoff and historical playback; no automatic live execution. |
 | [frontend/src/features/paper-trading/paper-trading-screen.tsx](../frontend/src/features/paper-trading/paper-trading-screen.tsx) | Separate virtual wallet, paper order form and optional quote-driven matching. |
-| [frontend/src/features/market-data/market-data-screen.tsx](../frontend/src/features/market-data/market-data-screen.tsx) | Read-only Kotak diagnostic tools and shared feed controls; provider wire fields stay at this boundary. |
 | [frontend/src/features/orders/orders-screen.tsx](../frontend/src/features/orders/orders-screen.tsx) | Chooses actual live OMS history or the separate virtual-ledger order records. |
 | [frontend/src/features/orders/live-orders-screen.tsx](../frontend/src/features/orders/live-orders-screen.tsx) | Read-only app-managed live order/fill table with unavailable states. |
 | [frontend/src/features/orders/live-orders-api.ts](../frontend/src/features/orders/live-orders-api.ts) | Loads and interprets live OMS status, never a virtual fallback ledger. |
@@ -186,7 +184,7 @@ Screens call feature hooks/adapters → same-origin API → authenticated applic
 | [tests/backend/import.test.mjs](../tests/backend/import.test.mjs) | Offline legacy migration behavior and ownership. |
 | [tests/backend/instrument-master.test.mjs](../tests/backend/instrument-master.test.mjs) | Master allowlists, parsing, contracts and bounded searches. |
 | [tests/backend/kotak-auth.test.mjs](../tests/backend/kotak-auth.test.mjs) | Kotak login/session races, revocation and credential handling. |
-| [tests/backend/kotak-market-data.test.mjs](../tests/backend/kotak-market-data.test.mjs) | REST operation contracts/parsers, routes and offline WebSocket protocol fixtures. |
+| [tests/backend/kotak-market-data.test.mjs](../tests/backend/kotak-market-data.test.mjs) | Kotak operation contracts/parsers, client boundaries and offline WebSocket protocol fixtures. |
 | [tests/backend/kotak-research.test.mjs](../tests/backend/kotak-research.test.mjs) | Broker history/quotes and paper/research integration. |
 | [tests/backend/market-data-provider.test.mjs](../tests/backend/market-data-provider.test.mjs) | Provider injection, capability/namespace checks and separation from account access. |
 | [tests/backend/paper.test.mjs](../tests/backend/paper.test.mjs) | Virtual ledger reservations, fills, ownership and validation. |

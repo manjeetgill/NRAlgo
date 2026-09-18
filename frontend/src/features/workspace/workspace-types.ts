@@ -46,7 +46,6 @@ export type WorkspacePage =
   | "Backtest studio"
   | "Strategy library"
   | "Spread builder"
-  | "Market data"
   | "Broker paper"
   | "Strategy lab"
   | "Live trading"

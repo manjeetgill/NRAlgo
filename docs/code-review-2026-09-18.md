@@ -220,7 +220,7 @@ not duplicate unmaintained README files in every folder.
   and frontend at review time. The frontend audit needed explicit proxy overrides
   because the configured corporate proxy was unavailable; no registry credentials
   were changed by this pass. Re-run audits in CI after lockfile updates.
-- Browser checks: Overview, Strategies, Strategy lab, Market data, Orders & trades,
+- Browser checks: Overview, Strategies, Strategy lab, Orders & trades,
   Brokers, Live trading, Account & security, Activity log and Learning guide inspected
   in the existing local session without broker login or order submission. Live-only
   navigation and disconnected/disabled states were preserved. Paper behavior is covered by

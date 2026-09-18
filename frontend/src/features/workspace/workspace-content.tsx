@@ -64,13 +64,6 @@ const SpreadBuilderScreen = dynamic(
     ),
   { loading: ScreenLoading },
 );
-const MarketDataScreen = dynamic(
-  () =>
-    import("@/features/market-data/market-data-screen").then(
-      (module) => module.MarketDataScreen,
-    ),
-  { loading: ScreenLoading },
-);
 const OrdersScreen = dynamic(
   () =>
     import("@/features/orders/orders-screen").then(
@@ -120,7 +113,6 @@ export function WorkspaceContent({
   onNavigate,
   onRefresh,
   onExploreOptionChain,
-  marketInitialTool,
   researchStrategyId,
   onOpenStrategy,
   templateId,
@@ -134,7 +126,6 @@ export function WorkspaceContent({
   onNavigate: (page: WorkspacePage) => void;
   onRefresh: () => Promise<void>;
   onExploreOptionChain: () => void;
-  marketInitialTool: "quotes" | "chain";
   researchStrategyId: string;
   onOpenStrategy: (id: string, market: "cash" | "options") => void;
   templateId: TemplateId;
@@ -195,13 +186,6 @@ export function WorkspaceContent({
           legCount={spreadDraft?.definition.legs.length ?? 0}
           onAddLeg={onAddSpreadLeg}
           onOpenBuilder={() => onNavigate("Spread builder")}
-        />
-      );
-    case "Market data":
-      return (
-        <MarketDataScreen
-          csrf={workspace.csrf}
-          initialTool={marketInitialTool}
         />
       );
     case "Orders & trades":

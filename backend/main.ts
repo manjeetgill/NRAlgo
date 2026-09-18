@@ -32,7 +32,6 @@ import {
   selectMarketDataProvider,
   type MarketDataProvider,
 } from "./market-data-provider.js";
-import { registerKotakMarketDataRoutes } from "./kotak-market-data-routes.js";
 import { InstrumentCatalog } from "./instrument-master.js";
 import { KotakMarketDataClient } from "./kotak-market-data-client.js";
 import { registerMfaRoutes, verifySecondFactor } from "./mfa.js";
@@ -674,13 +673,6 @@ export function createApiApplication(
     kotakClient,
     production,
     marketData,
-  );
-  registerKotakMarketDataRoutes(
-    app,
-    store,
-    brokerAccess,
-    kotakClient,
-    production,
   );
   app.use((req, res) => res.status(404).json({ detail: "Not found" }));
   const errorHandler: ErrorRequestHandler = (err: unknown, req, res, next) => {

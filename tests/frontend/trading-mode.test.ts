@@ -80,7 +80,6 @@ test("live navigation excludes only paper trading and retains shared tools", /**
   for (const page of [
     "Overview",
     "Brokers",
-    "Market data",
     "Account & security",
     "Activity log",
   ]) {

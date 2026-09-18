@@ -51,9 +51,6 @@ export function WorkspaceShell({
   const [researchStrategyId, setResearchStrategyId] = useState("");
   const [templateId, setTemplateId] = useState<TemplateId>("ema");
   const [spreadDraft, setSpreadDraft] = useState<ResearchDraft>();
-  const [marketInitialTool, setMarketInitialTool] = useState<
-    "quotes" | "chain"
-  >("quotes");
   const tradingMode = getTradingMode(workspace.paper_trading_enabled);
   const page = isTradingPageVisible(requestedPage, tradingMode)
     ? requestedPage
@@ -152,7 +149,6 @@ export function WorkspaceShell({
   }, [menuOpen]);
   /** This shortcut changes presentation only, never account/execution permissions. */
   const onExploreOptionChain = useCallback(() => {
-    setMarketInitialTool("chain");
     onNavigate("Option chain");
   }, [onNavigate]);
   /** Pass a saved identity in memory; research data remains owner-checked by the API. */
@@ -373,7 +369,6 @@ export function WorkspaceShell({
               onNavigate={onNavigate}
               onRefresh={onRefresh}
               onExploreOptionChain={onExploreOptionChain}
-              marketInitialTool={marketInitialTool}
               researchStrategyId={researchStrategyId}
               onOpenStrategy={onOpenStrategy}
               templateId={templateId}

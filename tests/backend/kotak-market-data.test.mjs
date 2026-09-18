@@ -17,9 +17,6 @@ import {
   KotakMarketDataClient,
   validateKotakFeedUrl,
 } from "../../dist/backend/kotak-market-data-client.js";
-import { createApiApplication } from "../../dist/backend/main.js";
-import { runDatabaseMigrations } from "../../dist/backend/database.js";
-import { createPostgresTestStore } from "../helpers/postgres.mjs";
 import { fakeKotakLogin } from "../fixtures/kotak-data.mjs";
 
 const history = {
@@ -661,90 +658,4 @@ test("a delayed quote failure cannot disconnect a replacement Kotak login", asyn
   await assert.rejects(pending);
   assert.equal(manager.isConnected("u", "new"), true);
   manager.close();
-});
-
-test("market routes enforce login, CSRF, owner isolation and shared budget", async (t) => {
-  const store = await createPostgresTestStore();
-  await runDatabaseMigrations(store, {});
-  let reads = 0;
-  const manager = managerFor((url, maxBytes) => {
-    reads++;
-    assert.equal(url.pathname, "/market-data/1.0/historical/details");
-    assert.equal(maxBytes, 4194304);
-    return {
-      status: "success",
-      interval: "5min",
-      data: { candles: [] },
-      token: "SECRET",
-    };
-  });
-  const app = createApiApplication(
-    store,
-    { BROKER_ENCRYPTION_KEY: "ab".repeat(32) },
-    manager,
-  );
-  const server = app.listen(0, "127.0.0.1");
-  await new Promise((resolve) => server.once("listening", resolve));
-  t.after(async () => {
-    await app.locals.shutdown();
-    await new Promise((resolve) => server.close(resolve));
-    await store.close();
-  });
-  const origin = `http://127.0.0.1:${server.address().port}`;
-  /** Each test browser owns independent cookies and CSRF; tokens are never shared. */
-  function client() {
-    let cookie = "",
-      csrf = "";
-    return async (path, body, validCsrf = true) => {
-      const response = await fetch(origin + "/api" + path, {
-        method: body ? "POST" : "GET",
-        headers: {
-          cookie,
-          "Content-Type": "application/json",
-          "X-CSRF-Token": validCsrf ? csrf : "invalid",
-        },
-        ...(body ? { body: JSON.stringify(body) } : {}),
-      });
-      if (response.headers.get("set-cookie")) {
-        cookie = response.headers.get("set-cookie").split(";")[0];
-      }
-      const data = await response.json();
-      if (data.csrf) {
-        csrf = data.csrf;
-      }
-      return { status: response.status, data };
-    };
-  }
-  const alice = client(),
-    bob = client();
-  assert.equal((await alice("/market/kotak/read", history)).status, 401);
-  await alice("/auth/setup", {
-    username: "market-alice",
-    password: "long-market-password",
-  });
-  await bob("/auth/register", {
-    username: "market-bob",
-    password: "long-market-password",
-  });
-  assert.equal(
-    (await alice("/paper/kotak/connect", fakeKotakLogin)).status,
-    200,
-  );
-  assert.equal((await alice("/market/kotak/read", history, false)).status, 403);
-  assert.equal((await bob("/market/kotak/read", history)).status, 409);
-  assert.equal((await bob("/market/kotak/feed")).status, 409);
-  assert.equal(
-    (await alice("/market/kotak/read", { ...history, instrument: "../orders" }))
-      .status,
-    422,
-  );
-  const result = await alice("/market/kotak/read", history);
-  assert.equal(result.status, 200, JSON.stringify(result));
-  assert.equal(reads, 1);
-  assert.ok(!JSON.stringify(result).includes("SECRET"));
-  await store.transaction((query) =>
-    query("UPDATE broker_rpc_windows SET request_count=60"),
-  );
-  assert.equal((await alice("/market/kotak/read", history)).status, 429);
-  assert.equal(reads, 1);
 });

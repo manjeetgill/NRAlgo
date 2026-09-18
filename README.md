@@ -23,7 +23,7 @@ Existing local data is preserved. Never reset a database as part of a normal upg
 - **Paper trading (when enabled):** searchable current NSE cash symbols, option contracts and paginated option-chain snapshots. Paper fills and P&L use broker bid/ask data with freshness checks and virtual funds. They never reach a real order endpoint.
 - **Broker portfolio:** separate read-only positions, holdings, funds, order book and trade book. Real account assets are never copied into the paper balance. Missing data stays unavailable.
 - **Algo lab / Spread builder:** saved cash/options baskets, live snapshots, optional 15-second polling, single-session and batch historical replay. Historical fills are assumptions, not actual broker fills.
-- **Market data:** all documented market-data API families: seven master files, eight quote filters, expiries, native option/futures chains, nine candle intervals and server-side native-batch WebSocket controls. Validated results can be downloaded as JSON. This explorer is read-only; broader data coverage does not enable futures paper orders.
+- **Broker market data:** a provider-neutral backend supplies instruments, quotes, option chains, history and streamed marks to the PDF-defined screens. There is no standalone market-data explorer.
 - **Overview:** live mode reads broker funds/positions once and revalues them from the shared price cache. Missing values remain unavailable. Paper mode uses its separate virtual ledger. `PAPER_TRADING_ENABLED=false` hides only paper features, not research or other screens.
 - **Strategies:** actual saved research in both modes, with search, market filters and dedicated cash/spread editors. No automatic strategy deployment is claimed.
 - **Strategy library / Backtest studio:** versioned EMA, RSI and channel-breakout rules; validated user-provided daily OHLC CSV; next-open signals, explicit stop/target, fees and slippage. No generated-price fallback.
@@ -40,7 +40,7 @@ Live execution requires server activation, the registered static-IP prerequisite
 | -------------------------------------------------------------------------- | --------------------------------------------------------------------- |
 | `backend/broker-data-access.ts`                                            | Read-only adapter contract and per-owner request guard                |
 | `backend/kotak-market-data-client.ts`                                      | Kotak authentication, host/header handling and response normalization |
-| `backend/kotak-market-data-contracts.ts` / `kotak-market-data-routes.ts`   | Bounded, authenticated market explorer contracts and routes           |
+| `backend/kotak-market-data-contracts.ts`                                  | Bounded Kotak request construction and response parsing               |
 | `backend/kotak-market-data-stream.ts`                                      | Server-only WebSocket lifecycle and native-batch binary decoding      |
 | `backend/instrument-master.ts`                                             | Current Kotak contract metadata, safe downloads and bounded search    |
 | `backend/paper-trading-ledger.ts` / `paper-trading-routes.ts`              | Virtual ledger, fill rules and authenticated paper endpoints          |

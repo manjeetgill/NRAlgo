@@ -1,45 +1,5 @@
 @import "tailwindcss";
 
-/* Bounded market-data inspector: long symbols and JSON never widen a mobile viewport. */
-.market-data-content {
-  padding: 1.25rem;
-  min-width: 0;
-}
-.market-data-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem;
-  margin: 1rem 0;
-}
-.market-data-fields {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr));
-  gap: 1rem;
-  margin: 1rem 0;
-}
-.market-data-fields label {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  margin: 0;
-}
-.market-data-fields input,
-.market-data-fields select {
-  width: 100%;
-  min-width: 0;
-}
-.market-data-result {
-  max-height: 32rem;
-  max-width: 100%;
-  overflow: auto;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  padding: 1rem;
-  margin-top: 1rem;
-  background: #f4f6fb;
-  font-size: 0.8rem;
-}
-
 /* Shared responsive workspace styles. Broker/account panels reuse these layout and form rules. */
 
 .broker-workspace {

@@ -67,7 +67,7 @@ to move lines. Existing wire names and database columns are compatibility contra
 | Login, CSRF and API registration                                  | `backend/main.ts`                                     |
 | Kotak login, HTTP headers or rejected requests                    | `backend/kotak-market-data-client.ts`                 |
 | Market-data input validation and response parsing                 | `backend/kotak-market-data-contracts.ts`              |
-| Market-data HTTP endpoints and request limits                     | `backend/kotak-market-data-routes.ts`                 |
+| Provider-neutral market endpoints and request limits             | `backend/paper-trading-routes.ts` / `backend/historical-market-data-routes.ts` |
 | WebSocket authentication, message decoding and cleanup            | `backend/kotak-market-data-stream.ts`                 |
 | Broker-independent read methods and per-user request coordination | `backend/broker-data-access.ts`                       |
 | Simulated orders, balances and fill calculations                  | `backend/paper-trading-ledger.ts`                     |
@@ -75,7 +75,6 @@ to move lines. Existing wire names and database columns are compatibility contra
 | Historical strategy calculations                                  | `backend/historical-strategy-simulator.ts`            |
 | Saved research strategies and historical replay requests          | `backend/strategy-research-routes.ts`                 |
 | Real positions/holdings response fields                           | `backend/broker-portfolio-normalizer.ts`              |
-| Market-data form state and requests                               | `frontend/src/features/market-data/market-data-screen.tsx` |
 
 Framework entry files such as `page.tsx` and `layout.tsx` keep their required Next.js names.
 Broker field names such as `pSymbol`, `sid`, `ltp` and `neoSymbol` stay unchanged at the API
@@ -83,12 +82,12 @@ boundary so you can compare requests directly with Kotak's documentation.
 
 ## Follow a market-data request
 
-1. `fetchSelectedMarketData()` reads the form. `buildMarketDataRequest()` creates the request body.
-2. `registerKotakMarketDataRoutes()` validates that body and reserves the user's request budget.
-3. `KotakMarketDataClient.fetchMarketData()` selects the signed-in user's broker connection.
-4. `buildKotakMarketDataPath()` builds an approved endpoint path. The HTTP transport calls Kotak.
-5. `parseKotakMarketDataResponse()` selects a small parser such as `parseHistoricalCandles()`.
-6. The screen displays the result. None of these functions can place an order.
+1. A PDF-defined screen calls a provider-neutral endpoint such as `/api/market/option-chain`, `/api/market/history` or `/api/market/feed`.
+2. The route validates the screen contract, authenticates the owner and reserves the bounded broker-request budget when a network read is needed.
+3. `MarketDataProvider` resolves the requested contract and delegates to the configured adapter.
+4. `KotakMarketDataClient.fetchMarketData()` selects the signed-in user's broker connection.
+5. `buildKotakMarketDataPath()` builds an approved endpoint path and `parseKotakMarketDataResponse()` returns a bounded normalized result.
+6. The requesting screen receives only the data it needs. None of these functions can place an order.
 
 For streaming, start with `handleIncomingMessage()`. JSON messages go to
 `handleBrokerControlMessage()`; binary prices go to `updateQuotesFromBinaryFrame()`.
@@ -138,8 +137,8 @@ display quotes, simulated-fill quotes, history and the dashboard price feed.
 To add a source, implement `MarketDataProvider`, register it in the application
 composition root, then change configuration. Account login, positions and limits
 remain on the separate broker account dependency. No execution methods belong in
-the market-data interface. The Kotak-specific Market data explorer remains a
-broker diagnostic screen, not the shared application data API.
+the market-data interface. Provider diagnostics stay in server logs and tests;
+they are not exposed as an extra application screen.
 
 Compatibility: saved strategies, paper wallets and account tokens retain their
 existing `kotak` instrument namespace. A replacement provider must explicitly
