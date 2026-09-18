@@ -100,9 +100,9 @@ export function registerResearchRoutes(
     session: { user_id: string; token_hash: string },
   ) {
     if (!brokerDataReader.isConnected(session.user_id, session.token_hash)) {
-      fail(409, "Connect Kotak under Broker connections first.");
+      fail(409, "Connect the selected market-data provider first.");
     }
-    if (!catalog.isFresh("kotak", strategy.market)) {
+    if (!catalog.isFresh(strategy.market)) {
       try {
         await brokerDataReader.prepareInstruments(
           { userId: session.user_id, sessionHash: session.token_hash },
@@ -112,18 +112,16 @@ export function registerResearchRoutes(
       } catch {
         fail(
           502,
-          "Kotak instrument master unavailable. No alternative data was substituted.",
+          "Provider instrument master unavailable. No alternative data was substituted.",
         );
       }
     }
     try {
-      return strategy.legs.map((leg) =>
-        catalog.resolveResearch("kotak", strategy.market, leg),
-      );
+      return strategy.legs.map((leg) => catalog.resolve(strategy.market, leg));
     } catch {
       return fail(
         422,
-        "Exact Kotak contract not found. Select a listed Kotak contract; expired contracts are not mapped to current tokens.",
+        "Exact provider contract not found. Select a listed contract; expired contracts are not mapped to current tokens.",
       );
     }
   }

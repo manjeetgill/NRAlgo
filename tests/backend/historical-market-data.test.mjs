@@ -8,6 +8,7 @@ import {
 import { createKotakMarketDataProvider } from "../../dist/backend/kotak-market-data-provider.js";
 import { createApiApplication } from "../../dist/backend/main.js";
 import { runDatabaseMigrations } from "../../dist/backend/database.js";
+import { BrokerRequestCoordinator } from "../../dist/backend/broker-data-access.js";
 import { createPostgresTestStore } from "../helpers/postgres.mjs";
 import { fakeInstrumentCatalog } from "../fixtures/instruments.mjs";
 import { fakeKotakData } from "../fixtures/kotak-data.mjs";
@@ -78,6 +79,26 @@ test("history rejects duplicate sessions, reordered/invalid prices, future and o
   }
 });
 
+test("intraday history requires canonical interval buckets without rejecting genuine gaps", () => {
+  const intraday = {
+    ...request,
+    interval: "5minute",
+    from: "2026-09-01",
+    to: "2026-09-01",
+  };
+  const first = { ...candle, timestamp: "2026-09-01T03:45:00Z" };
+  const gap = { ...candle, timestamp: "2026-09-01T03:55:00Z" };
+  assert.deepEqual(validateHistoricalCandles(intraday, [first, gap]), [
+    first,
+    gap,
+  ]);
+  for (const timestamp of ["2026-09-01T03:46:00Z", "2026-09-01T03:45:30Z"]) {
+    assert.throws(() =>
+      validateHistoricalCandles(intraday, [first, { ...candle, timestamp }]),
+    );
+  }
+});
+
 test("Kotak adapter maps daily/intraday history and normalizes documented +0530 timestamps", async () => {
   const calls = [];
   const adapter = createKotakMarketDataProvider({
@@ -93,15 +114,50 @@ test("Kotak adapter maps daily/intraday history and normalizes documented +0530 
     ["1minute", "1min"],
     ["5minute", "5min"],
   ]) {
-    const result = await adapter.getHistoricalCandles("owner", "session", {
-      ...request,
-      interval,
-    });
+    const signal = new AbortController().signal;
+    const result = await adapter.getHistoricalCandles(
+      "owner",
+      "session",
+      { ...request, interval },
+      signal,
+    );
     assert.equal(result[0].timestamp, "2026-09-01T03:45:00.000Z");
     assert.equal(calls.at(-1)[2].interval, expected);
     assert.equal(calls.at(-1)[2].exchange, "nse_cm");
     assert.deepEqual(calls.at(-1).slice(0, 2), ["owner", "session"]);
+    assert.equal(calls.at(-1)[3], signal);
   }
+});
+
+test("cancellable history waits for an active broker read and removes abandoned waiters", async () => {
+  const coordinator = new BrokerRequestCoordinator();
+  let release;
+  const active = coordinator.runExclusiveForUser(
+    "owner",
+    () => new Promise((resolve) => (release = resolve)),
+  );
+  const cancelled = new AbortController();
+  const abandoned = coordinator.runQueuedForUser(
+    "owner",
+    cancelled.signal,
+    async () => "must-not-run",
+  );
+  cancelled.abort(new DOMException("Changed selection", "AbortError"));
+  await assert.rejects(abandoned, /Changed selection/);
+  let ran = false;
+  const latest = coordinator.runQueuedForUser(
+    "owner",
+    new AbortController().signal,
+    async () => {
+      ran = true;
+      return "latest";
+    },
+  );
+  assert.equal(ran, false);
+  release();
+  await active;
+  assert.equal(await latest, "latest");
+  assert.equal(ran, true);
 });
 
 test("history route enforces auth, CSRF, session ownership, exact master, capabilities and valid nonempty provider data", async (t) => {

@@ -60,6 +60,20 @@ export default function ContractPriceChart({
       })) ?? [],
     [history.dataset],
   );
+  /** Accept only a recent tick for this exact contract; expose the same value to canvas and assistive tests. */
+  const livePrice = useMemo(() => {
+    const age = tick?.receivedAt ? Date.now() - tick.receivedAt : Infinity;
+    return tick?.instrument === instrument.instrument &&
+      tick.exchange === "nse_fo" &&
+      tick.receivedRecently &&
+      age >= 0 &&
+      age <= 15000 &&
+      typeof tick.ltp === "number" &&
+      Number.isFinite(tick.ltp) &&
+      tick.ltp > 0
+      ? tick.ltp
+      : null;
+  }, [tick, instrument.instrument]);
 
   /** Create one chart instance; autoSize owns responsive observation and remove releases all chart resources. */
   useEffect(() => {
@@ -115,30 +129,23 @@ export default function ContractPriceChart({
     if (!target) {
       return;
     }
-    if (priceLine.current) {
+    if (livePrice === null && priceLine.current) {
       target.removePriceLine(priceLine.current);
       priceLine.current = null;
+      return;
     }
-    const age = tick?.receivedAt ? Date.now() - tick.receivedAt : Infinity;
-    if (
-      tick?.instrument === instrument.instrument &&
-      tick.exchange === "nse_fo" &&
-      tick.receivedRecently &&
-      age >= 0 &&
-      age <= 15000 &&
-      typeof tick.ltp === "number" &&
-      Number.isFinite(tick.ltp) &&
-      tick.ltp > 0
-    ) {
+    if (livePrice !== null && priceLine.current) {
+      priceLine.current.applyOptions({ price: livePrice });
+    } else if (livePrice !== null) {
       priceLine.current = target.createPriceLine({
-        price: tick.ltp,
+        price: livePrice,
         color: "#2563eb",
         lineWidth: 1,
         axisLabelVisible: true,
         title: "Feed LTP",
       });
     }
-  }, [tick, instrument.instrument]);
+  }, [livePrice]);
 
   return (
     <section aria-label="Option contract price chart" className="screen-stack">
@@ -150,6 +157,7 @@ export default function ContractPriceChart({
         <label>
           Chart interval
           <select
+            data-chart-interval
             value={interval}
             onChange={(event) =>
               setInterval(event.target.value as "1minute" | "5minute")
@@ -196,6 +204,7 @@ export default function ContractPriceChart({
         ref={container}
         style={{ height: 340, width: "100%", minWidth: 0 }}
         role="img"
+        data-live-price={livePrice ?? undefined}
         aria-label={`Historical candlestick chart for ${instrument.symbol} ${instrument.option?.strikePrice} ${instrument.option?.right}; timestamps in IST`}
       />
       {history.dataset && (

@@ -145,6 +145,9 @@ test("CI executes the complete local quality gate and runtime images exclude tes
     assert.ok(scripts.check.includes(check), check);
   }
   assert.match(readFileSync(".dockerignore", "utf8"), /^tests$/m);
+  assert.equal(existsSync("backend/worker.ts"), false);
+  assert.equal(existsSync("backend/simulator.ts"), false);
+  assert.equal("worker" in scripts, false);
   assert.doesNotMatch(
     readFileSync("frontend/src/components/kotak-account-reports.tsx", "utf8"),
     /autoRefresh|setInterval\([^\n]*refresh\(/,

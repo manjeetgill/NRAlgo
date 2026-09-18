@@ -71,6 +71,34 @@ export interface BrokerAccountReader {
 
 export class BrokerRequestCoordinator {
   private usersWithActiveRequests = new Set<string>();
+  private waiters = new Map<
+    string,
+    Array<{
+      resolve: () => void;
+      reject: (cause: unknown) => void;
+      signal: AbortSignal;
+      abort: () => void;
+    }>
+  >();
+
+  /** Release one owner-scoped broker slot and wake the oldest non-cancelled queued read. */
+  private release(userId: string) {
+    this.usersWithActiveRequests.delete(userId);
+    const queue = this.waiters.get(userId);
+    while (queue?.length) {
+      const waiter = queue.shift()!;
+      waiter.signal.removeEventListener("abort", waiter.abort);
+      if (waiter.signal.aborted) {
+        continue;
+      }
+      this.usersWithActiveRequests.add(userId);
+      waiter.resolve();
+      break;
+    }
+    if (!queue?.length) {
+      this.waiters.delete(userId);
+    }
+  }
 
   /** Reject overlapping operations and release the guard even when a request fails. */
   public async runExclusiveForUser<T>(
@@ -85,7 +113,57 @@ export class BrokerRequestCoordinator {
       return await operation();
     } finally {
       // Always release after success or failure; a rejected request must not lock the user out.
-      this.usersWithActiveRequests.delete(userId);
+      this.release(userId);
+    }
+  }
+
+  /** Queue a cancellable read behind one active broker operation instead of surfacing a transient 409.
+   * The bounded queue protects memory while browser disconnects remove obsolete selections immediately.
+   */
+  public async runQueuedForUser<T>(
+    userId: string,
+    signal: AbortSignal,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    if (signal.aborted) {
+      throw signal.reason;
+    }
+    if (this.usersWithActiveRequests.has(userId)) {
+      const queue = this.waiters.get(userId) ?? [];
+      if (queue.length >= 4) {
+        fail(429, "Too many broker reads are waiting.");
+      }
+      await new Promise<void>((resolve, reject) => {
+        const waiter = {
+          resolve,
+          reject,
+          signal,
+          abort: () => {
+            const current = this.waiters.get(userId);
+            const index = current?.indexOf(waiter) ?? -1;
+            if (index >= 0) {
+              current!.splice(index, 1);
+            }
+            if (!current?.length) {
+              this.waiters.delete(userId);
+            }
+            reject(signal.reason);
+          },
+        };
+        queue.push(waiter);
+        this.waiters.set(userId, queue);
+        signal.addEventListener("abort", waiter.abort, { once: true });
+      });
+    } else {
+      this.usersWithActiveRequests.add(userId);
+    }
+    try {
+      if (signal.aborted) {
+        throw signal.reason;
+      }
+      return await operation();
+    } finally {
+      this.release(userId);
     }
   }
 }

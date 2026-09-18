@@ -1025,6 +1025,7 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
     userId: string,
     sessionHash: string,
     request: MarketRequest,
+    signal?: AbortSignal,
   ) {
     const input = marketRequestSchema.parse(request);
     if (!this.isConnected(userId, sessionHash)) {
@@ -1039,6 +1040,7 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
         `${session.baseUrl}${buildKotakMarketDataPath(input)}`,
         {
           method: "GET",
+          signal,
           headers: {
             Authorization: session.accessToken,
             "Content-Type": "application/json",
@@ -1047,6 +1049,7 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
         input.operation === "history" ? 4194304 : 262144,
       );
       if (
+        signal?.aborted ||
         this.sessions.get(userId) !== session ||
         !this.isConnected(userId, sessionHash)
       ) {

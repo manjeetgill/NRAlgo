@@ -226,7 +226,7 @@ export function registerPaperRoutes(
       await requestCoordinator.runExclusiveForUser(
         session.user_id,
         async () => {
-          if (!catalog.isFresh(broker, input.market)) {
+          if (!catalog.isFresh(input.market)) {
             try {
               await marketData.prepareInstruments(
                 { userId: session.user_id, sessionHash: session.token_hash },
@@ -254,7 +254,7 @@ export function registerPaperRoutes(
           ) {
             fail(409, "Broker disconnected during instrument search.");
           }
-          res.json(catalog.search(broker, input));
+          res.json(catalog.search(input));
         },
       );
     },
@@ -275,12 +275,12 @@ export function registerPaperRoutes(
         .parse(req.body);
       const session = res.locals.session;
       if (!marketData.isConnected(session.user_id, session.token_hash)) {
-        fail(409, "Connect Kotak under Broker connections first.");
+        fail(409, "Connect the selected market-data provider first.");
       }
       await requestCoordinator.runExclusiveForUser(
         session.user_id,
         async () => {
-          if (!catalog.isFresh("kotak", "options")) {
+          if (!catalog.isFresh("options")) {
             try {
               await marketData.prepareInstruments(
                 { userId: session.user_id, sessionHash: session.token_hash },
@@ -295,11 +295,11 @@ export function registerPaperRoutes(
             } catch {
               fail(
                 502,
-                "Kotak option instrument master unavailable. No alternative data was substituted.",
+                "Provider option instrument master unavailable. No alternative data was substituted.",
               );
             }
           }
-          const result = catalog.search("kotak", {
+          const result = catalog.search({
             market: "options",
             query: input.underlying,
             underlying: input.underlying,
@@ -307,7 +307,10 @@ export function registerPaperRoutes(
             offset: input.offset,
           });
           if (!marketData.isConnected(session.user_id, session.token_hash)) {
-            fail(409, "Kotak disconnected during chain discovery.");
+            fail(
+              409,
+              "Market-data provider disconnected during chain discovery.",
+            );
           }
           if (!input.expiryDate) {
             res.json({
@@ -384,7 +387,7 @@ export function registerPaperRoutes(
     }
     res.json(
       await withPaperAccountLedger(session.user_id, broker, (state) => {
-        catalog.validate(broker, input, input.quantity);
+        catalog.validate(input, input.quantity);
         if (
           broker === "kotak" &&
           state.orders.some(
@@ -429,7 +432,7 @@ export function registerPaperRoutes(
         (state) => {
           const order = state.orders.find((order) => order.key === key);
           if (order) {
-            catalog.validate(broker, order, input.quantity);
+            catalog.validate(order, input.quantity);
           }
           modifyPaperOrder(
             state,
@@ -515,7 +518,7 @@ export function registerPaperRoutes(
             order.option.expiryDate >= paperTradingDay(Date.now()))
         ) {
           try {
-            catalog.validate(broker, order);
+            catalog.validate(order);
           } catch {
             fail(
               409,
@@ -530,7 +533,7 @@ export function registerPaperRoutes(
           continue;
         }
         try {
-          catalog.validate(broker, contract);
+          catalog.validate(contract);
         } catch {
           fail(
             409,

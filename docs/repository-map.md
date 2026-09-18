@@ -62,15 +62,13 @@ Screens call feature hooks/adapters → same-origin API → authenticated applic
 | File | Responsibility / boundary |
 | --- | --- |
 | [backend/main.ts](../backend/main.ts) | Composition root, authentication/CSRF, request admission and HTTP route registration; only explicit commands enable execution. |
-| [backend/types.ts](../backend/types.ts) | Workspace strategy/job schemas and shared educational-worker contracts. |
+| [backend/types.ts](../backend/types.ts) | Workspace strategy/job schemas retained for current records and legacy migration compatibility. |
 | [backend/database.ts](../backend/database.ts) | PostgreSQL transactions, migrations, roles and durable ledgers; application data must not be reset during refactors. |
 | [backend/local-database.ts](../backend/local-database.ts) | Project-local PostgreSQL cluster discovery/start/stop; not a production orchestrator. |
 | [backend/security.ts](../backend/security.ts) | Password hashing, session hashing, secret encryption, request limits and safe error primitives. |
 | [backend/mfa.ts](../backend/mfa.ts) | Encrypted TOTP enrollment, verification/replay rejection, recovery codes and revocation. |
 | [backend/backup.ts](../backend/backup.ts) | Encrypted PostgreSQL backup, optional off-server upload, health and explicit restore/decrypt tooling. |
 | [backend/import-legacy-sqlite.ts](../backend/import-legacy-sqlite.ts) | Offline legacy import into PostgreSQL; retained migration tool, not a runtime database dependency. |
-| [backend/worker.ts](../backend/worker.ts) | Retired legacy replay helpers, importable for isolated migration tests; standalone startup is disabled. |
-| [backend/simulator.ts](../backend/simulator.ts) | Pure deterministic educational EMA simulation on synthetic prices. |
 
 ## Backend: data, virtual execution and research
 

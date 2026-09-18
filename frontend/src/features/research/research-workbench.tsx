@@ -699,7 +699,6 @@ export function ResearchWorkbench({
             <p>Research data broker: Kotak Neo</p>
             {definition.broker === "kotak" && definition.market === "cash" && (
               <InstrumentPicker
-                broker="kotak"
                 market="cash"
                 csrf={csrf}
                 disabled={busy}

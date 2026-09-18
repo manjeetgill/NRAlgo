@@ -8,15 +8,22 @@ export function createKotakMarketDataProvider(
   client: KotakMarketDataClient,
   catalog = new InstrumentCatalog(),
 ): MarketDataProvider {
+  /** Bind Kotak's catalog namespace inside the adapter so application routes stay provider-neutral. */
+  const instruments: MarketDataProvider["instruments"] = {
+    isFresh: (market) => catalog.isFresh("kotak", market),
+    search: (input) => catalog.search("kotak", input),
+    resolve: (market, identity) =>
+      catalog.resolveResearch("kotak", market, identity),
+    validate: (input, quantity) => catalog.validate("kotak", input, quantity),
+  };
   return {
     id: "kotak",
     capabilities: {
       live: true,
       historyIntervals: ["1minute", "5minute", "day"],
       requiresBrokerConnection: true,
-      instrumentNamespace: "kotak",
     },
-    instruments: catalog,
+    instruments,
     isConnected: (user, session) => client.isConnected(user, session),
     /** Load an allowlisted master only when the requested segment cache is stale. */
     async prepareInstruments(session, market, reserve) {
@@ -52,17 +59,22 @@ export function createKotakMarketDataProvider(
     getHistoricalCandlesForDay: (...args) =>
       client.getHistoricalCandlesForDay(...args),
     /** Map application interval/segment names only here; the client validates the bounded broker response. */
-    async getHistoricalCandles(userId, sessionHash, request) {
-      const result = await client.fetchMarketData(userId, sessionHash, {
-        operation: "history",
-        exchange: request.market === "cash" ? "nse_cm" : "nse_fo",
-        instrument: request.instrument,
-        from: request.from,
-        to: request.to,
-        interval: { "1minute": "1min", "5minute": "5min", day: "D" }[
-          request.interval
-        ] as "1min" | "5min" | "D",
-      });
+    async getHistoricalCandles(userId, sessionHash, request, signal) {
+      const result = await client.fetchMarketData(
+        userId,
+        sessionHash,
+        {
+          operation: "history",
+          exchange: request.market === "cash" ? "nse_cm" : "nse_fo",
+          instrument: request.instrument,
+          from: request.from,
+          to: request.to,
+          interval: { "1minute": "1min", "5minute": "5min", day: "D" }[
+            request.interval
+          ] as "1min" | "5min" | "D",
+        },
+        signal,
+      );
       if (!("candles" in result)) {
         throw new Error("Historical response unavailable.");
       }

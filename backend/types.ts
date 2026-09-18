@@ -38,20 +38,3 @@ export interface Job {
   created_at: string;
   updated_at: string;
 }
-export interface Trade {
-  bar: number;
-  side: "BUY" | "SELL";
-  price: number;
-  quantity: number;
-  pnl: number | null;
-}
-export interface ReplayResult {
-  pnl: number;
-  drawdown: number;
-  equity: number[];
-  trades: Trade[];
-  bars: number;
-  source: "synthetic";
-  risk_stopped: boolean;
-  cost_model: string;
-}

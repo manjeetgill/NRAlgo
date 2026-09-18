@@ -625,7 +625,7 @@ export function createApiApplication(
         "This replay endpoint is retired. Use Algo lab or Backtest studio with historical market data.",
     });
   });
-  // This pauses only the caller's synthetic jobs, not exchange orders or other users' work.
+  // This cancels only the caller's retired queued jobs, not exchange orders or other users' work.
   app.post("/api/controls", async (req, res) => {
     const { halted } = z.object({ halted: z.boolean() }).parse(req.body),
       userId = res.locals.session.user_id;

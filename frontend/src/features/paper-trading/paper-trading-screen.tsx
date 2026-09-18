@@ -377,7 +377,6 @@ function PaperWallet({ broker, csrf }: { broker: Broker; csrf: string }) {
           {!(broker === "kotak" && market === "cash") && (
             <InstrumentPicker
               key={`${broker}:${market}`}
-              broker={broker}
               market={market as "cash" | "options"}
               csrf={csrf}
               disabled={busy || !wallet?.connected}

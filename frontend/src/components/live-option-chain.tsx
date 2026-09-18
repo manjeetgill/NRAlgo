@@ -42,6 +42,7 @@ type Contract = ChainContract;
 /** A stable empty dependency prevents price renders from reloading the broker chain. */
 const EMPTY_POSITION_STRIKES: { symbol: string; strike: number }[] = [];
 type Chain = {
+  source?: string;
   warning?: string;
   items: Contract[];
   expiries: string[];
@@ -567,7 +568,9 @@ export function LiveOptionChain({
       <header>
         <div>
           <h3>Option chain</h3>
-          <p>Kotak NSE options · read only</p>
+          <p>
+            {chain?.source || "Market data provider"} · NSE options · read only
+          </p>
         </div>
         <span className="chain-source">Shared position price feed</span>
       </header>
@@ -614,9 +617,9 @@ export function LiveOptionChain({
                 : !members
                   ? "Loading constituents…"
                   : !symbols.length
-                    ? "Loading Kotak symbols…"
+                    ? "Loading provider symbols…"
                     : !eligibleStocks.length
-                      ? "No constituents with Kotak options"
+                      ? "No constituents with listed options"
                       : `Select stock — ${index} chain`}
             </option>
             {eligibleStocks.map((symbol) => (
@@ -649,7 +652,7 @@ export function LiveOptionChain({
       {chain?.warning && !chain.items.some((item) => item.tickAt) && (
         <p role="status">{chain.warning}</p>
       )}
-      {busy && <p role="status">Loading selected Kotak chain…</p>}
+      {busy && <p role="status">Loading selected option chain…</p>}
       <div className="table-wrap chain-scroll">
         <table>
           <thead>

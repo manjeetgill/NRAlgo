@@ -14,7 +14,6 @@
     "lint:all": "eslint . --concurrency=off --cache",
     "dev": "npm run build:backend && node --env-file-if-exists=.env --import tsx run.ts",
     "start": "node --env-file-if-exists=.env dist/backend/main.js",
-    "worker": "node --env-file-if-exists=.env dist/backend/worker.js",
     "migrate": "node --env-file-if-exists=.env --import tsx backend/database.ts",
     "test": "npm run build:backend && node --test tests/backend/*.test.mjs",
     "typecheck": "tsc --noEmit",

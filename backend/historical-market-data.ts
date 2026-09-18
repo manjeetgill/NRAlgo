@@ -73,12 +73,24 @@ export function validateHistoricalCandles(
   for (const candle of candles) {
     const time = Date.parse(candle.timestamp);
     const day = new Date(time + 19800000).toISOString().slice(0, 10);
+    const intervalMilliseconds =
+      input.interval === "1minute"
+        ? 60000
+        : input.interval === "5minute"
+          ? 300000
+          : null;
+    const sameIntradayBucket =
+      intervalMilliseconds !== null &&
+      Math.floor(time / intervalMilliseconds) ===
+        Math.floor(previous / intervalMilliseconds);
     if (
       time <= previous ||
       day < input.from ||
       day > input.to ||
       time > Date.now() ||
       (input.interval === "day" && day === previousDay) ||
+      (intervalMilliseconds !== null &&
+        (time % intervalMilliseconds !== 0 || sameIntradayBucket)) ||
       candle.low > Math.min(candle.open, candle.close) ||
       candle.high < Math.max(candle.open, candle.close) ||
       candle.high < candle.low

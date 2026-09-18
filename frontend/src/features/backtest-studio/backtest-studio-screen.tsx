@@ -96,7 +96,6 @@ export function BacktestStudioScreen({
       <section className="panel screen-card">
         <h2>Broker historical data</h2>
         <InstrumentPicker
-          broker="kotak"
           market="cash"
           csrf={csrf}
           disabled={running}

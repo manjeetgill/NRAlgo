@@ -12,13 +12,7 @@ import {
 import { fileURLToPath } from "node:url";
 import { createApiApplication } from "../../dist/backend/main.js";
 import { hashPasswordForLegacyCompatibility } from "../fixtures/legacy-password.mjs";
-import {
-  processNextPaperJob,
-  recoverInterruptedPaperJobs,
-  refreshWorkerLease,
-} from "../../dist/backend/worker.js";
 import { credentialVault } from "../../dist/backend/security.js";
-import { simulateSyntheticStrategy } from "../../dist/backend/simulator.js";
 import { TOTP } from "otpauth";
 import { createPostgresTestStore } from "../helpers/postgres.mjs";
 
@@ -263,7 +257,7 @@ test("validation and live orders disabled", async (t) => {
   }
   assert.equal((await request("/api/health")).data.live_enabled, false);
 });
-test("retired replay API cannot enqueue generated prices; legacy records remain readable", async (t) => {
+test("retired replay API cannot enqueue generated prices; legacy records remain readable without processing", async (t) => {
   const { request, owner, store } = await fixture(t);
   await owner();
   const {
@@ -275,18 +269,9 @@ test("retired replay API cannot enqueue generated prices; legacy records remain 
   );
   assert.equal((await request("/api/workspace")).data.jobs.length, 0);
   await seedLegacyJob(store, id);
-  assert.equal(await processNextPaperJob(store), true);
   const data = (await request("/api/workspace")).data;
-  assert.equal(data.jobs[0].status, "completed");
-  const result = data.jobs[0].result;
-  assert.equal(result.equity.length, 240);
-  assert.ok(result.trades.length);
-  assert.equal(result.source, "synthetic");
-  assert.ok(
-    Math.abs(result.trades.reduce((s, t) => s + (t.pnl || 0), 0) - result.pnl) <
-      0.02,
-  );
-  assert.equal(await processNextPaperJob(store), false);
+  assert.equal(data.jobs[0].status, "queued");
+  assert.deepEqual(data.jobs[0].result, {});
   await request("/api/auth/logout", "POST", {});
   assert.equal((await request("/api/auth/login", "POST", creds)).status, 200);
   assert.equal((await request("/api/workspace")).data.strategies[0].id, id);
@@ -299,7 +284,6 @@ test("pause cancels work, blocks new work and can resume", async (t) => {
   } = await request("/api/strategies", "POST", strategy);
   await seedLegacyJob(store, id);
   await request("/api/controls", "POST", { halted: true });
-  assert.equal(await processNextPaperJob(store), false);
   assert.equal(
     (await request("/api/workspace")).data.jobs[0].status,
     "cancelled",
@@ -467,11 +451,10 @@ test("two accounts isolate strategies, jobs, pause state and audit events", asyn
   await seedLegacyJob(store, a.data.id);
   await seedLegacyJob(store, b.data.id);
   await alice("/api/controls", "POST", { halted: true });
-  assert.equal(await processNextPaperJob(store), true);
   const aw = (await alice("/api/workspace")).data,
     bw = (await bob("/api/workspace")).data;
   assert.equal(aw.jobs[0].status, "cancelled");
-  assert.equal(bw.jobs[0].status, "completed");
+  assert.equal(bw.jobs[0].status, "queued");
   assert.equal(bw.halted, false);
   assert.equal(bw.strategies.length, 1);
   assert.ok(!JSON.stringify(bw).includes("Alice private"));
@@ -534,18 +517,16 @@ test("password changes revoke existing sessions and preserve current session", a
     200,
   );
 });
-test("readiness is independent of retired workers; legacy leases still fence stale processing", async (t) => {
+test("readiness ignores legacy worker-health rows", async (t) => {
   const { request, store } = await fixture(t);
   assert.equal((await request("/api/ready")).status, 200);
-  await refreshWorkerLease(store, "worker-a");
-  assert.equal((await request("/api/ready")).status, 200);
-  await assert.rejects(refreshWorkerLease(store, "worker-b"), /Another worker/);
   await store.transaction((query) =>
-    query("UPDATE worker_health SET heartbeat=0"),
+    query(
+      "INSERT INTO worker_health (id,instance_id,heartbeat) VALUES (1,$1,$2) ON CONFLICT(id) DO UPDATE SET instance_id=$1,heartbeat=$2",
+      ["retired-worker", Date.now() / 1000],
+    ),
   );
   assert.equal((await request("/api/ready")).status, 200);
-  await refreshWorkerLease(store, "worker-b");
-  await assert.rejects(processNextPaperJob(store, "worker-a"), /lease lost/);
 });
 test("credential encryption is randomized, authenticated and bound to the account", () => {
   const vault = credentialVault({ BROKER_ENCRYPTION_KEY: "aa".repeat(32) }),
@@ -623,25 +604,6 @@ test("MFA enrollment, token replay prevention, recovery codes and broker enforce
   );
   assert.equal((await other("/api/workspace")).status, 401);
 });
-test("restart recovery requeues interrupted jobs", async (t) => {
-  const { store, owner, request } = await fixture(t);
-  await owner();
-  const {
-    data: { id },
-  } = await request("/api/strategies", "POST", strategy);
-  await seedLegacyJob(store, id);
-  await store.transaction((query) => query("UPDATE jobs SET status='running'"));
-  await recoverInterruptedPaperJobs(store);
-  assert.equal(await processNextPaperJob(store), true);
-});
-test("synthetic results deterministic and no unfunded fills", () => {
-  assert.deepEqual(
-    simulateSyntheticStrategy("NIFTY", 100000, 9, 21),
-    simulateSyntheticStrategy("NIFTY", 100000, 9, 21),
-  );
-  assert.deepEqual(simulateSyntheticStrategy("SENSEX", 1000, 9, 21).trades, []);
-});
-
 test("NODE_ENV production enforces HTTPS, setup proof, MFA policy and secure cookies", async (t) => {
   assert.throws(
     () =>

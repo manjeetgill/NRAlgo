@@ -66,6 +66,13 @@ try {
     ...(process.platform === "darwin" ? { channel: "chrome" } : {}),
   });
   const context = await browser.newContext();
+  await context.route("**/reference/index-constituents?index=*", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ index: "NIFTY", symbols: ["TEST"] }),
+    }),
+  );
   await context.route("**/api/**", async (route) => {
     const url = new URL(route.request().url());
     await route.fulfill({
@@ -145,8 +152,12 @@ try {
     .getByRole("button", { name: "Confirm paper order", exact: true })
     .click();
   await page.getByRole("cell", { name: "open", exact: true }).waitFor();
+  await page.getByRole("button", { name: "New order", exact: true }).click();
   await page
     .getByRole("button", { name: "Refresh paper quotes", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Close order form", exact: true })
     .click();
   await page.getByRole("cell", { name: "filled", exact: true }).waitFor();
   await page.getByRole("button", { name: "New order", exact: true }).click();
@@ -205,8 +216,12 @@ try {
     .getByRole("button", { name: "Confirm paper order", exact: true })
     .click();
   await page.getByRole("cell", { name: "open", exact: true }).waitFor();
+  await page.getByRole("button", { name: "New order", exact: true }).click();
   await page
     .getByRole("button", { name: "Refresh paper quotes", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Close order form", exact: true })
     .click();
   await page
     .getByRole("cell", {
@@ -373,6 +388,71 @@ try {
     .getByLabel("Market data result")
     .filter({ hasText: '"state": "stopped"' })
     .waitFor();
+  /** Render real Lightweight Charts in Chromium and prove cached ticks never refetch history. */
+  await page.getByRole("button", { name: "Option chain", exact: true }).click();
+  const liveChain = page.getByRole("region", {
+    name: "Live option chain",
+    exact: true,
+  });
+  await liveChain
+    .getByLabel("Option chain underlying", { exact: true })
+    .locator("option", { hasText: "TEST" })
+    .waitFor({ state: "attached" });
+  await liveChain
+    .getByLabel("Option chain underlying", { exact: true })
+    .selectOption("TEST");
+  const contractPrice = liveChain.getByRole("button", {
+    name: /Inspect TEST 25000 call/,
+  });
+  await contractPrice.waitFor();
+  await contractPrice.click();
+  const historyBefore = calls.filter((call) =>
+    call.url.includes("/historical/details?"),
+  ).length;
+  await page
+    .getByRole("button", { name: "Open price chart", exact: true })
+    .click();
+  const chart = page.getByRole("img", {
+    name: /Historical candlestick chart for TEST 25000 call/,
+  });
+  await chart.waitFor();
+  await page.getByText(/kotak · 75 candles/).waitFor();
+  assert.equal(
+    calls.filter((call) => call.url.includes("/historical/details?")).length,
+    historyBefore + 1,
+  );
+  await chart.locator("canvas").first().waitFor();
+  await page
+    .locator('[data-live-price="123.45"]')
+    .waitFor({ state: "attached" });
+  await page.locator("select[data-chart-interval]").selectOption("1minute");
+  for (let i = 0; i < 20; i++) {
+    if (
+      calls.filter((call) => call.url.includes("/historical/details?"))
+        .length ===
+      historyBefore + 2
+    ) {
+      break;
+    }
+    await delay(100);
+  }
+  assert.equal(
+    calls.filter((call) => call.url.includes("/historical/details?")).length,
+    historyBefore + 2,
+  );
+  await delay(1500);
+  assert.equal(
+    calls.filter((call) => call.url.includes("/historical/details?")).length,
+    historyBefore + 2,
+    "live cache polling must not refetch historical candles",
+  );
+  await page
+    .getByRole("button", { name: "Hide price chart", exact: true })
+    .click();
+  await chart.waitFor({ state: "detached" });
+  await page
+    .getByRole("button", { name: "Close details", exact: true })
+    .click();
   await page
     .getByRole("button", { name: "Account & security", exact: true })
     .click();
@@ -399,7 +479,7 @@ try {
   );
   assert.deepEqual(errors, []);
   console.debug(
-    "Kotak browser smoke passed: cash/options paper fills, research, market-data APIs, native feed controls, MFA and mobile. No real broker calls.",
+    "Kotak browser smoke passed: cash/options paper fills, research, chart lifecycle, cached live marks, market-data APIs, native feed controls, MFA and mobile. No real broker calls.",
   );
 } finally {
   await browser?.close();

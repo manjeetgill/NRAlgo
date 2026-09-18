@@ -202,7 +202,6 @@ export function InstrumentPicker({
   disabled,
   onSelect,
 }: {
-  broker: "kotak";
   market: "cash" | "options";
   csrf: string;
   disabled: boolean;

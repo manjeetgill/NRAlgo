@@ -94,11 +94,23 @@ export function validateHistoryDataset(
   for (const candle of data.candles) {
     const time = Date.parse(candle.timestamp);
     const day = Number.isFinite(time) ? historyDay(0, time) : "";
+    const intervalMilliseconds =
+      request.interval === "1minute"
+        ? 60000
+        : request.interval === "5minute"
+          ? 300000
+          : null;
+    const sameIntradayBucket =
+      intervalMilliseconds !== null &&
+      Math.floor(time / intervalMilliseconds) ===
+        Math.floor(previous / intervalMilliseconds);
     if (
       !Number.isFinite(time) ||
       time <= previous ||
       day < request.from ||
       day > request.to ||
+      (intervalMilliseconds !== null &&
+        (time % intervalMilliseconds !== 0 || sameIntradayBucket)) ||
       [candle.open, candle.high, candle.low, candle.close].some(
         (value) => !Number.isFinite(value) || value <= 0 || value > 100000000,
       ) ||

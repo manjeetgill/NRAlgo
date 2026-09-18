@@ -66,11 +66,7 @@ function spreadPlan() {
 }
 
 test("paper and shadow dependency paths cannot select real execution with a flag", async () => {
-  for (const file of [
-    "backend/worker.ts",
-    "backend/simulator.ts",
-    "backend/live/shadow.ts",
-  ]) {
+  for (const file of ["backend/live/shadow.ts"]) {
     const source = readFileSync(
       new URL(`../../${file}`, import.meta.url),
       "utf8",

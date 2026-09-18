@@ -1,17 +1,36 @@
 /** Application data boundary. No account reports, credentials or order execution. */
 import type { MarketSnapshot, MarketSegment } from "./broker-data-access.js";
-import type { InstrumentCatalog } from "./instrument-master.js";
-import type { PaperQuote } from "./paper-trading-ledger.js";
+import type {
+  CatalogInstrument,
+  InstrumentSearch,
+} from "./instrument-master.js";
+import type { PaperInput, PaperQuote } from "./paper-trading-ledger.js";
 import type {
   HistoricalRequest,
   HistoryInterval,
 } from "./historical-market-data.js";
 
 export type MarketDataSession = { userId: string; sessionHash: string };
-export type InstrumentDirectory = Pick<
-  InstrumentCatalog,
-  "isFresh" | "search" | "resolveResearch" | "validate"
->;
+/** Provider-owned contract directory. Callers never pass a broker name or assume token semantics. */
+export interface InstrumentDirectory {
+  isFresh(market: "cash" | "options"): boolean;
+  search(
+    input: InstrumentSearch,
+  ): ReturnType<import("./instrument-master.js").InstrumentCatalog["search"]>;
+  resolve(
+    market: "cash" | "options",
+    identity: {
+      stockCode: string;
+      expiryDate?: string;
+      right?: string;
+      strikePrice?: number;
+    },
+  ): CatalogInstrument;
+  validate(
+    input: Pick<PaperInput, "instrument" | "option" | "masterToken">,
+    quantity?: number,
+  ): void;
+}
 export type PriceSubscription = {
   kind: "touchline";
   mode: "subscribe";
@@ -35,8 +54,6 @@ export interface MarketDataProvider {
     live: boolean;
     historyIntervals: readonly HistoryInterval[];
     requiresBrokerConnection: boolean;
-    /** Existing saved tokens belong to this namespace, not to the selected source. */
-    instrumentNamespace: string;
   };
   readonly instruments: InstrumentDirectory;
   isConnected(userId: string, sessionHash: string): boolean;
@@ -70,6 +87,7 @@ export interface MarketDataProvider {
     userId: string,
     sessionHash: string,
     request: HistoricalRequest,
+    signal: AbortSignal,
   ): Promise<unknown>;
   startPriceFeed(
     userId: string,
@@ -90,13 +108,6 @@ export function selectMarketDataProvider(
   const provider = providers.find((candidate) => candidate.id === id);
   if (!provider) {
     throw new Error(`Unsupported market-data provider: ${id}`);
-  }
-  // Existing database records and account positions use Kotak contract identities.
-  // A new adapter must explicitly map these to its own tokens, not reuse token numbers.
-  if (provider.capabilities.instrumentNamespace !== "kotak") {
-    throw new Error(
-      "Market-data adapter must map the existing kotak instrument namespace.",
-    );
   }
   return provider;
 }

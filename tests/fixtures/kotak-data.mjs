@@ -103,14 +103,18 @@ export function fakeKotakData(calls = [], socketFactory) {
     }
     if (url.includes("/historical/details?")) {
       const params = new URL(url).searchParams,
-        day = params.get("fromdate");
+        day = params.get("fromdate"),
+        interval = params.get("interval"),
+        intervalMilliseconds = interval === "1min" ? 60000 : 300000;
       const start = Date.parse(`${day}T09:15:00+05:30`);
       return {
         status: "success",
-        interval: "5min",
+        interval,
         data: {
           candles: Array.from({ length: 75 }, (_, i) => [
-            new Date(start + i * 300000).toISOString().replace(".000Z", "Z"),
+            new Date(start + i * intervalMilliseconds)
+              .toISOString()
+              .replace(".000Z", "Z"),
             100 + i,
             105 + i,
             99 + i,
@@ -187,22 +191,49 @@ export function fakeIndexFeedSocket(url) {
               data: JSON.stringify({
                 message_code: 1117,
                 format: "native_batch",
-                exchanges: { nse_cm: { divider: 100 } },
+                exchanges: {
+                  nse_cm: { divider: 100 },
+                  nse_fo: { divider: 100 },
+                },
               }),
             }),
           ),
         );
         return;
       }
-      if (
-        !["subscribeIndices", "snapshotIndices", "unsubscribeIndices"].includes(
+      const optionRequest =
+        ["subscribeScrips", "snapshotScrips", "unsubscribeScrips"].includes(
           row.event,
-        ) ||
-        row.inputtoken !== "nse_cm|Nifty 50"
-      ) {
+        ) && row.inputtoken === "nse_fo|123,nse_fo|124";
+      const indexRequest =
+        ["subscribeIndices", "snapshotIndices", "unsubscribeIndices"].includes(
+          row.event,
+        ) && row.inputtoken === "nse_cm|Nifty 50";
+      if (!optionRequest && !indexRequest) {
         throw new Error("Unexpected fake feed control.");
       }
-      if (row.event === "unsubscribeIndices") {
+      if (row.event.startsWith("unsubscribe")) {
+        return;
+      }
+      if (optionRequest) {
+        for (const token of [123, 124]) {
+          const packet = Buffer.alloc(54);
+          packet.writeUInt16LE(54);
+          packet.writeUInt16LE(7208, 2);
+          packet[4] = 2;
+          packet[5] = 1;
+          packet.writeUInt32LE(token, 9);
+          packet.writeUInt32LE(token === 123 ? 12345 : 5432, 21);
+          queueMicrotask(() => {
+            if (!this.closed) {
+              this.dispatchEvent(
+                new MessageEvent("message", {
+                  data: Uint8Array.from(packet).buffer,
+                }),
+              );
+            }
+          });
+        }
         return;
       }
       const packet = Buffer.alloc(87);

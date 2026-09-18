@@ -8,24 +8,15 @@ import { createPostgresTestStore } from "../helpers/postgres.mjs";
 import { fakeInstrumentCatalog } from "../fixtures/instruments.mjs";
 import { fakeKotakData } from "../fixtures/kotak-data.mjs";
 
-test("provider selection is explicit and rejects unconverted token namespaces", () => {
+test("provider selection is explicit without imposing another adapter's token namespace", () => {
   const provider = createKotakMarketDataProvider(fakeKotakData());
   assert.equal(selectMarketDataProvider("kotak", [provider]), provider);
   assert.throws(
     () => selectMarketDataProvider("unknown", [provider]),
     /Unsupported/,
   );
-  assert.throws(
-    () =>
-      selectMarketDataProvider("other", [
-        {
-          ...provider,
-          id: "other",
-          capabilities: { instrumentNamespace: "other" },
-        },
-      ]),
-    /namespace/,
-  );
+  const independent = { ...provider, id: "other" };
+  assert.equal(selectMarketDataProvider("other", [independent]), independent);
   assert.equal("getPortfolioRows" in provider, false);
   assert.equal("getAccountReport" in provider, false);
   assert.equal("connect" in provider, false);
@@ -55,7 +46,6 @@ test("independent data adapter serves chain and ticks without a broker account; 
       live: true,
       historyIntervals: ["5minute"],
       requiresBrokerConnection: false,
-      instrumentNamespace: "kotak",
     },
     isConnected: () => true,
     prepareInstruments: async () => {},

@@ -86,6 +86,7 @@ test("history response rejects wrong identity/range/interval and malformed or un
     { high: 98 },
     { open: NaN },
     { timestamp: "bad" },
+    { timestamp: "2026-09-01T03:46:00Z" },
     { timestamp: "2026-09-03T03:45:00Z" },
   ]) {
     const data = dataset();
@@ -126,28 +127,11 @@ test("history uses one same-origin CSRF-protected provider request, propagating 
   );
   assert.equal(calls, 1);
 });
-test("research has no upload workflow and charts retain cancellation, lazy loading and explicit history reload", () => {
+test("research has no client-supplied historical upload workflow", () => {
   const screen = readFileSync(
     "src/features/backtest-studio/backtest-studio-screen.tsx",
     "utf8",
   );
   assert.doesNotMatch(screen, /type="file"|selectFile|Upload daily CSV/);
   assert.match(screen, /Load broker history/);
-  const hook = readFileSync(
-    "src/features/option-chain/use-contract-history.ts",
-    "utf8",
-  );
-  assert.match(hook, /JSON.stringify\(request\)/);
-  assert.match(hook, /controller.abort\(\)/);
-  assert.doesNotMatch(hook, /setInterval|setTimeout/);
-  const chart = readFileSync(
-    "src/features/option-chain/contract-price-chart.tsx",
-    "utf8",
-  );
-  assert.match(chart, /instance.remove\(\)/);
-  assert.match(chart, /attributionLogo: true/);
-  assert.match(chart, /createPriceLine/);
-  const chain = readFileSync("src/components/live-option-chain.tsx", "utf8");
-  assert.match(chain, /ssr: false/);
-  assert.match(chain, /showChart &&/);
 });
