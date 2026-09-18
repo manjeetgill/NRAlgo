@@ -11,6 +11,7 @@ export function useBrokerConnection(
   const [connected, setConnected] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [checkedAt, setCheckedAt] = useState<number | null>(null);
   const generation = useRef(0);
   const pending = useRef(false);
 
@@ -30,6 +31,7 @@ export function useBrokerConnection(
         ) => {
           if (version === generation.current) {
             setConnected(status);
+            setCheckedAt(Date.now());
           }
         },
       )
@@ -53,6 +55,37 @@ export function useBrokerConnection(
       requestGeneration.current++;
     };
   }, [adapter, csrf]);
+  /** Inspect server-side session health on user intent; this never authenticates or arms trading. */
+  const refreshStatus = useCallback(async () => {
+    if (pending.current) {
+      return;
+    }
+    pending.current = true;
+    const version = ++generation.current;
+    setBusy(true);
+    setError("");
+    try {
+      const status = await adapter.loadStatus();
+      if (version === generation.current) {
+        setConnected(status);
+        setCheckedAt(Date.now());
+      }
+    } catch (failure) {
+      if (version === generation.current) {
+        setConnected(null);
+        setError(
+          failure instanceof Error
+            ? failure.message
+            : "Session status unavailable.",
+        );
+      }
+    } finally {
+      if (version === generation.current) {
+        pending.current = false;
+        setBusy(false);
+      }
+    }
+  }, [adapter]);
 
   /** Explicit user action only: credentials mean connect, otherwise disconnect. Never retry automatically. */
   const changeConnection = useCallback(
@@ -74,6 +107,8 @@ export function useBrokerConnection(
         const status = await adapter.loadStatus();
         if (version === generation.current) {
           setConnected(status);
+          setCheckedAt(Date.now());
+          return status === Boolean(credentials);
         }
       } catch (failure) {
         if (version === generation.current) {
@@ -93,5 +128,5 @@ export function useBrokerConnection(
     },
     [adapter, csrf],
   );
-  return { connected, busy, error, changeConnection };
+  return { connected, busy, error, checkedAt, refreshStatus, changeConnection };
 }

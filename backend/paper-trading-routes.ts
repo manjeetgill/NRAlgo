@@ -275,7 +275,7 @@ export function registerPaperRoutes(
         .parse(req.body);
       const session = res.locals.session;
       if (!marketData.isConnected(session.user_id, session.token_hash)) {
-        fail(409, "Connect Kotak under Broker paper first.");
+        fail(409, "Connect Kotak under Broker connections first.");
       }
       await requestCoordinator.runExclusiveForUser(
         session.user_id,

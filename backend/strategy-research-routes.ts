@@ -100,7 +100,7 @@ export function registerResearchRoutes(
     session: { user_id: string; token_hash: string },
   ) {
     if (!brokerDataReader.isConnected(session.user_id, session.token_hash)) {
-      fail(409, "Connect Kotak under Broker paper first.");
+      fail(409, "Connect Kotak under Broker connections first.");
     }
     if (!catalog.isFresh("kotak", strategy.market)) {
       try {
