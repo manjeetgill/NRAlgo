@@ -17,7 +17,7 @@ export function useMarketFeed(csrf: string) {
       try {
         if (!document.hidden) {
           const result = await requestApiJson(
-            "/market/kotak/feed",
+            "/market/feed",
             "GET",
             undefined,
             csrf,

@@ -19,7 +19,8 @@ test("empty position strikes are stable and cached feed reads never load broker 
     ),
     "utf8",
   );
-  assert.match(feed, /\/market\/kotak\/feed/);
+  assert.match(feed, /\/market\/feed/);
+  assert.doesNotMatch(feed, /\/market\/kotak\/feed/);
   assert.doesNotMatch(feed, /\/reports|\/positions|\/quotes|setInterval/);
   assert.match(feed, /controller.abort\(\)/);
 });

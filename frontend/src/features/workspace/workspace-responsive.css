@@ -32,6 +32,9 @@
   width: min(490px, 100vw);
   border-radius: 12px 0 0 12px;
 }
+.contract-drawer-chart {
+  width: min(960px, 100vw);
+}
 .chain-price-button {
   border: 0;
   background: transparent;

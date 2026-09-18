@@ -3,6 +3,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { requestApiJson } from "@/lib/api";
 import type { BrokerInstrument } from "./instrument-picker";
 import { Button } from "./ui/button";
+import dynamic from "next/dynamic";
+
+/** Load the canvas library only when a user opens a contract chart; never render it on the server. */
+const ContractPriceChart = dynamic(
+  () => import("@/features/option-chain/contract-price-chart"),
+  {
+    ssr: false,
+    loading: () => <p role="status">Loading chart…</p>,
+  },
+);
 
 export type LiveTick = {
   exchange: string;
@@ -60,6 +70,7 @@ export function LiveOptionChain({
 }) {
   const detailDialog = useRef<HTMLDialogElement>(null);
   const [selectedToken, setSelectedToken] = useState("");
+  const [showChart, setShowChart] = useState(false);
   const [draftError, setDraftError] = useState("");
   const [index, setIndex] = useState("NIFTY");
   const [members, setMembers] = useState<{
@@ -438,9 +449,12 @@ export function LiveOptionChain({
     <section className="live-option-chain" aria-label="Live option chain">
       <dialog
         ref={detailDialog}
-        className="workspace-dialog contract-drawer"
+        className={`workspace-dialog contract-drawer${showChart ? " contract-drawer-chart" : ""}`}
         aria-labelledby="contract-detail-title"
-        onClose={() => setSelectedToken("")}
+        onClose={() => {
+          setSelectedToken("");
+          setShowChart(false);
+        }}
       >
         <div className="screen-toolbar">
           <h2 id="contract-detail-title">Strike detail</h2>
@@ -464,6 +478,20 @@ export function LiveOptionChain({
                 ? "Recent quote"
                 : "Snapshot / stale"}
             </p>
+            <Button
+              variant="secondary"
+              onClick={() => setShowChart((value) => !value)}
+            >
+              {showChart ? "Hide price chart" : "Open price chart"}
+            </Button>
+            {showChart && (
+              <ContractPriceChart
+                key={selected.instrument}
+                instrument={selected}
+                csrf={csrf}
+                tick={selectedTick}
+              />
+            )}
             <table>
               <thead>
                 <tr>
