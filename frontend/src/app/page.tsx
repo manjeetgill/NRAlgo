@@ -38,6 +38,7 @@ import {
   Zap,
 } from "lucide-react";
 import { requestApiJson } from "@/lib/api";
+import { LiveOrdersScreen } from "@/features/orders/live-orders-screen";
 import { OverviewScreen } from "@/features/overview/overview-screen";
 import {
   getTradingMode,
@@ -570,32 +571,30 @@ export default function TradingWorkspacePage() {
             >
               <Icon size={18} />
               <span>{label}</span>
-              {name === "Strategies" && <b>{workspace.strategies.length}</b>}
+              {name === "Strategies" && isPaperMode && (
+                <b>{workspace.strategies.length}</b>
+              )}
             </button>
           ))}
         </nav>
         <div className="sidebar-bottom">
-          {isPaperMode && (
-            <div className="build-card">
-              <span className="tiny-label">BUILT TO LEARN</span>
-              <strong>Your ideas, in JavaScript.</strong>
-              <p>Explore the tools behind your workspace.</p>
-              <button onClick={() => setPage("Learn the stack")}>
-                Explore the stack <ArrowUpRight size={14} />
-              </button>
-            </div>
-          )}
-          {isPaperMode && (
-            <button
-              className="learn-link"
-              aria-label="Learning guide"
-              title="Learning guide"
-              onClick={() => setPage("Learn the stack")}
-            >
-              <CircleHelp size={17} />
-              <span>Learning guide</span>
+          <div className="build-card">
+            <span className="tiny-label">BUILT TO LEARN</span>
+            <strong>Your ideas, in JavaScript.</strong>
+            <p>Explore the tools behind your workspace.</p>
+            <button onClick={() => setPage("Learn the stack")}>
+              Explore the stack <ArrowUpRight size={14} />
             </button>
-          )}
+          </div>
+          <button
+            className="learn-link"
+            aria-label="Learning guide"
+            title="Learning guide"
+            onClick={() => setPage("Learn the stack")}
+          >
+            <CircleHelp size={17} />
+            <span>Learning guide</span>
+          </button>
           <div className="profile">
             <span className="avatar">
               {workspace.username[0].toUpperCase()}
@@ -663,7 +662,9 @@ export default function TradingWorkspacePage() {
                       : page === "Brokers" || page === "Market data"
                         ? "Connect Kotak Neo and explore market data."
                         : page === "Orders & trades"
-                          ? "Every simulated fill, with its strategy and execution price."
+                          ? isPaperMode
+                            ? "Every simulated fill, with its strategy and execution price."
+                            : "Live order states and filled quantities recorded by this workspace."
                           : page === "Activity log"
                             ? "A timeline of what changed in your workspace."
                             : "Build a useful project. Learn how each piece fits."}
@@ -700,11 +701,16 @@ export default function TradingWorkspacePage() {
               ) : (
                 <Button
                   onClick={
-                    /** Live workspace navigation never opens a simulated-strategy form. */ () =>
-                      setPage("Brokers")
+                    /** Research authoring stays available without opening the paper-account strategy form. */ () =>
+                      setPage(
+                        page === "Strategies" ? "Strategy lab" : "Brokers",
+                      )
                   }
                 >
-                  <Wallet size={17} /> Broker connection
+                  <Wallet size={17} />{" "}
+                  {page === "Strategies"
+                    ? "Open strategy lab"
+                    : "Broker connection"}
                 </Button>
               )}
             </div>
@@ -772,7 +778,10 @@ export default function TradingWorkspacePage() {
               onExploreOptionChain={onExploreOptionChain}
             />
           )}
-          {page === "Strategies" && (
+          {page === "Strategies" && !isPaperMode && (
+            <StrategyLabPanel csrf={workspace.csrf} />
+          )}
+          {page === "Strategies" && isPaperMode && (
             <section className="panel strategies-panel">
               <div className="panel-heading">
                 <div>
@@ -799,7 +808,10 @@ export default function TradingWorkspacePage() {
           {page === "Account & security" && (
             <AccountPanel csrf={workspace.csrf} onRefresh={refreshWorkspace} />
           )}
-          {page === "Orders & trades" && (
+          {page === "Orders & trades" && !isPaperMode && (
+            <LiveOrdersScreen key={workspace.csrf} />
+          )}
+          {page === "Orders & trades" && isPaperMode && (
             <section className="panel">
               <div className="panel-heading">
                 <div>
@@ -911,7 +923,7 @@ export default function TradingWorkspacePage() {
                   Zap,
                   "02 / API",
                   "Node.js + Express + TypeScript",
-                  "Validates strategy settings, checks your owner session, and queues paper work. The browser never runs trading code.",
+                  "Validates strategy settings, checks your owner session, and enforces permissions. The browser never holds broker secrets.",
                   "backend/main.ts",
                 ],
                 [
@@ -924,9 +936,9 @@ export default function TradingWorkspacePage() {
                 [
                   Activity,
                   "04 / EXECUTION",
-                  "Node.js paper worker",
-                  "A separate process reads queued jobs, runs a deterministic price replay, and stores fills. It continues if you close the browser.",
-                  "backend/worker.ts",
+                  "Broker execution service",
+                  "The server validates risk limits and explicit authorization before sending live orders. Research results never place orders automatically.",
+                  "backend/live/execution.ts",
                 ],
               ].map(([Icon, label, title, description, file]) => {
                 const Symbol = Icon as typeof Code2;

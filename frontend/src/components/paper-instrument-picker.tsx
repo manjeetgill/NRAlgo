@@ -248,7 +248,7 @@ export function PaperInstrumentPicker({
     }
   }
   return (
-    <section aria-label="Paper instrument picker">
+    <section aria-label="Broker instrument picker">
       <h4>
         {market === "options"
           ? "Option contract chain"
@@ -256,7 +256,7 @@ export function PaperInstrumentPicker({
       </h4>
       <p>
         Search broker master data, then select the exact contract. No quotes are
-        fetched for the whole chain. Use Refresh paper quotes after selection to
+        fetched for the whole chain. Use the quote controls after selection to
         check the chosen instrument. Only NSE EQ cash and calls/puts with lot
         sizes up to 10,000 units are supported.
       </p>

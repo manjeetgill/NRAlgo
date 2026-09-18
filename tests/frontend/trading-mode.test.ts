@@ -65,15 +65,16 @@ test("paper requires explicit true; absent/invalid settings select live-only", /
   }
 });
 
-test("live navigation excludes every simulated workflow", /** Gate both menu items and direct/stale route selection with the same policy. */ () => {
+test("live navigation excludes only paper trading and retains shared tools", /** Gate the wallet, not the strategy/research or live-order workflows. */ () => {
+  assert.equal(isTradingPageVisible("Broker paper", "live"), false);
+  assert.equal(isTradingPageVisible("Broker paper", "paper"), true);
   for (const page of [
     "Strategies",
     "Strategy lab",
-    "Broker paper",
     "Orders & trades",
     "Learn the stack",
   ]) {
-    assert.equal(isTradingPageVisible(page, "live"), false);
+    assert.equal(isTradingPageVisible(page, "live"), true);
     assert.equal(isTradingPageVisible(page, "paper"), true);
   }
   for (const page of [
@@ -111,15 +112,22 @@ test("paper mode reads only its ledger", /** Preserve the true-setting workflow 
   assert.deepEqual(calls, ["paper"]);
 });
 
-test("live activity hides legacy simulator messages but retains security and broker events", /** Filtering is presentational and leaves the paper-mode audit intact. */ () => {
+test("live activity hides paper account messages but retains research, security and broker events", /** Filtering is presentational and leaves the paper-mode audit intact. */ () => {
   for (const message of [
     "Private paper workspace initialized.",
-    "Saved a research strategy (no execution enabled).",
-    "Replay completed.",
+    "Simulated fill recorded.",
   ]) {
     assert.equal(isTradingEventVisible(message, "live"), false);
     assert.equal(isTradingEventVisible(message, "paper"), true);
   }
   assert.equal(isTradingEventVisible("MFA enabled.", "live"), true);
+  assert.equal(
+    isTradingEventVisible(
+      "Saved a research strategy (no execution enabled).",
+      "live",
+    ),
+    true,
+  );
+  assert.equal(isTradingEventVisible("Replay completed.", "live"), true);
   assert.equal(isTradingEventVisible("Live order acknowledged.", "live"), true);
 });

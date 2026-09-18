@@ -6,28 +6,15 @@ export function getTradingMode(paperTradingEnabled: unknown): TradingMode {
   return paperTradingEnabled === true ? "paper" : "live";
 }
 
-/** Hide complete workflows rather than just their sidebar labels. These screens currently simulate orders. */
+/** Only the wallet-specific screen is removed in live mode; research and shared tools remain available. */
 export function isTradingPageVisible(page: string, mode: TradingMode): boolean {
-  const paperPages = [
-    "Strategies",
-    "Strategy lab",
-    "Broker paper",
-    "Orders & trades",
-    "Learn the stack",
-  ];
-  return mode === "paper"
-    ? page !== "Live trading"
-    : !paperPages.includes(page);
+  return mode === "paper" ? page !== "Live trading" : page !== "Broker paper";
 }
 
-/** Legacy audit rows lack a mode column. Hide explicitly simulated/research messages in live views only.
- * The durable audit is untouched; account/security and broker events remain available. */
+/** Hide explicit paper-account messages, not research/backtest activity. The durable audit is untouched. */
 export function isTradingEventVisible(
   message: string,
   mode: TradingMode,
 ): boolean {
-  return (
-    mode === "paper" ||
-    !/\b(paper|simulated|simulation|replay|research)\b/i.test(message)
-  );
+  return mode === "paper" || !/\b(paper|simulated)\b/i.test(message);
 }

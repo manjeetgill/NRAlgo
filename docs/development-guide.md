@@ -190,9 +190,15 @@ Set `PAPER_TRADING_ENABLED` in the root `.env` (or the API container environment
 then restart the API. This is a runtime setting returned by `/api/workspace`;
 no frontend rebuild is needed.
 
-- `false` (default): live-only navigation, account balances, positions, and order controls.
-  Simulated wallets, replays, strategy forms, virtual balances and explicitly simulated
-  activity messages are not rendered. The live Overview never loads a virtual wallet.
+- `false` (default): hide only paper-trading features. Strategies, Strategy Lab,
+  Orders & Trades, market data and the learning guide remain available. Overview
+  reads only real account funds/positions and never loads a virtual wallet.
+  Strategies uses the research editor; backtests remain explicitly research and
+  never become live orders automatically. Orders & Trades reads `/api/live/status`
+  on entry or explicit refresh and shows only app-managed live OMS records, not
+  replay fills or the broker's complete trade book. Missing history is unavailable,
+  not an empty account. Explicitly paper/simulated audit messages are hidden;
+  research/backtest and security events remain visible.
 - `true`: the paper workspace, virtual balance and research tools are shown instead.
 
 This setting only chooses the workspace UI. It does **not** enable real-money execution,
