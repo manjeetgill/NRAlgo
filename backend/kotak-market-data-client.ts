@@ -1,8 +1,10 @@
-/** Logs users into Kotak and reads their market data and portfolio. It cannot send orders.
+/** Logs users into Kotak and reads their market data and portfolio.
+ * A server-only session capability is consumed by the isolated live execution adapter.
  * TOTP/MPIN are used once and not persisted. Tokens live only in a session-bound memory registry.
  * Reference: Kotak-Neo/Kotak-Neo docs/authentication.md and market-data-apis/quotes.md.
  */
 import { z } from "zod";
+import { createHash } from "node:crypto";
 import type { BrokerMarketDataReader } from "./broker-data-access.js";
 import type { PaperQuote } from "./paper-trading-ledger.js";
 import { normalizePortfolioRows } from "./broker-portfolio-normalizer.js";
@@ -222,7 +224,9 @@ export const sendKotakHttpRequest: KotakHttpRequest = async (
     const response = await fetch(url, {
       ...init,
       redirect: "error",
-      signal: AbortSignal.timeout(10000),
+      signal: init.signal
+        ? AbortSignal.any([init.signal, AbortSignal.timeout(10000)])
+        : AbortSignal.timeout(10000),
     });
     if (!response.body)
       throw new KotakTransportError(
@@ -512,6 +516,64 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
       session.sessionHash === sessionHash,
     );
   }
+  /** Server-only capability; credentials never leave this closure. No HTTP route accepts
+   * arbitrary paths. Capturing the exact session object fences reconnects and revocations. */
+  executionSession(userId: string, sessionHash: string) {
+    if (!this.isConnected(userId, sessionHash))
+      throw new Error("Connect Kotak first");
+    const session = this.sessions.get(userId)!;
+    const isCurrent = () =>
+      this.sessions.get(userId) === session &&
+      this.isConnected(userId, sessionHash);
+    return {
+      accountBinding: `kotak:${createHash("sha256").update(session.ucc.trim().toUpperCase()).digest("hex")}`,
+      isCurrent,
+      request: async (
+        path: string,
+        body: Record<string, string> | undefined,
+        signal: AbortSignal,
+      ) => {
+        const reads = [
+          "/quick/user/orders",
+          "/quick/user/positions",
+          "/quick/user/limits",
+        ];
+        const writes = ["/quick/order/rule/ms/place", "/quick/order/cancel"];
+        if (
+          !isCurrent() ||
+          signal.aborted ||
+          ![...reads, ...writes].includes(path)
+        )
+          throw new Error("Live broker session unavailable");
+        if (
+          (path === "/quick/user/limits" || writes.includes(path)) !==
+          Boolean(body)
+        )
+          throw new Error("Invalid broker request");
+        const result = await this.transport(`${session.baseUrl}${path}`, {
+          method: body ? "POST" : "GET",
+          signal,
+          headers: {
+            Auth: session.token,
+            Sid: session.sid,
+            Authorization: session.accessToken,
+            "Content-Type": "application/x-www-form-urlencoded",
+            accept: "application/json",
+          },
+          ...(body
+            ? {
+                body: new URLSearchParams({
+                  jData: JSON.stringify(body),
+                }).toString(),
+              }
+            : {}),
+        });
+        if (!isCurrent() || signal.aborted)
+          throw new Error("Live broker session changed");
+        return result;
+      },
+    };
+  }
   /** One bounded snapshot request for server-resolved NFO contracts. Missing fields stay null;
    * never use a display snapshot as a paper fill or substitute another contract's price.
    * Kotak documents up to 50 instruments per quotes request in its current SDK.
@@ -672,6 +734,7 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
     sessionHash: string,
     instrument: string,
     segment: "nse_cm" | "nse_fo" = "nse_cm",
+    signal?: AbortSignal,
   ) {
     if (!this.isConnected(userId, sessionHash))
       throw new Error("Connect Kotak in this app session first.");
@@ -685,6 +748,7 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
         `${session.baseUrl}/script-details/1.0/quotes/neosymbol/${encodeURIComponent(`${segment}|${instrument}`)}/all`,
         {
           method: "GET",
+          signal,
           headers: {
             Authorization: session.accessToken,
             "Content-Type": "application/json",

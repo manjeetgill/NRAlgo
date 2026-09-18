@@ -44,6 +44,7 @@ import { AccountPanel } from "@/components/account-panel";
 import { StrategyLabPanel } from "@/components/strategy-lab-panel";
 import { PaperTradingPanel } from "@/components/paper-trading-panel";
 import { KotakAccountReports } from "@/components/kotak-account-reports";
+import { LiveExecutionPanel } from "@/components/live-execution-panel";
 import { KotakMarketDataPanel } from "@/components/kotak-market-data-panel";
 
 type Strategy = {
@@ -419,7 +420,7 @@ export default function TradingWorkspacePage() {
     { name: "Brokers" as Page, icon: Wallet },
     {
       name: "Live trading" as Page,
-      label: "Live positions",
+      label: "Live trading",
       icon: ShieldCheck,
     },
     { name: "Account & security" as Page, icon: ShieldCheck },
@@ -634,13 +635,15 @@ export default function TradingWorkspacePage() {
                 <p>
                   {page === "Strategies"
                     ? "Turn your ideas into repeatable rules."
-                    : page === "Brokers" || page === "Market data"
-                      ? "Connect Kotak Neo and explore market data."
-                      : page === "Orders & trades"
-                        ? "Every simulated fill, with its strategy and execution price."
-                        : page === "Activity log"
-                          ? "A timeline of what changed in your workspace."
-                          : "Build a useful project. Learn how each piece fits."}
+                    : page === "Live trading"
+                      ? "Separate live execution, explicit confirmations, and broker reconciliation."
+                      : page === "Brokers" || page === "Market data"
+                        ? "Connect Kotak Neo and explore market data."
+                        : page === "Orders & trades"
+                          ? "Every simulated fill, with its strategy and execution price."
+                          : page === "Activity log"
+                            ? "A timeline of what changed in your workspace."
+                            : "Build a useful project. Learn how each piece fits."}
                 </p>
               </div>
               <Button
@@ -718,7 +721,10 @@ export default function TradingWorkspacePage() {
             />
           )}
           {page === "Live trading" && (
-            <KotakAccountReports csrf={workspace.csrf} loadOnMount />
+            <>
+              <LiveExecutionPanel csrf={workspace.csrf} />
+              <KotakAccountReports csrf={workspace.csrf} loadOnMount />
+            </>
           )}
           {page === "Strategy lab" && (
             <StrategyLabPanel csrf={workspace.csrf} />

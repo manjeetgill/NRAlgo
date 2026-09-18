@@ -25,10 +25,17 @@ import {
 import { BrokerRequestCoordinator } from "./broker-data-access.js";
 import { registerResearchRoutes } from "./strategy-research-routes.js";
 import { registerPaperRoutes } from "./paper-trading-routes.js";
+import { createKotakMarketDataProvider } from "./kotak-market-data-provider.js";
+import {
+  selectMarketDataProvider,
+  type MarketDataProvider,
+} from "./market-data-provider.js";
 import { registerKotakMarketDataRoutes } from "./kotak-market-data-routes.js";
 import { InstrumentCatalog } from "./instrument-master.js";
 import { KotakMarketDataClient } from "./kotak-market-data-client.js";
 import { registerMfaRoutes, verifySecondFactor } from "./mfa.js";
+import { KotakLiveManager } from "./live/kotak-live-manager.js";
+import { registerKotakLiveRoutes } from "./live/kotak-live-routes.js";
 import type { User, LoginSession, Job, Strategy, Settings } from "./types.js";
 
 declare global {
@@ -69,6 +76,7 @@ export function createApiApplication(
   env: NodeJS.ProcessEnv = process.env,
   kotakData?: KotakMarketDataClient,
   instrumentCatalog?: InstrumentCatalog,
+  additionalMarketDataProviders: readonly MarketDataProvider[] = [],
 ) {
   const production =
     env.APP_ENV === "production" || env.NODE_ENV === "production";
@@ -90,6 +98,23 @@ export function createApiApplication(
   const kotakClient = kotakData || new KotakMarketDataClient();
   // Share one public catalog between paper tickets and research contract resolution.
   const catalog = instrumentCatalog || new InstrumentCatalog();
+  const liveManager = new KotakLiveManager(
+    store,
+    kotakClient,
+    catalog,
+    env,
+    vault,
+  );
+  const kotakMarketData = createKotakMarketDataProvider(kotakClient, catalog);
+  const marketData = selectMarketDataProvider(
+    env.MARKET_DATA_PROVIDER || "kotak",
+    [kotakMarketData, ...additionalMarketDataProviders],
+  );
+  function disconnectUserData(userId: string) {
+    liveManager.revoke(userId);
+    marketData.disconnect(userId);
+    if (marketData !== kotakMarketData) kotakClient.disconnect(userId);
+  }
   const openRegistration =
     env.ALLOW_PUBLIC_REGISTRATION === "true" ||
     (!production && env.ALLOW_PUBLIC_REGISTRATION !== "false");
@@ -97,7 +122,9 @@ export function createApiApplication(
     openRegistration || Boolean(env.REGISTRATION_TOKEN);
   const app = express();
   app.locals.shutdown = async () => {
-    kotakClient.close();
+    await liveManager.close();
+    marketData.close();
+    if (marketData !== kotakMarketData) kotakClient.close();
   };
   app.disable("x-powered-by");
   app.use((req, res, next) => {
@@ -183,8 +210,10 @@ export function createApiApplication(
       res.json({
         status: "ok",
         service: "nexus-node",
-        live_enabled: false,
-        live_capability: "disabled-paper-only",
+        live_enabled: liveManager.enabled,
+        live_capability: liveManager.enabled
+          ? "kotak-limit-orders-explicit-arm"
+          : "disabled-paper-only",
         worker: worker ? "healthy" : "unavailable",
       });
     } catch {
@@ -348,7 +377,7 @@ export function createApiApplication(
         res.locals.session.token_hash,
       ]);
     });
-    kotakClient.disconnect(res.locals.session.user_id);
+    disconnectUserData(res.locals.session.user_id);
     res
       .clearCookie("nexus_session", {
         path: "/",
@@ -367,7 +396,7 @@ export function createApiApplication(
         token_hash,
       ]);
     });
-    kotakClient.disconnect(user_id);
+    disconnectUserData(user_id);
     res.json({ ok: true });
   });
   // Password changes require current-password/MFA proof and replace all existing sessions.
@@ -415,7 +444,7 @@ export function createApiApplication(
       );
       return issueSession(query, res, userId);
     });
-    kotakClient.disconnect(userId);
+    disconnectUserData(userId);
     res.json(result);
   });
   // Browser snapshots are bounded and tenant-scoped; broker credentials never appear here.
@@ -424,7 +453,7 @@ export function createApiApplication(
     res.json(
       await store.transaction(async (query) => ({
         live_submission_enabled: false,
-        live_configured: false,
+        live_configured: liveManager.enabled,
         username: (
           await query<User>("SELECT username FROM users WHERE id=$1", [userId])
         )[0].username,
@@ -554,23 +583,17 @@ export function createApiApplication(
     res.json({ ok: true });
   });
   registerMfaRoutes(app, store, vault, (userId) => {
-    kotakClient.disconnect(userId);
+    disconnectUserData(userId);
   });
-  registerResearchRoutes(
-    app,
-    store,
-    brokerAccess,
-    production,
-    kotakClient,
-    catalog,
-  );
+  registerResearchRoutes(app, store, brokerAccess, production, marketData);
+  registerKotakLiveRoutes(app, liveManager);
   registerPaperRoutes(
     app,
     store,
     brokerAccess,
     kotakClient,
     production,
-    catalog,
+    marketData,
   );
   registerKotakMarketDataRoutes(
     app,

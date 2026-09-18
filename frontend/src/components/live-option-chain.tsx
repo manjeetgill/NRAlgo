@@ -118,7 +118,7 @@ export function LiveOptionChain({
       try {
         // Every NSE call trading symbol ends in CE. Facets cover the matching
         // master, not just the 50 returned contracts, so this prefills symbols.
-        const result = await read("/paper/kotak/instruments", {
+        const result = await read("/market/instruments", {
           market: "options",
           query: "CE",
           offset: 0,
@@ -141,7 +141,7 @@ export function LiveOptionChain({
     setExpiries([]);
     setExpiry("");
     setOffset(-1);
-    void read("/paper/kotak/option-chain", { underlying, offset: 0 })
+    void read("/market/option-chain", { underlying, offset: 0 })
       .then((result) => {
         if (current !== generation.current) return;
         setExpiries(result.expiries);
@@ -174,7 +174,7 @@ export function LiveOptionChain({
           // The master resolves exact identities even when native chain quotes are unavailable.
           // Seek around an open position (or the middle of the listed strikes), never the first deep-ITM page.
           const search = (start: number) =>
-            read("/paper/kotak/instruments", {
+            read("/market/instruments", {
               market: "options",
               query: underlying,
               underlying,
@@ -208,7 +208,7 @@ export function LiveOptionChain({
           }
           start -= start % 2;
         }
-        const result: Chain = await read("/paper/kotak/option-chain", {
+        const result: Chain = await read("/market/option-chain", {
           underlying,
           expiryDate: expiry,
           offset: start,
@@ -218,7 +218,7 @@ export function LiveOptionChain({
         setChain(result);
         if (result.items.length) {
           try {
-            await read("/paper/kotak/live-feed", {
+            await read("/market/live-feed", {
               instruments: result.items.map((item) => item.instrument),
             });
           } catch (failure) {

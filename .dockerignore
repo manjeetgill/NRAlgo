@@ -21,3 +21,12 @@ frontend/CLAUDE.md
 **/.DS_Store
 
 docs
+
+# Keep development documentation and tests in Git, not in deployment builds.
+**/README*
+**/readme*
+**/tests
+**/__tests__
+**/*.test.*
+**/*.spec.*
+.vscode

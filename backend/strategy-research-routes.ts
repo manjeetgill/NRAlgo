@@ -6,11 +6,8 @@ import type { Express } from "express";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { type Store, lockWorkspaceSettings, audit, now } from "./database.js";
-import {
-  BrokerRequestCoordinator,
-  type BrokerMarketDataReader,
-} from "./broker-data-access.js";
-import { InstrumentCatalog } from "./instrument-master.js";
+import { BrokerRequestCoordinator } from "./broker-data-access.js";
+import type { MarketDataProvider } from "./market-data-provider.js";
 import { fail, rateLimit } from "./security.js";
 import {
   researchStrategySchema,
@@ -74,9 +71,16 @@ export function registerResearchRoutes(
   store: Store,
   requestCoordinator: BrokerRequestCoordinator,
   requireMfa: boolean,
-  brokerDataReader: BrokerMarketDataReader,
-  catalog: InstrumentCatalog,
+  brokerDataReader: MarketDataProvider,
 ) {
+  const catalog = brokerDataReader.instruments;
+  function requireHistory(interval: "1minute" | "5minute") {
+    if (!brokerDataReader.capabilities.historyIntervals.includes(interval))
+      fail(
+        422,
+        "Selected data provider does not support this historical interval.",
+      );
+  }
   const researchLimit = rateLimit(
     30,
     60000,
@@ -94,17 +98,11 @@ export function registerResearchRoutes(
     if (!brokerDataReader.isConnected(session.user_id, session.token_hash))
       fail(409, "Connect Kotak under Broker paper first.");
     if (!catalog.isFresh("kotak", strategy.market)) {
-      await reserveBrokerRequestBudget(store, session.user_id, requireMfa);
-      await reserveBrokerRequestBudget(store, session.user_id, requireMfa);
       try {
-        await catalog.load(
-          "kotak",
+        await brokerDataReader.prepareInstruments(
+          { userId: session.user_id, sessionHash: session.token_hash },
           strategy.market,
-          await brokerDataReader.getInstrumentMasterUrl(
-            session.user_id,
-            session.token_hash,
-            strategy.market,
-          ),
+          () => reserveBrokerRequestBudget(store, session.user_id, requireMfa),
         );
       } catch {
         fail(
@@ -223,6 +221,7 @@ export function registerResearchRoutes(
       })
       .strict()
       .parse(req.body);
+    requireHistory(input.interval);
     const userId = res.locals.session.user_id,
       strategy = await loadUserResearchStrategy(userId, input.strategyId);
     if (Date.parse(`${input.day}T15:30:00+05:30`) > Date.now())
@@ -269,7 +268,10 @@ export function registerResearchRoutes(
       }
       let result;
       try {
-        result = simulateHistoricalBasket(strategy, histories, input.day);
+        result = {
+          ...simulateHistoricalBasket(strategy, histories, input.day),
+          dataSource: brokerDataReader.id,
+        };
       } catch (error) {
         return fail(422, (error as Error).message);
       }
@@ -311,6 +313,7 @@ export function registerResearchRoutes(
       })
       .strict()
       .parse(req.body);
+    requireHistory(input.interval);
     const days = [...new Set(input.days)].sort();
     if (days.length !== input.days.length)
       fail(422, "Duplicate dates in batch request.");
@@ -415,6 +418,7 @@ export function registerResearchRoutes(
       const summary = summarizeBacktestBatch(completed),
         id = randomUUID();
       const result = {
+        dataSource: brokerDataReader.id,
         mode: "batch" as const,
         interval: input.interval,
         requestedDays: days,

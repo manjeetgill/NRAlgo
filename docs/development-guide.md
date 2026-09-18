@@ -73,3 +73,113 @@ expire broker sessions and quotes; reconnect rather than bypassing freshness che
 After a refactor, run `make check`, `make build`, and `npm run test:browser`. Tests use fake brokers
 and isolated PostgreSQL schemas; they must never place a real order. A readability refactor must
 not change order matching, database data, public API payloads or broker authentication behavior.
+# Market-data adapters
+
+`backend/market-data-provider.ts` is the shared data boundary for instrument discovery,
+display quotes, simulated-fill quotes, history and the dashboard price feed.
+`backend/kotak-market-data-provider.ts` implements it using the existing Kotak client.
+`MARKET_DATA_PROVIDER=kotak` is the default; unknown providers fail startup.
+
+To add a source, implement `MarketDataProvider`, register it in the application
+composition root, then change configuration. Account login, positions and limits
+remain on the separate broker account dependency. No execution methods belong in
+the market-data interface. The Kotak-specific Market data explorer remains a
+broker diagnostic screen, not the shared application data API.
+
+Compatibility: saved strategies, paper wallets and account tokens retain their
+existing `kotak` instrument namespace. A replacement provider must explicitly
+resolve those exact contracts to its own tokens (and map responses back); it must
+not assume token numbers match. Providers with an unconverted namespace are
+rejected. Do not silently migrate stored positions or substitute expired contracts.
+
+Quotes use rupees for display and integer paise for simulated fills. History uses
+OHLC with an explicit timestamp/IST datetime accepted by the replay validator.
+Streaming records must preserve exchange + instrument identity, numeric `ltp`,
+arrival `receivedAt`, and `receivedRecently`; arrival freshness alone does not
+prove an executable quote. Use the stricter fill quote method for paper matching.
+All operations must enforce user/session ownership, and logout/MFA changes must
+release subscriptions. Missing/stale prices remain unavailable, not zero.
+
+Shared routes: `/api/market/provider`, `/api/market/instruments`,
+`/api/market/option-chain`, `/api/market/live-feed`, and `/api/market/feed`.
+Legacy paper URLs remain compatibility aliases. Feed reads use the adapter's
+memory cache, not repeated broker REST requests. A chain-only subscription does
+not need a position snapshot. Historical results record the selected data source.
+Capability checks reject unsupported live/history requests before fetching.
+
+This does not add historical storage, an independent paid feed, or offline Kotak
+history: Kotak still requires its authenticated session. Adapter replacement and
+account separation are covered by `tests/backend/market-data-provider.test.mjs`.
+
+## Kotak live execution (disabled by default)
+
+`main.ts` now mounts `live/kotak-live-routes.ts` after authentication and CSRF.
+`KotakLiveManager` binds the signed-in user's Kotak session and durable account
+to `KotakLiveAdapter` and the existing `LiveExecutionService`/risk engine.
+Paper/research do not import this execution path. Market-data selection does not
+change the execution broker.
+
+The **Live trading** page contains the real-money controls. Server activation
+requires `LIVE_TRADING_ENABLED=true` and `KOTAK_STATIC_IP_CONFIRMED=true`.
+Leave both false until the operator has registered the server's fixed outbound IP
+with Kotak and completed deployment validation. Kotak's current requirement is
+that authentication and order requests originate from the registered IP:
+https://www.kotakneo.com/platform/kotak-neo-trade-api/static-ip-details/
+Never enable these flags as part of tests. Run one API process (no replicas).
+
+Supported: manual NSE EQ CNC and long NSE option NRML LIMIT/DAY orders with
+current-master token, trading symbol, lot and tick validation. Prices/limits in
+the API are integer paise; quantities are exchange units, not lots. Sells must
+reduce a tracked long position. This is an app-side check, not a broker-native
+reduce-only flag: use a dedicated account and do not trade it concurrently from
+other clients. Futures, naked shorts, MTF/MIS, market/stop/AMO orders, modification,
+automatic strategy execution and multi-leg live submission are not exposed.
+The existing spread orchestrator is still offline-only pending segment margin
+and execution-policy validation.
+
+Flow (all mutations require the session CSRF header):
+
+1. Connect Kotak under Brokers and enable app authenticator MFA.
+2. `POST /api/live/configure` with `riskLimitsSchema` fields. Existing account
+   limits are retained, not silently overwritten. The broker account must be
+   initially flat with an empty day order book; existing positions are not adopted.
+3. `POST /api/live/arm` with a fresh MFA `token` and confirmation
+   `ENABLE REAL MONEY`. Reconciliation must succeed. Permission lasts five minutes
+   and is bound to the app session, broker connection and this server instance.
+4. `POST /api/live/instruments` searches the Kotak execution master, independently
+   of the configured market-data provider. `POST /api/live/preview` accepts
+   `{instrument: masterToken, side, quantity, limitPaise, reduceOnly}`. It returns
+   a 30-second preview; price must be within 5% of a fresh broker quote.
+5. `POST /api/live/orders` accepts only `{previewId, confirmation:"PLACE LIVE ORDER"}`.
+   Repeating a valid confirmation references the same durable intent, never a
+   new broker placement. An expired preview is rejected, not regenerated.
+6. `GET /api/live/status`, `POST /api/live/reconcile`, and `POST /api/live/halt`
+   expose state, reconciliation and cancellation requests. Halt never flattens
+   positions or claims cancellation is confirmed. Check broker terminal state.
+
+The manager reconciles books every two seconds while armed or orders remain
+unresolved. This is an execution safety check, separate from the tick-driven
+dashboard (not a replacement for streaming prices). The OMS commits SUBMITTING
+before network I/O. Timeout, malformed acknowledgement or missing correlation
+halts with an unknown outcome; there is no automatic placement retry. Only
+orders whose tags and identities match persisted app intents can be cancelled.
+Manual/untracked orders halt the account but are not cancelled.
+
+Kotak RMS `Net` is available buying power, not settled cash. Snapshots explicitly
+use `fundsBasis: "broker-rms"` with null cash-ledger values. Fresh buying power,
+gross exposure, daily P&L/loss and position limits are checked; **cash-ledger funds
+drift detection is unavailable** for this adapter. Do not advertise RMS figures as
+reconciled settled cash or the generic notional guard as a SPAN margin engine.
+
+Restarts, reconnects and permission expiry require explicit re-arming. Lost broker
+access prevents guaranteed cancellation; inspect orders and exposure in Kotak.
+Day-book rollover/carry-forward adoption and reconciliation drift require operator
+review; this version does not automatically rebaseline or delete durable orders.
+This is a bounded live-execution implementation, not a claim of production or
+regulatory certification. Exchange approval, static IP, broker-specific live
+acceptance testing and operational supervision remain deployment requirements.
+
+`tests/backend/kotak-live.test.mjs` uses only offline broker responses and isolated
+PostgreSQL schemas, testing payloads, correlation, auth/CSRF/MFA, idempotency,
+unknown outcomes, expiry and cancellation ownership. Existing OMS tests cover
+timeouts, restart recovery, drift and multi-leg safety independently.

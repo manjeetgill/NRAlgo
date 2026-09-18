@@ -20,7 +20,7 @@ export interface MarketSnapshot {
  * consume normalized data. Deliberately no place/modify/cancel method or live-mode flag.
  * A future adapter must preserve session ownership, timestamps and missing-data semantics.
  */
-export interface BrokerMarketDataReader {
+export interface BrokerMarketDataReader extends BrokerAccountReader {
   /** Check local session ownership and expiry. This does not call the broker. */
   isConnected(userId: string, sessionHash: string): boolean;
   /** Fetch a bid/ask quote for a simulated fill. Prices are integer paise, timestamps
@@ -56,6 +56,11 @@ export interface BrokerMarketDataReader {
     sessionHash: string,
     market: "cash" | "options",
   ): Promise<string>;
+}
+
+/** Account-only boundary; independent of the selected market-data provider. */
+export interface BrokerAccountReader {
+  isConnected(userId: string, sessionHash: string): boolean;
   /** Read real broker positions/holdings without changing the separate virtual wallet. */
   getPortfolioRows(
     userId: string,

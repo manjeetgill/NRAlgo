@@ -12,6 +12,7 @@ dist/
 frontend/.next/
 frontend/out/
 *.tsbuildinfo
+.eslintcache
 backups/
 
 # Generated test evidence is separate from application runtime data.

@@ -44,7 +44,7 @@ export const brokerOrderSchema = z
     ]),
     filledQuantity: z.number().int().nonnegative(),
     // Cumulative actual cash movement, including fees; adapters must normalize segment accounting.
-    cashDeltaPaise: z.number().int().safe(),
+    cashDeltaPaise: z.number().int().safe().nullable(),
   })
   .strict();
 export type BrokerOrder = z.infer<typeof brokerOrderSchema>;
@@ -57,11 +57,32 @@ export const brokerSnapshotSchema = z
     positions: z.record(z.string(), z.number().int().safe()),
     availablePaise: money,
     // Cash ledger balance, NOT marked-to-market portfolio equity; fills move cash, not equity.
-    cashBalancePaise: money,
+    cashBalancePaise: money.nullable(),
+    fundsBasis: z.enum(["cash-ledger", "broker-rms"]).default("cash-ledger"),
     grossExposurePaise: money,
     dailyPnlPaise: z.number().int().safe(),
   })
-  .strict();
+  .strict()
+  .superRefine((snapshot, ctx) => {
+    if (
+      snapshot.fundsBasis === "cash-ledger" &&
+      (snapshot.cashBalancePaise === null ||
+        snapshot.orders.some((o) => o.cashDeltaPaise === null))
+    )
+      ctx.addIssue({
+        code: "custom",
+        message: "Cash-ledger accounting requires actual cash movements",
+      });
+    if (
+      snapshot.fundsBasis === "broker-rms" &&
+      (snapshot.cashBalancePaise !== null ||
+        snapshot.orders.some((o) => o.cashDeltaPaise !== null))
+    )
+      ctx.addIssue({
+        code: "custom",
+        message: "RMS must not fabricate cash-ledger balances",
+      });
+  });
 export type BrokerSnapshot = z.infer<typeof brokerSnapshotSchema>;
 export type OrderState =
   "reserved" | "submitting" | "unknown" | "blocked" | BrokerOrder["status"];

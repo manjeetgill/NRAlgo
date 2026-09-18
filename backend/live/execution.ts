@@ -1,4 +1,4 @@
-/** Durable order boundary for future execution adapters. Not mounted by the paper-only API.
+/** Durable order boundary shared by offline fixtures and the separately gated live API.
  * Offline broker fixtures exercise the same database transitions as production.
  * A submission is persisted BEFORE network I/O; uncertain outcomes never return to a queue.
  * Account locks serialize reservations/submissions/halts. Network operations have short deadlines.
@@ -371,7 +371,12 @@ export class LiveExecutionService {
             // Require a fresh active health check at the adapter boundary, not just a worker flag.
             // Any changed books/funds must go through reconciliation before another submission.
             const comparable = (value: BrokerSnapshot) =>
-              JSON.stringify({ ...value, capturedAt: 0 });
+              JSON.stringify({
+                orders: value.orders,
+                positions: value.positions,
+                fundsBasis: value.fundsBasis,
+                cashBalancePaise: value.cashBalancePaise,
+              });
             if (
               !probe.sessionHealthy ||
               !probe.complete ||
@@ -380,6 +385,22 @@ export class LiveExecutionService {
               comparable(probe) !== comparable(snapshot)
             )
               throw new Error("Broker state changed before dispatch");
+            // Mark-to-market values can change between probes without changing the books.
+            // Recheck buying power, loss and exposure against the NEW values, not cached ones.
+            evaluateLiveRisk(intent, {
+              snapshot: probe,
+              limits: riskLimitsSchema.parse(JSON.parse(account.limits)),
+              reservedPaise: otherPending.reduce(
+                (sum, pending) => sum + Number(pending.reserved_paise),
+                0,
+              ),
+              outstandingUnits,
+              ordersLastMinute: otherOrders.filter(
+                (o) => o.created_at > Date.now() - 60000,
+              ).length,
+              now: Date.now(),
+            });
+            await this.authorizeSubmission?.(query);
             dispatchStarted = true;
             const ack = await withBrokerDeadline(
               (signal) => this.adapter.placeOrder(intent, signal),
@@ -620,26 +641,29 @@ export class LiveExecutionService {
           reason = "Broker position drift";
       }
       const limits = riskLimitsSchema.parse(JSON.parse(account.limits));
-      if (previous) {
+      if (previous && previous.fundsBasis !== snapshot.fundsBasis)
+        reason = "Broker accounting basis changed";
+      if (previous && snapshot.fundsBasis === "cash-ledger") {
         const previousCash = previous.orders.reduce(
-          (sum, order) => sum + order.cashDeltaPaise,
+          (sum, order) => sum + (order.cashDeltaPaise ?? 0),
           0,
         );
         const currentCash = snapshot.orders.reduce(
-          (sum, order) => sum + order.cashDeltaPaise,
+          (sum, order) => sum + (order.cashDeltaPaise ?? 0),
           0,
         );
         if (
           Math.abs(
-            snapshot.cashBalancePaise -
-              previous.cashBalancePaise -
+            snapshot.cashBalancePaise! -
+              previous.cashBalancePaise! -
               (currentCash - previousCash),
           ) > limits.fundsDriftTolerancePaise
         )
           reason = "Broker funds drift";
       } else if (
-        snapshot.orders.length ||
-        Object.values(snapshot.positions).some((quantity) => quantity !== 0)
+        !previous &&
+        (snapshot.orders.length ||
+          Object.values(snapshot.positions).some((quantity) => quantity !== 0))
       )
         reason = "Initial broker baseline is not flat";
       if (snapshot.dailyPnlPaise <= -limits.maxDailyLossPaise)

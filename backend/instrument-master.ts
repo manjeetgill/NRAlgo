@@ -28,6 +28,7 @@ export interface CatalogInstrument {
   name: string;
   market: "cash" | "options";
   lotSize: number;
+  tickPaise?: number;
   option?: {
     expiryDate: string;
     right: "call" | "put";
@@ -171,6 +172,10 @@ export function parseInstrumentCsv(
       name: (row.pTrdSymbol || row.pDesc || symbol).slice(0, 120),
       market,
       lotSize,
+      ...(Number.isSafeInteger(Number(row.dTickSize)) &&
+      Number(row.dTickSize) > 0
+        ? { tickPaise: Number(row.dTickSize) }
+        : {}),
     };
     if (options) {
       const right = row.pOptionType;
@@ -236,6 +241,24 @@ export class InstrumentCatalog {
   }
   isFresh(broker: PaperBroker, market: "cash" | "options") {
     return Boolean(this.current(`${broker}:${market}`));
+  }
+  /** Live execution never trusts client-supplied symbols, tick sizes or lot sizes. */
+  resolveLive(masterToken: string) {
+    const match = /^kotak:(cash|options):[1-9]\d{0,14}$/.exec(masterToken);
+    const row =
+      match &&
+      this.current(`kotak:${match[1]}`)?.rows.find(
+        (r) => r.masterToken === masterToken,
+      );
+    if (
+      !row ||
+      !row.tickPaise ||
+      (row.option && row.option.expiryDate < paperTradingDay(Date.now()))
+    )
+      throw new Error(
+        "Reload Kotak master; a current contract with a verified tick size is required",
+      );
+    return row;
   }
   /** Single-flight downloads prevent simultaneous searches from multiplying large public fetches. */
   async load(broker: PaperBroker, market: "cash" | "options", url?: string) {

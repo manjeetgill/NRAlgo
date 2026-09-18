@@ -6,6 +6,7 @@ import type { Express } from "express";
 import { z } from "zod";
 import type { Store } from "./database.js";
 import type { BrokerRequestCoordinator } from "./broker-data-access.js";
+import type { MarketDataProvider } from "./market-data-provider.js";
 import {
   KotakConnectionError,
   KotakMarketDataClient,
@@ -13,10 +14,7 @@ import {
 } from "./kotak-market-data-client.js";
 import { reserveBrokerRequestBudget } from "./strategy-research-routes.js";
 import { fail, rateLimit } from "./security.js";
-import {
-  InstrumentCatalog,
-  instrumentSearchSchema,
-} from "./instrument-master.js";
+import { instrumentSearchSchema } from "./instrument-master.js";
 import {
   paperBrokerSchema,
   paperOrderInput,
@@ -44,11 +42,27 @@ export function registerPaperRoutes(
   app: Express,
   store: Store,
   requestCoordinator: BrokerRequestCoordinator,
-  kotak: KotakMarketDataClient,
+  kotak: Pick<
+    KotakMarketDataClient,
+    | "connect"
+    | "disconnect"
+    | "isConnected"
+    | "getPortfolioRows"
+    | "getAccountReport"
+  >,
   production: boolean,
-  catalog = new InstrumentCatalog(),
+  marketData: MarketDataProvider,
 ) {
+  const catalog = marketData.instruments;
   const limit = rateLimit(30, 60000, (req) => req.res!.locals.session.user_id);
+  app.use(
+    [
+      "/api/market/instruments",
+      "/api/market/option-chain",
+      "/api/market/live-feed",
+    ],
+    limit,
+  );
   /** Keep the broker position book separate from marks. A manual refresh reuses these
    * open contracts and reads only their latest prices; reconnecting clears the snapshot. */
   const openPositionCache = new Map<
@@ -105,7 +119,7 @@ export function registerPaperRoutes(
     broker: PaperBroker,
     sessionHash: string,
   ) {
-    return broker === "kotak" && kotak.isConnected(userId, sessionHash);
+    return broker === "kotak" && marketData.isConnected(userId, sessionHash);
   }
   /** Login makes two documented authentication calls, never an order request. No raw secrets in responses. */
   app.post("/api/paper/kotak/connect", async (req, res) => {
@@ -172,147 +186,164 @@ export function registerPaperRoutes(
     });
   });
   /** Search explicit current NSE metadata only; no order or quote fan-out. Never accept a client URL. */
-  app.post("/api/paper/:broker/instruments", async (req, res) => {
-    const broker = paperBrokerSchema.parse(req.params.broker),
-      input = instrumentSearchSchema.parse(req.body),
-      session = res.locals.session;
-    if (
-      input.query.length < 2 &&
-      !(broker === "kotak" && input.market === "cash")
-    )
-      fail(422, "Enter at least two characters for this instrument search.");
-    if (
-      !isPaperDataBrokerConnected(session.user_id, broker, session.token_hash)
-    )
-      fail(409, "Connect the selected broker before instrument search.");
-    await requestCoordinator.runExclusiveForUser(session.user_id, async () => {
-      if (!catalog.isFresh(broker, input.market)) {
-        await reserveBrokerRequestBudget(store, session.user_id, production);
-        if (broker === "kotak")
-          await reserveBrokerRequestBudget(store, session.user_id, production);
-        try {
-          const url =
-            broker === "kotak"
-              ? await kotak.getInstrumentMasterUrl(
-                  session.user_id,
-                  session.token_hash,
-                  input.market,
-                )
-              : undefined;
-          await catalog.load(broker, input.market, url);
-        } catch {
-          fail(
-            502,
-            "Instrument master unavailable or unsupported. No guessed contracts were substituted.",
-          );
-        }
-      }
+  app.post(
+    ["/api/market/instruments", "/api/paper/:broker/instruments"],
+    async (req, res) => {
+      const broker = paperBrokerSchema.parse(req.params.broker || "kotak"),
+        input = instrumentSearchSchema.parse(req.body),
+        session = res.locals.session;
+      if (
+        input.query.length < 2 &&
+        !(broker === "kotak" && input.market === "cash")
+      )
+        fail(422, "Enter at least two characters for this instrument search.");
       if (
         !isPaperDataBrokerConnected(session.user_id, broker, session.token_hash)
       )
-        fail(409, "Broker disconnected during instrument search.");
-      res.json(catalog.search(broker, input));
-    });
-  });
+        fail(409, "Connect the selected broker before instrument search.");
+      await requestCoordinator.runExclusiveForUser(
+        session.user_id,
+        async () => {
+          if (!catalog.isFresh(broker, input.market)) {
+            try {
+              await marketData.prepareInstruments(
+                { userId: session.user_id, sessionHash: session.token_hash },
+                input.market,
+                () =>
+                  reserveBrokerRequestBudget(
+                    store,
+                    session.user_id,
+                    production,
+                  ),
+              );
+            } catch {
+              fail(
+                502,
+                "Instrument master unavailable or unsupported. No guessed contracts were substituted.",
+              );
+            }
+          }
+          if (
+            !isPaperDataBrokerConnected(
+              session.user_id,
+              broker,
+              session.token_hash,
+            )
+          )
+            fail(409, "Broker disconnected during instrument search.");
+          res.json(catalog.search(broker, input));
+        },
+      );
+    },
+  );
   /** Kotak-only current chain: master resolves tokens, one metered quote batch prices a page.
    * No execution adapter participates. An empty expiry requests metadata only.
    */
-  app.post("/api/paper/kotak/option-chain", async (req, res) => {
-    const input = z
-      .object({
-        underlying: z.string().trim().toUpperCase().min(2).max(40),
-        expiryDate: z.iso.date().optional(),
-        offset: z.number().int().min(0).max(250000).default(0),
-      })
-      .strict()
-      .parse(req.body);
-    const session = res.locals.session;
-    if (!kotak.isConnected(session.user_id, session.token_hash))
-      fail(409, "Connect Kotak under Broker paper first.");
-    await requestCoordinator.runExclusiveForUser(session.user_id, async () => {
-      if (!catalog.isFresh("kotak", "options")) {
-        await reserveBrokerRequestBudget(store, session.user_id, production);
-        await reserveBrokerRequestBudget(store, session.user_id, production);
-        try {
-          await catalog.load(
-            "kotak",
-            "options",
-            await kotak.getInstrumentMasterUrl(
+  app.post(
+    ["/api/market/option-chain", "/api/paper/kotak/option-chain"],
+    async (req, res) => {
+      const input = z
+        .object({
+          underlying: z.string().trim().toUpperCase().min(2).max(40),
+          expiryDate: z.iso.date().optional(),
+          offset: z.number().int().min(0).max(250000).default(0),
+        })
+        .strict()
+        .parse(req.body);
+      const session = res.locals.session;
+      if (!marketData.isConnected(session.user_id, session.token_hash))
+        fail(409, "Connect Kotak under Broker paper first.");
+      await requestCoordinator.runExclusiveForUser(
+        session.user_id,
+        async () => {
+          if (!catalog.isFresh("kotak", "options")) {
+            try {
+              await marketData.prepareInstruments(
+                { userId: session.user_id, sessionHash: session.token_hash },
+                "options",
+                () =>
+                  reserveBrokerRequestBudget(
+                    store,
+                    session.user_id,
+                    production,
+                  ),
+              );
+            } catch {
+              fail(
+                502,
+                "Kotak option instrument master unavailable. No alternative data was substituted.",
+              );
+            }
+          }
+          const result = catalog.search("kotak", {
+            market: "options",
+            query: input.underlying,
+            underlying: input.underlying,
+            expiryDate: input.expiryDate,
+            offset: input.offset,
+          });
+          if (!marketData.isConnected(session.user_id, session.token_hash))
+            fail(409, "Kotak disconnected during chain discovery.");
+          if (!input.expiryDate) {
+            res.json({
+              ...result,
+              items: [],
+              source: marketData.id,
+              receivedAt: Date.now(),
+            });
+            return;
+          }
+          if (input.expiryDate < paperTradingDay(Date.now()))
+            fail(422, "Choose a current, unexpired option contract.");
+          if (!result.items.length) {
+            res.json({
+              ...result,
+              source: marketData.id,
+              receivedAt: Date.now(),
+            });
+            return;
+          }
+          await reserveBrokerRequestBudget(store, session.user_id, production);
+          let quotes;
+          try {
+            quotes = await marketData.getQuoteSnapshots(
               session.user_id,
               session.token_hash,
-              "options",
-            ),
-          );
-        } catch {
-          fail(
-            502,
-            "Kotak option instrument master unavailable. No alternative data was substituted.",
-          );
-        }
-      }
-      const result = catalog.search("kotak", {
-        market: "options",
-        query: input.underlying,
-        underlying: input.underlying,
-        expiryDate: input.expiryDate,
-        offset: input.offset,
-      });
-      if (!kotak.isConnected(session.user_id, session.token_hash))
-        fail(409, "Kotak disconnected during chain discovery.");
-      if (!input.expiryDate) {
-        res.json({
-          ...result,
-          items: [],
-          source: "kotak",
-          receivedAt: Date.now(),
-        });
-        return;
-      }
-      if (input.expiryDate < paperTradingDay(Date.now()))
-        fail(422, "Choose a current, unexpired option contract.");
-      if (!result.items.length) {
-        res.json({ ...result, source: "kotak", receivedAt: Date.now() });
-        return;
-      }
-      await reserveBrokerRequestBudget(store, session.user_id, production);
-      let quotes;
-      try {
-        quotes = await kotak.getQuoteSnapshots(
-          session.user_id,
-          session.token_hash,
-          result.items.map((item) => item.instrument),
-        );
-      } catch {
-        // Discovery remains useful when an illiquid quote batch is unavailable.
-        // Return exact master contracts with unknown prices; the shared feed can price them.
-        res.json({
-          ...result,
-          items: result.items.map((item) => ({
-            ...item,
-            price: null,
-            bid: null,
-            ask: null,
-            openInterest: null,
-            stale: true,
-          })),
-          source: "kotak",
-          receivedAt: Date.now(),
-          warning:
-            "Initial quotes unavailable; waiting for streamed prices. No prices were substituted.",
-        });
-        return;
-      }
-      res.json({
-        ...result,
-        items: result.items.map((item, index) => ({
-          ...item,
-          ...quotes[index],
-        })),
-        source: "kotak",
-        receivedAt: Date.now(),
-      });
-    });
-  });
+              result.items.map((item) => item.instrument),
+            );
+          } catch {
+            // Discovery remains useful when an illiquid quote batch is unavailable.
+            // Return exact master contracts with unknown prices; the shared feed can price them.
+            res.json({
+              ...result,
+              items: result.items.map((item) => ({
+                ...item,
+                price: null,
+                bid: null,
+                ask: null,
+                openInterest: null,
+                stale: true,
+              })),
+              source: marketData.id,
+              receivedAt: Date.now(),
+              warning:
+                "Initial quotes unavailable; waiting for streamed prices. No prices were substituted.",
+            });
+            return;
+          }
+          res.json({
+            ...result,
+            items: result.items.map((item, index) => ({
+              ...item,
+              ...quotes[index],
+            })),
+            source: marketData.id,
+            receivedAt: Date.now(),
+          });
+        },
+      );
+    },
+  );
   app.post("/api/paper/:broker/orders", async (req, res) => {
     const broker = paperBrokerSchema.parse(req.params.broker),
       input = paperOrderInput.parse(req.body),
@@ -469,7 +500,7 @@ export function registerPaperRoutes(
         await reserveBrokerRequestBudget(store, session.user_id, production);
         try {
           quotes.push({
-            ...(await kotak.getPaperFillQuote(
+            ...(await marketData.getPaperFillQuote(
               session.user_id,
               session.token_hash,
               instrument,
@@ -560,7 +591,7 @@ export function registerPaperRoutes(
                           session.user_id,
                           production,
                         );
-                        for (const quote of await kotak.getQuoteSnapshots(
+                        for (const quote of await marketData.getQuoteSnapshots(
                           session.user_id,
                           session.token_hash,
                           uniqueTokens.slice(offset, offset + 50),
@@ -623,72 +654,106 @@ export function registerPaperRoutes(
     });
     res.json(result);
   });
-  app.post("/api/paper/kotak/live-feed", async (req, res) => {
-    const input = z
-      .object({
-        instruments: z
-          .array(z.string().regex(/^\d{1,15}$/))
-          .max(50)
-          .default([]),
-      })
-      .strict()
-      .parse(req.body);
+  app.post(
+    ["/api/market/live-feed", "/api/paper/kotak/live-feed"],
+    async (req, res) => {
+      if (!marketData.capabilities.live)
+        fail(422, "Selected data provider does not support live streaming.");
+      const input = z
+        .object({
+          instruments: z
+            .array(z.string().regex(/^\d{1,15}$/))
+            .max(50)
+            .default([]),
+        })
+        .strict()
+        .parse(req.body);
+      const session = res.locals.session;
+      const cached = openPositionCache.get(session.user_id);
+      // A chain subscription does not require a connected trading account or position book.
+      // Only merge account tokens from the same active app session.
+      const rows =
+        cached &&
+        cached.sessionHash === session.token_hash &&
+        cached.expiresAt > Date.now() &&
+        kotak.isConnected(session.user_id, session.token_hash)
+          ? cached.rows
+          : [];
+      const positions = rows
+        .filter(
+          (row) =>
+            row.quantity !== 0 &&
+            /^(nse_cm|nse_fo)$/.test(row.exchange) &&
+            /^\d{1,15}$/.test(row.instrumentToken),
+        )
+        .map((row) => ({
+          exchange: row.exchange as "nse_cm" | "nse_fo",
+          instrument: row.instrumentToken,
+        }));
+      const instruments = [
+        ...new Map(
+          [
+            ...positions,
+            ...input.instruments.map((instrument) => ({
+              exchange: "nse_fo" as const,
+              instrument,
+            })),
+          ].map((row) => [`${row.exchange}|${row.instrument}`, row]),
+        ).values(),
+      ];
+      if (positions.length > 50)
+        fail(
+          422,
+          "More than 50 open positions require a larger feed subscription; no partial portfolio is streamed.",
+        );
+      if (!instruments.length)
+        fail(409, "No quoteable open positions were returned by Kotak.");
+      await requestCoordinator.runExclusiveForUser(
+        session.user_id,
+        async () => {
+          await reserveBrokerRequestBudget(store, session.user_id, production);
+          await reserveBrokerRequestBudget(store, session.user_id, production);
+          res.json(
+            marketData.startPriceFeed(session.user_id, session.token_hash, {
+              kind: "touchline",
+              mode: "subscribe",
+              instruments,
+            }),
+          );
+        },
+      );
+    },
+  );
+  app.get("/api/market/provider", (_req, res) => {
     const session = res.locals.session;
-    const cached = openPositionCache.get(session.user_id);
-    if (
-      !cached ||
-      cached.sessionHash !== session.token_hash ||
-      cached.expiresAt <= Date.now()
-    )
-      fail(409, "Load live positions before starting the price feed.");
-    const positions = cached!.rows
-      .filter(
-        (row) =>
-          row.quantity !== 0 &&
-          /^(nse_cm|nse_fo)$/.test(row.exchange) &&
-          /^\d{1,15}$/.test(row.instrumentToken),
-      )
-      .map((row) => ({
-        exchange: row.exchange as "nse_cm" | "nse_fo",
-        instrument: row.instrumentToken,
-      }));
-    const instruments = [
-      ...new Map(
-        [
-          ...positions,
-          ...input.instruments.map((instrument) => ({
-            exchange: "nse_fo" as const,
-            instrument,
-          })),
-        ].map((row) => [`${row.exchange}|${row.instrument}`, row]),
-      ).values(),
-    ];
-    if (positions.length > 50)
-      fail(
-        422,
-        "More than 50 open positions require a larger feed subscription; no partial portfolio is streamed.",
-      );
-    if (!instruments.length)
-      fail(409, "No quoteable open positions were returned by Kotak.");
-    await requestCoordinator.runExclusiveForUser(session.user_id, async () => {
-      await reserveBrokerRequestBudget(store, session.user_id, production);
-      await reserveBrokerRequestBudget(store, session.user_id, production);
-      res.json(
-        kotak.startMarketDataStream(session.user_id, session.token_hash, {
-          kind: "touchline",
-          mode: "subscribe",
-          instruments,
-        }),
-      );
+    res.json({
+      source: marketData.id,
+      capabilities: marketData.capabilities,
+      connected: marketData.isConnected(session.user_id, session.token_hash),
+    });
+  });
+  app.get("/api/market/feed", (_req, res) => {
+    const session = res.locals.session;
+    res.json({
+      ...marketData.readPriceFeed(session.user_id, session.token_hash),
+      source: marketData.id,
+    });
+  });
+  app.delete("/api/market/feed", (_req, res) => {
+    const session = res.locals.session;
+    marketData.stopPriceFeed(session.user_id, session.token_hash);
+    res.json({
+      source: marketData.id,
+      state: "stopped",
+      records: [],
+      notifications: [],
     });
   });
   /** Owner-scoped account reads never create or modify a paper wallet or submit orders. */
   app.post("/api/portfolio/:broker/refresh", limit, async (req, res) => {
     const broker = paperBrokerSchema.parse(req.params.broker),
       session = res.locals.session;
-    if (
-      !isPaperDataBrokerConnected(session.user_id, broker, session.token_hash)
-    )
+    if (!kotak.isConnected(session.user_id, session.token_hash))
       fail(409, "Connect the selected broker first.");
     const result: Record<string, unknown> = {
       broker,

@@ -98,7 +98,7 @@ export function KotakAccountReports({
     setFeedStatus("Connecting to Kotak live feed…");
     let startupError = "";
     if (data.positions?.rows?.some((row) => row.quantity !== 0))
-      void requestApiJson("/paper/kotak/live-feed", "POST", {}, csrf).catch(
+      void requestApiJson("/market/live-feed", "POST", {}, csrf).catch(
         (failure) => {
           startupError = (failure as Error).message;
           if (!cancelled) setFeedStatus(startupError);
@@ -108,7 +108,7 @@ export function KotakAccountReports({
       if (cancelled || document.hidden || pending) return;
       pending = true;
       try {
-        const snapshot = await requestApiJson("/market/kotak/feed");
+        const snapshot = await requestApiJson("/market/feed");
         if (cancelled) return;
         setFeedStatus(
           snapshot.state === "stopped" && startupError
