@@ -3,6 +3,7 @@
 /** Read-only live order history; execution remains behind the dedicated confirmation and risk controls. */
 import { Button } from "@/components/ui/button";
 import { useLiveOrders } from "./use-live-orders";
+import { OrderRecordsTable } from "./order-records-table";
 
 /** Render OMS records, preserving unknown quantities and distinguishing limit prices from actual fills. */
 export function LiveOrdersScreen() {
@@ -30,50 +31,27 @@ export function LiveOrdersScreen() {
       {snapshot?.reason && <p role="status">{snapshot.reason}</p>}
       {snapshot && !Array.isArray(snapshot.orders) && (
         <p>
-          Order history is unavailable. Open Live trading to review execution
+          Order history is unavailable. Open Live positions to review execution
           readiness.
         </p>
       )}
       {snapshot?.orders?.length === 0 && (
         <p>No app-managed live orders recorded.</p>
       )}
-      {Boolean(snapshot?.orders?.length) && (
-        <div className="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>Instrument</th>
-                <th>Side</th>
-                <th>Units</th>
-                <th>Limit price</th>
-                <th>Filled units</th>
-                <th>Status</th>
-                <th>Broker order</th>
-              </tr>
-            </thead>
-            <tbody>
-              {snapshot?.orders?.map(
-                /** Keep durable intent IDs as row keys; missing broker acknowledgements stay unknown. */
-                (order) => (
-                  <tr key={order.id}>
-                    <td>{order.intent.instrument}</td>
-                    <td>{order.intent.side.toUpperCase()}</td>
-                    <td>{order.intent.quantity}</td>
-                    <td>
-                      {(order.intent.limitPaise / 100).toLocaleString("en-IN", {
-                        style: "currency",
-                        currency: "INR",
-                      })}
-                    </td>
-                    <td>{order.brokerOrder?.filledQuantity ?? "—"}</td>
-                    <td>{order.state}</td>
-                    <td>{order.brokerOrder?.brokerOrderId ?? "—"}</td>
-                  </tr>
-                ),
-              )}
-            </tbody>
-          </table>
-        </div>
+      {snapshot?.orders && (
+        <OrderRecordsTable
+          mode="live"
+          records={snapshot.orders.map((order) => ({
+            id: order.id,
+            instrument: order.intent.instrument,
+            side: order.intent.side,
+            quantity: order.intent.quantity,
+            limit: order.intent.limitPaise / 100,
+            filled: order.brokerOrder?.filledQuantity ?? null,
+            state: order.state,
+            brokerOrderId: order.brokerOrder?.brokerOrderId,
+          }))}
+        />
       )}
     </section>
   );

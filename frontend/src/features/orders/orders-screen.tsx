@@ -2,6 +2,7 @@
 /** Route orders to the selected account domain without mixing synthetic fills and real OMS records. */
 import { PaperOrdersScreen } from "./paper-orders-screen";
 import { LiveOrdersScreen } from "./live-orders-screen";
+import { Button } from "@/components/ui/button";
 import type {
   WorkspaceSnapshot,
   WorkspacePage,
@@ -15,7 +16,14 @@ export function OrdersScreen({
   onNavigate: (page: WorkspacePage) => void;
 }) {
   return workspace.paper_trading_enabled ? (
-    <PaperOrdersScreen workspace={workspace} onNavigate={onNavigate} />
+    <div className="screen-stack">
+      <div>
+        <Button onClick={() => onNavigate("Broker paper")}>
+          New paper order
+        </Button>
+      </div>
+      <PaperOrdersScreen csrf={workspace.csrf} />
+    </div>
   ) : (
     <LiveOrdersScreen key={workspace.csrf} />
   );
