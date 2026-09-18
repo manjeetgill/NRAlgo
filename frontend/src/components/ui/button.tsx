@@ -1,9 +1,11 @@
+/** Shared native button styling with ordinary HTML accessibility/disabled/form behavior. */
 import { ButtonHTMLAttributes } from "react";
 import { clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 
 // A small owned component following shadcn's composition approach.
 // No component registry or external runtime is required.
+/** Merge the chosen visual variant and caller classes while forwarding native button attributes. */
 export function Button({
   className,
   variant = "primary",

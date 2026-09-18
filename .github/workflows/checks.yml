@@ -1,12 +1,28 @@
+# Disposable CI stack only. Test credentials below must never be used for real deployments.
 name: Checks
 on: [push, pull_request]
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      test-postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: disposable-test-password
+          POSTGRES_DB: nralgo_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d nralgo_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
     env:
+      TEST_DATABASE_URL: postgresql://postgres:disposable-test-password@127.0.0.1:5432/nralgo_test
       APP_DOMAIN: localhost
       POSTGRES_PASSWORD: ci-only-database-password
       SETUP_TOKEN: ci-only-setup-token-at-least-32-characters
+      APP_DATABASE_PASSWORD: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      BROKER_ENCRYPTION_KEY: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+      BACKUP_ENCRYPTION_KEY: cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+      REGISTRATION_TOKEN: ci-only-invitation-token-at-least-32-characters
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -19,7 +35,10 @@ jobs:
       - run: npm ci && npm ci --prefix frontend
       - run: npm test
       - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:browser
       - run: npm audit --omit=dev --audit-level=high
+      - run: npm --prefix frontend audit --omit=dev --audit-level=high
       - name: Build and start production containers
         run: docker compose up -d --build --wait --wait-timeout 180
       - name: Test HTTPS, owner setup and PostgreSQL worker
@@ -54,6 +73,7 @@ jobs:
             catch (error) { if (i === 29) throw error; await delay(1000); }
           }
           assert.equal((await request('/')).status, 200);
+          assert.equal((await request('/api/ready')).status, 200);
           assert.equal((await request('/api/workspace')).status, 401);
           const creds = { username: 'ciowner', password: 'ci-password-not-for-real-use' };
           assert.equal((await request('/api/auth/setup', creds)).status, 403);
@@ -69,6 +89,14 @@ jobs:
             assert.notEqual(job.status, 'failed'); assert.ok(i < 30, 'Worker timeout'); await delay(1000);
           }
           JS
+      - name: Verify encrypted backup restoration into a disposable database
+        run: |
+          docker compose exec -T backup node dist/backend/backup.js --once
+          archive=$(docker compose exec -T backup sh -c 'ls -t /backups/*.dump.enc | head -1')
+          docker compose exec -T backup node dist/backend/backup.js --decrypt "$archive" /backups/restore-test.dump
+          docker compose exec -T db createdb -U nexus restore_check
+          docker compose exec -T backup cat /backups/restore-test.dump | docker compose exec -T db pg_restore -U nexus -d restore_check --exit-on-error --no-owner --no-acl
+          docker compose exec -T db psql -U nexus -d restore_check -v ON_ERROR_STOP=1 -c "SELECT username FROM users"
       - name: Container diagnostics
         if: failure()
         run: docker compose logs --tail=100

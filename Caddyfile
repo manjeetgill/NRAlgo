@@ -4,5 +4,8 @@
     request_body {
         max_size 1MB
     }
-    reverse_proxy web:3000
+    reverse_proxy web:3000 {
+        # Overwrite, never trust, a client-supplied address used for API throttling.
+        header_up X-Client-IP {remote_host}
+    }
 }

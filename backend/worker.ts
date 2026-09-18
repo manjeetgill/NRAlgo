@@ -1,57 +1,190 @@
-import { setTimeout as delay } from 'node:timers/promises';
-import { openStore, isMain, now, audit, lockSettings, type Store } from './database.js';
-import { replay } from './simulator.js';
-import type { Job, Strategy } from './types.js';
+/** Durable synthetic-replay worker. A renewable database lease prevents two active workers.
+ * The API only queues work; this process executes and commits it after rechecking pause/lease state.
+ */
+import { setTimeout as delay } from "node:timers/promises";
+import { randomUUID } from "node:crypto";
+import {
+  openDatabaseStore,
+  isEntryPoint,
+  now,
+  audit,
+  lockWorkspaceSettings,
+  type Store,
+} from "./database.js";
+import { simulateSyntheticStrategy } from "./simulator.js";
+import type { Job, Strategy } from "./types.js";
 
-export async function recover(store: Store) {
-  await store.transaction(async q => {
-    await lockSettings(q, store);
-    await q("UPDATE jobs SET status='queued' WHERE status='running'");
-    await q("UPDATE strategies SET status='queued' WHERE status='running'");
+/** Acquire or refresh the singleton worker lease, rejecting an existing healthy worker. */
+export async function refreshWorkerLease(store: Store, instanceId: string) {
+  await store.transaction(async (query) => {
+    await lockWorkspaceSettings(query, store);
+    const [row] = await query<{ instance_id: string; heartbeat: number }>(
+      "SELECT * FROM worker_health WHERE id=1",
+    );
+    if (
+      row &&
+      row.instance_id !== instanceId &&
+      Date.now() / 1000 - row.heartbeat < 30
+    )
+      throw new Error("Another worker holds the execution lease.");
+    await query(
+      "INSERT INTO worker_health VALUES (1,$1,$2) ON CONFLICT(id) DO UPDATE SET instance_id=$1,heartbeat=$2",
+      [instanceId, Date.now() / 1000],
+    );
   });
 }
-export async function processOne(store: Store) {
-  const work = await store.transaction(async q => {
-    if ((await lockSettings(q, store)).halted) return null;
-    const [job] = await q<Job>("SELECT * FROM jobs WHERE status='queued' ORDER BY created_at LIMIT 1");
+/** Fence off stale workers before claiming or committing jobs. Tests may omit a running lease. */
+async function assertLease(
+  query: import("./database.js").Query,
+  instanceId?: string,
+) {
+  if (!instanceId) return;
+  const [row] = await query<{ instance_id: string; heartbeat: number }>(
+    "SELECT * FROM worker_health WHERE id=1",
+  );
+  if (
+    !row ||
+    row.instance_id !== instanceId ||
+    Date.now() / 1000 - row.heartbeat >= 30
+  )
+    throw new Error("Worker lease lost.");
+}
+/** Requeue interrupted synthetic jobs only after taking over the worker lease.
+ * Never reuse this replay recovery model for live orders, which need broker reconciliation.
+ */
+export async function recoverInterruptedPaperJobs(
+  store: Store,
+  instanceId?: string,
+) {
+  await store.transaction(async (query) => {
+    await lockWorkspaceSettings(query, store);
+    await assertLease(query, instanceId);
+    await query("UPDATE jobs SET status='queued' WHERE status='running'");
+    await query("UPDATE strategies SET status='queued' WHERE status='running'");
+  });
+}
+/** Claim one tenant-owned job, compute outside the transaction and publish only if still authorized.
+ * Returns false when no work is available so the outer loop can sleep without busy-polling.
+ */
+export async function processNextPaperJob(store: Store, instanceId?: string) {
+  const work = await store.transaction(async (query) => {
+    await lockWorkspaceSettings(query, store);
+    await assertLease(query, instanceId);
+    const [job] = await query<Job>(
+      "SELECT j.* FROM jobs j JOIN user_settings s ON j.user_id=s.user_id WHERE j.status='queued' AND s.halted=$1 ORDER BY j.created_at LIMIT 1",
+      [false],
+    );
     if (!job) return null;
-    await q("UPDATE jobs SET status='running',updated_at=$1 WHERE id=$2", [now(), job.id]);
-    await q("UPDATE strategies SET status='running' WHERE id=$1", [job.strategy_id]);
-    const [strategy] = await q<Strategy>('SELECT * FROM strategies WHERE id=$1', [job.strategy_id]);
+    if ((await lockWorkspaceSettings(query, store, job.user_id)).halted)
+      return null;
+    await query("UPDATE jobs SET status='running',updated_at=$1 WHERE id=$2", [
+      now(),
+      job.id,
+    ]);
+    await query("UPDATE strategies SET status='running' WHERE id=$1", [
+      job.strategy_id,
+    ]);
+    const [strategy] = await query<Strategy>(
+      "SELECT * FROM strategies WHERE id=$1 AND user_id=$2",
+      [job.strategy_id, job.user_id],
+    );
     return { job, strategy };
   });
   if (!work) return false;
   try {
-    const { job, strategy: s } = work;
-    const result = replay(s.symbol, s.capital, s.fast, s.slow);
-    await store.transaction(async q => {
-      const settings = await lockSettings(q, store);
-      const [current] = await q('SELECT status FROM jobs WHERE id=$1', [job.id]);
-      if (settings.halted || current.status !== 'running') return;
-      await q("UPDATE jobs SET status='completed',result=$1,updated_at=$2 WHERE id=$3", [JSON.stringify(result), now(), job.id]);
-      await q("UPDATE strategies SET status='ready',pnl=$1 WHERE id=$2", [result.pnl, s.id]);
-      await audit(q, `Completed sample-data replay: ${s.name}. ${result.trades.length} simulated fills.`);
+    const { job, strategy } = work;
+    const result = simulateSyntheticStrategy(
+      strategy.symbol,
+      strategy.capital,
+      strategy.fast,
+      strategy.slow,
+    );
+    await store.transaction(async (query) => {
+      await lockWorkspaceSettings(query, store);
+      await assertLease(query, instanceId);
+      const settings = await lockWorkspaceSettings(query, store, job.user_id);
+      const [current] = await query("SELECT status FROM jobs WHERE id=$1", [
+        job.id,
+      ]);
+      if (settings.halted || current.status !== "running") return;
+      await query(
+        "UPDATE jobs SET status='completed',result=$1,updated_at=$2 WHERE id=$3",
+        [JSON.stringify(result), now(), job.id],
+      );
+      await query("UPDATE strategies SET status='ready',pnl=$1 WHERE id=$2", [
+        result.pnl,
+        strategy.id,
+      ]);
+      await audit(
+        query,
+        `Completed sample-data replay: ${strategy.name}. ${result.trades.length} simulated fills.`,
+        job.user_id,
+      );
+      await query(
+        "DELETE FROM jobs WHERE user_id=$1 AND status NOT IN ('queued','running') AND id NOT IN (SELECT id FROM jobs WHERE user_id=$1 ORDER BY created_at DESC LIMIT 1000)",
+        [job.user_id],
+      );
     });
   } catch {
-    await store.transaction(async q => {
-      await lockSettings(q, store);
-      const [job] = await q('SELECT status FROM jobs WHERE id=$1', [work.job.id]);
-      if (job.status !== 'running') return;
-      await q("UPDATE jobs SET status='failed' WHERE id=$1", [work.job.id]);
-      await q("UPDATE strategies SET status='failed' WHERE id=$1", [work.strategy.id]);
-      await audit(q, 'Paper replay failed. Check worker logs and retry.');
+    await store.transaction(async (query) => {
+      await lockWorkspaceSettings(query, store);
+      await assertLease(query, instanceId);
+      await lockWorkspaceSettings(query, store, work.job.user_id);
+      const [job] = await query("SELECT status FROM jobs WHERE id=$1", [
+        work.job.id,
+      ]);
+      if (job.status !== "running") return;
+      await query("UPDATE jobs SET status='failed' WHERE id=$1", [work.job.id]);
+      await query("UPDATE strategies SET status='failed' WHERE id=$1", [
+        work.strategy.id,
+      ]);
+      await audit(
+        query,
+        "Paper replay failed. Check worker logs and retry.",
+        work.job.user_id,
+      );
     });
-    console.error('Paper replay failed.');
+    console.error("Paper replay failed.");
   }
   return true;
 }
-if (isMain(import.meta.url)) {
-  const store = openStore();
-  let stopping = false;
-  for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => { stopping = true; });
-  try {
-    await recover(store);
-    console.log('Node.js paper replay worker ready. Run exactly one worker.');
-    while (!stopping) if (!await processOne(store)) await delay(1000);
-  } finally { await store.close(); }
+if (isEntryPoint(import.meta.url)) {
+  const store = openDatabaseStore();
+  if (process.argv.includes("--healthcheck")) {
+    try {
+      const [row] = await store.transaction((query) =>
+        query<{ heartbeat: number }>(
+          "SELECT heartbeat FROM worker_health WHERE id=1",
+        ),
+      );
+      if (!row || Date.now() / 1000 - row.heartbeat >= 30) process.exitCode = 1;
+    } catch {
+      process.exitCode = 1;
+    } finally {
+      await store.close();
+    }
+  } else {
+    const instanceId = randomUUID();
+    let stopping = false;
+    for (const signal of ["SIGINT", "SIGTERM"])
+      process.on(signal, () => {
+        stopping = true;
+      });
+    try {
+      await refreshWorkerLease(store, instanceId);
+      await recoverInterruptedPaperJobs(store, instanceId);
+      console.log("Node.js paper replay worker ready. Run exactly one worker.");
+      while (!stopping) {
+        await refreshWorkerLease(store, instanceId);
+        if (!(await processNextPaperJob(store, instanceId))) await delay(1000);
+      }
+    } finally {
+      await store
+        .transaction((query) =>
+          query("DELETE FROM worker_health WHERE instance_id=$1", [instanceId]),
+        )
+        .catch(() => {});
+      await store.close();
+    }
+  }
 }

@@ -1,5 +1,10 @@
 "use client";
 
+/** Authenticated trading-workspace shell. The browser renders user-scoped snapshots and
+ * submits commands to the backend; it never executes broker SDK code or stores credentials.
+ * Synthetic replay results and real broker market data are deliberately presented separately.
+ */
+
 import {
   useCallback,
   useEffect,
@@ -36,6 +41,12 @@ import {
   Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { BrokerPanel, AccountPanel } from "@/components/broker-panel";
+import {
+  LiveTradingPanel,
+  type LiveOrderDraft,
+} from "@/components/live-trading-panel";
+import { StrategyLabPanel } from "@/components/strategy-lab-panel";
 
 type Strategy = {
   id: string;
@@ -69,6 +80,7 @@ type Job = {
   result: Result;
 };
 type Workspace = {
+  live_configured?: boolean;
   username: string;
   csrf: string;
   halted: boolean;
@@ -77,10 +89,13 @@ type Workspace = {
   events: { id: number; message: string; created_at: string }[];
 };
 type Page =
+  | "Strategy lab"
+  | "Live trading"
   | "Overview"
   | "Strategies"
   | "Orders & trades"
   | "Brokers"
+  | "Account & security"
   | "Activity log"
   | "Learn the stack";
 const money = (n: number) =>
@@ -90,7 +105,8 @@ const money = (n: number) =>
     maximumFractionDigits: 2,
   }).format(n);
 
-async function api(
+/** Fetch a same-origin API response with cookies, optional CSRF and a bounded network deadline. */
+async function requestApiJson(
   path: string,
   method = "GET",
   data?: unknown,
@@ -100,17 +116,16 @@ async function api(
     method,
     credentials: "same-origin",
     cache: "no-store",
+    signal: AbortSignal.timeout(15000),
     headers: {
       "Content-Type": "application/json",
       ...(csrf ? { "X-CSRF-Token": csrf } : {}),
     },
     ...(data !== undefined ? { body: JSON.stringify(data) } : {}),
   });
-  const result = await response
-    .json()
-    .catch(() => ({
-      detail: "API unavailable. Check that the Node.js server is running.",
-    }));
+  const result = await response.json().catch(() => ({
+    detail: "API unavailable. Check that the Node.js server is running.",
+  }));
   if (!response.ok) {
     const message = Array.isArray(result.detail)
       ? result.detail.map((x: { msg: string }) => x.msg).join(". ")
@@ -122,7 +137,8 @@ async function api(
   return result;
 }
 
-function Chart({ values }: { values: number[] }) {
+/** Render an accessible SVG of the most recent synthetic replay, including its empty state. */
+function ReplayEquityChart({ values }: { values: number[] }) {
   const low = Math.min(0, ...values),
     high = Math.max(1, ...values),
     span = high - low || 1;
@@ -193,13 +209,22 @@ function Chart({ values }: { values: number[] }) {
   );
 }
 
-export default function Home() {
+/** Coordinate authentication, snapshot polling, navigation and synthetic-strategy forms. */
+export default function TradingWorkspacePage() {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [auth, setAuth] = useState<{
     setup_required: boolean;
     setup_token_required: boolean;
+    registration_enabled: boolean;
+    invite_required: boolean;
   } | null>(null);
   const [page, setPage] = useState<Page>("Overview");
+  const [researchDraft, setResearchDraft] = useState<
+    LiveOrderDraft | undefined
+  >();
+  // Never carry a previous signed-in user's instrument draft into another account.
+  useEffect(() => setResearchDraft(undefined), [workspace?.username]);
+  const [registering, setRegistering] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
@@ -207,30 +232,36 @@ export default function Home() {
   const [search, setSearch] = useState("");
   const [formError, setFormError] = useState("");
   const dialog = useRef<HTMLDialogElement>(null);
-  const load = useCallback(async () => {
+  const loadVersion = useRef(0);
+  // A version guard prevents an old snapshot from reviving UI state after logout/newer requests.
+  const refreshWorkspace = useCallback(async () => {
+    const version = ++loadVersion.current;
     try {
-      setWorkspace(await api("/workspace"));
+      const next = await requestApiJson("/workspace");
+      if (version !== loadVersion.current) return;
+      setWorkspace(next);
       setError("");
     } catch (e) {
+      if (version !== loadVersion.current) return;
       if ((e as { status?: number }).status === 401) {
         setWorkspace(null);
-        setAuth(await api("/auth/status"));
+        setAuth(await requestApiJson("/auth/status"));
       } else {
         setError((e as Error).message);
       }
     }
   }, []);
   useEffect(() => {
-    void load().catch((e) => setError(e.message));
-  }, [load]);
+    void refreshWorkspace().catch((e) => setError(e.message));
+  }, [refreshWorkspace]);
   useEffect(() => {
     if (!workspace) return;
     const timer = setInterval(
-      () => void load().catch((e) => setError(e.message)),
+      () => void refreshWorkspace().catch((e) => setError(e.message)),
       3000,
     );
     return () => clearInterval(timer);
-  }, [!!workspace, load]);
+  }, [!!workspace, refreshWorkspace]);
   useEffect(() => {
     if (modal) dialog.current?.showModal();
     else dialog.current?.close();
@@ -241,13 +272,18 @@ export default function Home() {
     return () => clearTimeout(timer);
   }, [notice]);
 
-  async function mutate(path: string, data: unknown, message: string) {
+  /** Apply a CSRF-protected workspace action, then reload authoritative server state. */
+  async function submitWorkspaceAction(
+    path: string,
+    data: unknown,
+    message: string,
+  ) {
     if (!workspace) return;
     setBusy(true);
     setError("");
     try {
-      await api(path, "POST", data, workspace.csrf);
-      await load();
+      await requestApiJson(path, "POST", data, workspace.csrf);
+      await refreshWorkspace();
       setNotice(message);
     } catch (e) {
       setError((e as Error).message);
@@ -256,18 +292,23 @@ export default function Home() {
     }
   }
 
+  /** Submit first-account setup, registration or password/MFA login according to the selected form. */
   async function signIn(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
     setError("");
     const data = Object.fromEntries(new FormData(event.currentTarget));
     try {
-      await api(
-        auth?.setup_required ? "/auth/setup" : "/auth/login",
+      await requestApiJson(
+        auth?.setup_required
+          ? "/auth/setup"
+          : registering
+            ? "/auth/register"
+            : "/auth/login",
         "POST",
         data,
       );
-      await load();
+      await refreshWorkspace();
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -275,13 +316,14 @@ export default function Home() {
     }
   }
 
+  /** Convert numeric form fields and create a paper-only strategy; server validation remains decisive. */
   async function saveStrategy(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
     setFormError("");
     const data = Object.fromEntries(new FormData(event.currentTarget));
     try {
-      await api(
+      await requestApiJson(
         "/strategies",
         "POST",
         {
@@ -293,7 +335,7 @@ export default function Home() {
         },
         workspace?.csrf,
       );
-      await load();
+      await refreshWorkspace();
       setModal(false);
       setNotice("Strategy saved. Ready for a sample-data replay.");
     } catch (e) {
@@ -311,7 +353,7 @@ export default function Home() {
             <span className="brand-symbol">
               <Activity size={24} />
             </span>
-            Nexus<span className="brand-dot">.</span>
+            NRIAlgo<span className="brand-dot">.</span>
           </a>
           <div>
             <span className="eyebrow">YOUR EDGE. YOUR WORKSPACE.</span>
@@ -333,7 +375,7 @@ export default function Home() {
               </span>
             </div>
           </div>
-          <small>PERSONAL WORKSPACE · LOCALHOST EDITION</small>
+          <small>YOUR ACCOUNT · YOUR PRIVATE WORKSPACE</small>
         </div>
         <div className="auth-panel">
           <div className="auth-card">
@@ -341,13 +383,13 @@ export default function Home() {
               <LockKeyhole size={22} />
             </span>
             <h2>
-              {auth?.setup_required
-                ? "Make it your workspace."
+              {auth?.setup_required || registering
+                ? "Create your account."
                 : "Welcome back."}
             </h2>
             <p>
-              {auth?.setup_required
-                ? "Create your owner account to start building. Your data stays in this local workspace."
+              {auth?.setup_required || registering
+                ? "Create a private workspace for your strategies and broker connections."
                 : "Sign in to your personal trading workspace."}
             </p>
             {error && (
@@ -375,7 +417,9 @@ export default function Home() {
                     name="password"
                     type="password"
                     autoComplete={
-                      auth.setup_required ? "new-password" : "current-password"
+                      auth.setup_required || registering
+                        ? "new-password"
+                        : "current-password"
                     }
                     minLength={12}
                     maxLength={128}
@@ -389,18 +433,57 @@ export default function Home() {
                     <input name="setup_token" type="password" required />
                   </label>
                 )}
+                {!auth.setup_required && !registering && (
+                  <label>
+                    Authenticator or recovery code (if enabled)
+                    <input
+                      name="token"
+                      autoComplete="one-time-code"
+                      maxLength={32}
+                    />
+                  </label>
+                )}
+                {registering &&
+                  !auth.setup_required &&
+                  auth.invite_required && (
+                    <label>
+                      Invitation token
+                      <input
+                        name="invite_token"
+                        type="password"
+                        required
+                        autoComplete="off"
+                      />
+                    </label>
+                  )}
                 <Button disabled={busy} className="w-full">
                   {busy
                     ? "Please wait…"
-                    : auth.setup_required
-                      ? "Create workspace"
+                    : auth.setup_required || registering
+                      ? "Create account"
                       : "Sign in"}
                   <ArrowRight size={16} />
                 </Button>
+                {!auth.setup_required && auth.registration_enabled && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => {
+                      setRegistering(!registering);
+                      setError("");
+                    }}
+                  >
+                    {registering
+                      ? "Already have an account? Sign in"
+                      : "Create another account"}
+                  </Button>
+                )}
               </form>
             ) : (
               <Button
-                onClick={() => void load().catch((e) => setError(e.message))}
+                onClick={() =>
+                  void refreshWorkspace().catch((e) => setError(e.message))
+                }
                 variant="secondary"
               >
                 {error ? "Retry connection" : "Connecting to Node.js…"}
@@ -408,7 +491,7 @@ export default function Home() {
             )}
             <div className="auth-note">
               <ShieldCheck size={16} />
-              <span>Single-owner MVP · Live trading is disabled</span>
+              <span>Private workspaces · Separate paper and live controls</span>
             </div>
           </div>
         </div>
@@ -430,8 +513,11 @@ export default function Home() {
   const navigation = [
     { name: "Overview" as Page, icon: LayoutDashboard },
     { name: "Strategies" as Page, icon: Blocks },
+    { name: "Strategy lab" as Page, icon: FlaskConical },
     { name: "Orders & trades" as Page, icon: ArrowDownLeft },
     { name: "Brokers" as Page, icon: Wallet },
+    { name: "Live trading" as Page, icon: ShieldCheck },
+    { name: "Account & security" as Page, icon: ShieldCheck },
     { name: "Activity log" as Page, icon: Clock3 },
   ];
   const filtered = workspace.strategies.filter((s) =>
@@ -512,7 +598,7 @@ export default function Home() {
                         ["queued", "running"].includes(s.status)
                       }
                       onClick={() =>
-                        void mutate(
+                        void submitWorkspaceAction(
                           `/strategies/${s.id}/run`,
                           {},
                           "Replay queued for the Node.js worker.",
@@ -539,13 +625,13 @@ export default function Home() {
           <span className="brand-symbol">
             <Activity size={23} />
           </span>
-          Nexus<span className="brand-dot">.</span>
+          NRIAlgo<span className="brand-dot">.</span>
         </a>
         <div className="workspace-selector">
           <span className="workspace-icon">M</span>
           <div>
             <strong>My workspace</strong>
-            <small>Personal · Local</small>
+            <small>Private account</small>
           </div>
           <ChevronRight size={14} />
         </div>
@@ -589,15 +675,21 @@ export default function Home() {
             </span>
             <div>
               <strong>{workspace.username}</strong>
-              <small>Workspace owner</small>
+              <small>Account member</small>
             </div>
             <button
               aria-label="Sign out"
               onClick={async () => {
                 try {
-                  await api("/auth/logout", "POST", {}, workspace.csrf);
+                  await requestApiJson(
+                    "/auth/logout",
+                    "POST",
+                    {},
+                    workspace.csrf,
+                  );
+                  loadVersion.current++;
                   setWorkspace(null);
-                  setAuth(await api("/auth/status"));
+                  setAuth(await requestApiJson("/auth/status"));
                 } catch (e) {
                   setError((e as Error).message);
                 }
@@ -616,14 +708,31 @@ export default function Home() {
           </div>
           <div className="topbar-right">
             <span className="local-badge">
-              <i /> Localhost
+              <i />{" "}
+              {page === "Live trading"
+                ? "Live trading controls"
+                : "Paper research"}
             </span>
             <span className="topbar-divider" />
             <ShieldCheck size={16} />
-            <span>Owner access</span>
+            <span>Private access</span>
           </div>
         </header>
         <main className="content">
+          {workspace.live_configured && page !== "Live trading" && (
+            <div className="environment is-paused">
+              <div>
+                <strong>ICICI live controls are configured</strong>
+                <span>
+                  This page runs paper research only. Navigating here does not
+                  stop live orders or close broker positions.
+                </span>
+              </div>
+              <Button variant="danger" onClick={() => setPage("Live trading")}>
+                Live status / kill switch
+              </Button>
+            </div>
+          )}
           <div className="heading">
             <div>
               <p className="eyebrow">YOUR TRADING COMMAND CENTER</p>
@@ -636,7 +745,7 @@ export default function Home() {
                   : page === "Strategies"
                     ? "Turn your ideas into repeatable rules."
                     : page === "Brokers"
-                      ? "One workspace. A future home for all your broker connections."
+                      ? "Connect your ICICI account and explore market data."
                       : page === "Orders & trades"
                         ? "Every simulated fill, with its strategy and execution price."
                         : page === "Activity log"
@@ -646,11 +755,24 @@ export default function Home() {
             </div>
             <Button
               onClick={() => {
+                if (page === "Live trading") {
+                  setPage("Strategies");
+                  return;
+                }
+                if (page === "Strategy lab") {
+                  setPage("Brokers");
+                  return;
+                }
                 setFormError("");
                 setModal(true);
               }}
             >
-              <Plus size={17} /> New strategy
+              <Plus size={17} />{" "}
+              {page === "Live trading"
+                ? "Paper strategies"
+                : page === "Strategy lab"
+                  ? "Connect market data"
+                  : "New strategy"}
             </Button>
           </div>
           {error && (
@@ -658,22 +780,45 @@ export default function Home() {
               {error}
             </div>
           )}
-          <section
-            className={`environment ${workspace.halted ? "is-paused" : ""}`}
-          >
-            <span className="environment-icon">
-              <FlaskConical size={18} />
-            </span>
-            <div>
-              <strong>
-                {workspace.halted
-                  ? "Paper workspace paused"
-                  : "Your paper workspace"}
-              </strong>
-              <span>Sample price data · Simulated fills · No real money</span>
-            </div>
-            <span className="badge">LIVE DISABLED</span>
-          </section>
+          {page !== "Live trading" && page !== "Strategy lab" && (
+            <section
+              className={`environment ${workspace.halted ? "is-paused" : ""}`}
+            >
+              <span className="environment-icon">
+                <FlaskConical size={18} />
+              </span>
+              <div>
+                <strong>
+                  {workspace.halted
+                    ? "Paper workspace paused"
+                    : "Your paper workspace"}
+                </strong>
+                <span>Sample price data · Simulated fills · No real money</span>
+              </div>
+              <Button
+                variant="secondary"
+                onClick={() => setPage("Live trading")}
+              >
+                Switch to live controls
+              </Button>
+            </section>
+          )}
+          {page === "Live trading" && (
+            <LiveTradingPanel
+              csrf={workspace.csrf}
+              draft={researchDraft}
+              onPaper={() => setPage("Overview")}
+            />
+          )}
+          {page === "Strategy lab" && (
+            <StrategyLabPanel
+              csrf={workspace.csrf}
+              onLiveDraft={(draft) => {
+                setResearchDraft(draft);
+                setPage("Live trading");
+              }}
+            />
+          )}
           {(page === "Overview" || page === "Strategies") && (
             <>
               {page === "Overview" && (
@@ -747,7 +892,7 @@ export default function Home() {
                         </div>
                         <span className="badge neutral">240 BARS</span>
                       </div>
-                      <Chart values={latest?.result.equity || []} />
+                      <ReplayEquityChart values={latest?.result.equity || []} />
                       <div className="chart-footer">
                         <span>
                           <i /> Paper equity curve
@@ -797,7 +942,7 @@ export default function Home() {
                           variant={workspace.halted ? "secondary" : "danger"}
                           disabled={busy}
                           onClick={() =>
-                            void mutate(
+                            void submitWorkspaceAction(
                               "/controls",
                               { halted: !workspace.halted },
                               workspace.halted
@@ -852,32 +997,9 @@ export default function Home() {
               </section>
             </>
           )}
-          {page === "Brokers" && (
-            <section>
-              <div className="brokers-grid">
-                {["Zerodha Kite", "Dhan", "Upstox"].map((name, i) => (
-                  <article className="panel broker" key={name}>
-                    <span className={`broker-logo broker-${i}`}>{name[0]}</span>
-                    <span className="badge neutral">PLANNED</span>
-                    <h3>{name}</h3>
-                    <p>
-                      JavaScript adapters and broker authorization will be added in
-                      the live integration phase.
-                    </p>
-                    <Button variant="secondary" disabled>
-                      <LockKeyhole size={14} /> Integration coming later
-                    </Button>
-                  </article>
-                ))}
-              </div>
-              <div className="info-note">
-                <ShieldCheck size={18} />
-                <p>
-                  No broker is connected. This version does not collect or store
-                  broker API credentials.
-                </p>
-              </div>
-            </section>
+          {page === "Brokers" && <BrokerPanel csrf={workspace.csrf} />}
+          {page === "Account & security" && (
+            <AccountPanel csrf={workspace.csrf} onRefresh={refreshWorkspace} />
           )}
           {page === "Orders & trades" && (
             <section className="panel">
@@ -992,7 +1114,7 @@ export default function Home() {
                   Database,
                   "03 / STORAGE",
                   "SQL + PostgreSQL",
-                  "SQLite keeps local setup light. Parameterized SQL supports PostgreSQL in Docker. Versioned migrations preserve your database.",
+                  "PostgreSQL stores your workspace locally and on AWS. Parameterized queries isolate accounts; numbered migrations preserve existing data.",
                   "backend/database.ts",
                 ],
                 [
@@ -1018,7 +1140,8 @@ export default function Home() {
           )}
           <footer>
             <span>
-              <LockKeyhole size={12} /> Personal workspace · Paper research only
+              <LockKeyhole size={12} /> Personal workspace · Separate paper and
+              live controls
             </span>
             <span>
               Next.js + Node.js <span className="footer-dot">•</span> Built to

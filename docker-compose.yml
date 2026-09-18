@@ -13,7 +13,7 @@ x-app: &app
   security_opt: ["no-new-privileges:true"]
   stop_grace_period: 30s
 x-database: &database
-  DATABASE_URL: postgresql://nexus:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db:5432/nexus
+  DATABASE_URL: postgresql://nexus_app:${APP_DATABASE_PASSWORD:?Set APP_DATABASE_PASSWORD to 64 hex characters}@db:5432/nexus
   APP_ENV: production
 
 services:
@@ -37,7 +37,10 @@ services:
     build:
       context: .
       target: backend
-    environment: *database
+    environment:
+      APP_ENV: production
+      DATABASE_URL: postgresql://nexus:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db:5432/nexus
+      APP_DATABASE_PASSWORD: ${APP_DATABASE_PASSWORD:?Set APP_DATABASE_PASSWORD}
     command: [node, dist/backend/database.js]
     depends_on:
       db:
@@ -51,6 +54,10 @@ services:
       <<: *database
       APP_ORIGIN: https://${APP_DOMAIN:?Set APP_DOMAIN to your hostname}
       SETUP_TOKEN: ${SETUP_TOKEN:?Set a random setup token}
+      BROKER_ENCRYPTION_KEY: ${BROKER_ENCRYPTION_KEY:?Set a persistent 64-character hex encryption key}
+      REGISTRATION_TOKEN: ${REGISTRATION_TOKEN:-}
+      ALLOW_PUBLIC_REGISTRATION: ${ALLOW_PUBLIC_REGISTRATION:-false}
+      TRUST_EDGE_IP: "true"
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -67,6 +74,12 @@ services:
       target: backend
     command: [node, dist/backend/worker.js]
     environment: *database
+    healthcheck:
+      test: [CMD, node, dist/backend/worker.js, --healthcheck]
+      interval: 15s
+      timeout: 8s
+      retries: 3
+      start_period: 40s
     depends_on:
       api:
         condition: service_healthy
@@ -77,6 +90,8 @@ services:
       target: web
     depends_on:
       api:
+        condition: service_healthy
+      worker:
         condition: service_healthy
     healthcheck:
       test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
@@ -97,7 +112,31 @@ services:
     depends_on:
       web:
         condition: service_healthy
+  backup:
+    <<: *app
+    build:
+      context: .
+      target: backup
+    environment:
+      DATABASE_URL: postgresql://nexus:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db:5432/nexus
+      BACKUP_ENCRYPTION_KEY: ${BACKUP_ENCRYPTION_KEY:?Set a separate persistent 64-character hex backup key}
+      BACKUP_S3_URI: ${BACKUP_S3_URI:-}
+      AWS_REGION: ${AWS_REGION:-ap-south-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+    volumes:
+      - backups:/backups
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: [CMD, node, dist/backend/backup.js, --healthcheck]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
 volumes:
   postgres_data:
   caddy_data:
   caddy_config:
+  backups:

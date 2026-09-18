@@ -1,3 +1,4 @@
+# Keep dependencies, generated builds, local databases, keys and backups out of version control.
 node_modules/
 dist/
 .env

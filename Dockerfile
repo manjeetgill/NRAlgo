@@ -1,3 +1,4 @@
+# Compile TypeScript with dev dependencies; production stages contain only runtime artifacts.
 FROM node:22-alpine AS backend-build
 WORKDIR /app
 COPY package*.json ./
@@ -33,3 +34,12 @@ COPY --from=web-build --chown=node:node /app/.next/static ./.next/static
 USER node
 EXPOSE 3000
 CMD ["node", "server.js"]
+
+# Dedicated backup image: database/AWS tools are not installed in the API image.
+FROM node:22-alpine AS backup
+WORKDIR /app
+RUN apk add --no-cache postgresql17-client aws-cli && mkdir /backups && chown node:node /backups
+COPY --from=backend-build /app/dist/backend/backup.js ./dist/backend/backup.js
+COPY package.json ./
+USER node
+CMD ["node", "dist/backend/backup.js"]

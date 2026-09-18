@@ -1,3 +1,4 @@
+# Build from lockfiles, not local dependencies; never send credentials/databases to Docker context.
 node_modules
 dist
 .env

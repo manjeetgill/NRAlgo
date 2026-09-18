@@ -1,5 +1,72 @@
 @import "tailwindcss";
 
+/* Shared responsive workspace styles. Broker/account panels reuse these layout and form rules. */
+
+.broker-workspace {
+  display: grid;
+  gap: 24px;
+}
+.broker-settings {
+  padding: 24px;
+}
+.broker-settings form {
+  display: grid;
+  gap: 16px;
+  margin: 20px 0;
+  max-width: 900px;
+}
+.broker-settings label {
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+}
+.broker-settings input,
+.broker-settings select {
+  width: 100%;
+  min-height: 42px;
+  padding: 10px;
+  border: 1px solid #dce2eb;
+  border-radius: 8px;
+  background: white;
+  color: #192b44;
+}
+.broker-steps {
+  padding-left: 22px;
+  line-height: 1.8;
+  font-size: 13px;
+}
+.broker-settings a {
+  color: #4759cf;
+  text-decoration: underline;
+}
+.broker-help {
+  color: #596a81;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.broker-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.live-quote {
+  border-top: 1px solid #e5e9f0;
+  padding: 20px 0;
+  font-size: 13px;
+}
+.live-quote dl {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+.live-quote dt {
+  color: #596a81;
+}
+.live-quote dd {
+  font-weight: 600;
+}
+
 @media (max-width: 880px) {
   .sidebar .learn-link {
     display: flex !important;
@@ -126,6 +193,7 @@ button {
   min-height: 100vh;
 }
 .sidebar {
+  overflow-y: auto;
   width: 238px;
   position: fixed;
   inset: 0 auto 0 0;
@@ -1328,5 +1396,211 @@ input::placeholder {
   .toast {
     width: 85vw;
     font-size: 11px;
+  }
+}
+.live-panel {
+  display: grid;
+  gap: 18px;
+}
+
+/* Research remains visually separate from the real-money ticket; no external chart assets. */
+.research-lab {
+  display: grid;
+  gap: 20px;
+}
+.research-lab .panel {
+  padding: 24px;
+  min-width: 0;
+}
+.research-lab p {
+  line-height: 1.6;
+  margin: 12px 0 18px;
+}
+.research-lab h2 {
+  font-size: 20px;
+  margin: 8px 0 16px;
+}
+.research-lab h3 {
+  font-size: 15px;
+}
+.research-tabs,
+.research-library {
+  display: flex;
+  gap: 12px;
+  align-items: end;
+  flex-wrap: wrap;
+}
+.research-library label {
+  flex: 1;
+  min-width: 220px;
+}
+.research-fields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  margin: 18px 0;
+}
+.research-lab label {
+  display: grid;
+  gap: 8px;
+  color: #5e6f91;
+  font-size: 12px;
+  font-weight: 600;
+}
+.research-lab input:not([type="range"]),
+.research-lab select {
+  width: 100%;
+  padding: 11px;
+  min-height: 42px;
+  border: 1px solid #cad5e7;
+  border-radius: 7px;
+  background: white;
+  color: #172942;
+}
+.research-lab fieldset {
+  border: 0;
+  padding: 0;
+  min-width: 0;
+}
+.research-leg {
+  border: 1px solid #e1e7f1;
+  background: #f9fbff;
+  padding: 18px;
+  border-radius: 10px;
+  margin: 18px 0;
+}
+.research-note {
+  font-size: 12px;
+  color: #647493;
+  line-height: 1.7;
+}
+.research-note li {
+  margin: 5px 0;
+}
+.research-lab .research-rules-title {
+  margin-top: 28px;
+}
+.research-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin: 20px 0;
+}
+.research-summary div {
+  background: #f6f8fd;
+  border-radius: 9px;
+  padding: 16px;
+}
+.research-summary span {
+  display: block;
+  color: #657697;
+  font-size: 12px;
+  margin-bottom: 10px;
+}
+.research-summary strong {
+  font-size: 20px;
+}
+.research-chart {
+  margin: 18px 0;
+  background: #f9fbff;
+  border: 1px solid #e3eaf5;
+  border-radius: 10px;
+}
+.research-chart > div {
+  display: flex;
+  justify-content: space-between;
+  padding: 14px 20px 0;
+  color: #657697;
+  font-size: 11px;
+}
+.research-chart svg {
+  width: 100%;
+  max-height: 240px;
+}
+.research-lab input[type="range"] {
+  width: 100%;
+  margin-top: 18px;
+  accent-color: #5468ea;
+}
+.research-run-select {
+  margin-top: 20px;
+}
+.research-chain {
+  border: 1px solid #dbe4f5;
+  background: #f7faff;
+  border-radius: 10px;
+  padding: 20px;
+  margin: 20px 0;
+}
+.research-stream-actions {
+  margin-top: 14px;
+}
+.research-lab .table-wrap {
+  overflow-x: auto;
+  margin: 20px 0;
+}
+@media (max-width: 850px) {
+  .research-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 560px) {
+  .research-fields,
+  .research-summary {
+    grid-template-columns: 1fr;
+  }
+  .research-lab .panel {
+    padding: 16px;
+  }
+}
+.live-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.live-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+.live-panel .panel {
+  padding: 22px;
+  border: 1px solid var(--border, #ddd);
+  border-radius: 12px;
+}
+.live-form {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+.live-form label {
+  display: grid;
+  gap: 7px;
+  font-size: 13px;
+}
+.live-form input:not([type="checkbox"]),
+.live-form select {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+}
+.live-form input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+}
+.live-confirm {
+  margin-top: 20px;
+  padding: 16px;
+  border: 2px solid #c2410c;
+  border-radius: 10px;
+  background: #fff7ed;
+}
+.live-panel p {
+  line-height: 1.6;
+}
+@media (max-width: 900px) {
+  .live-grid {
+    grid-template-columns: 1fr;
   }
 }
