@@ -23,6 +23,7 @@ import { WorkspaceContent } from "./workspace-content";
 import { ScreenErrorBoundary } from "./screen-error-boundary";
 import type { WorkspacePage, WorkspaceSnapshot } from "./workspace-types";
 import "./workspace-responsive.css";
+import type { TemplateId } from "@/features/strategy-library/strategy-templates";
 /** Preserve navigation after a screen failure and remount private state after account/mode changes. */
 export function WorkspaceShell({
   workspace,
@@ -40,6 +41,7 @@ export function WorkspaceShell({
   const [requestedPage, setPage] = useState<WorkspacePage>("Overview");
   const [menuOpen, setMenuOpen] = useState(false);
   const [researchStrategyId, setResearchStrategyId] = useState("");
+  const [templateId, setTemplateId] = useState<TemplateId>("ema");
   const [marketInitialTool, setMarketInitialTool] = useState<
     "quotes" | "chain"
   >("quotes");
@@ -90,6 +92,14 @@ export function WorkspaceShell({
     (id: string, market: "cash" | "options") => {
       setResearchStrategyId(id);
       onNavigate(market === "options" ? "Spread builder" : "Strategy lab");
+    },
+    [onNavigate],
+  );
+  /** Template selection changes research parameters only, not broker execution state. */
+  const onConfigureTemplate = useCallback(
+    (id: TemplateId) => {
+      setTemplateId(id);
+      onNavigate("Backtest studio");
     },
     [onNavigate],
   );
@@ -250,6 +260,8 @@ export function WorkspaceShell({
               marketInitialTool={marketInitialTool}
               researchStrategyId={researchStrategyId}
               onOpenStrategy={onOpenStrategy}
+              templateId={templateId}
+              onConfigureTemplate={onConfigureTemplate}
             />
           </ScreenErrorBoundary>
           {page !== "Overview" && (

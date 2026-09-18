@@ -3,6 +3,15 @@
 import dynamic from "next/dynamic";
 import { OverviewScreen } from "@/features/overview/overview-screen";
 import type { WorkspacePage, WorkspaceSnapshot } from "./workspace-types";
+import type { TemplateId } from "@/features/strategy-library/strategy-templates";
+/** Historical calculations have no dependencies on order execution. */
+const BacktestStudioScreen = dynamic(
+  () =>
+    import("@/features/backtest-studio/backtest-studio-screen").then(
+      (module) => module.BacktestStudioScreen,
+    ),
+  { loading: ScreenLoading },
+);
 /** Accessible fallback while the selected screen's code is fetched. */
 function ScreenLoading() {
   return <p role="status">Loading screen…</p>;
@@ -104,6 +113,8 @@ export function WorkspaceContent({
   marketInitialTool,
   researchStrategyId,
   onOpenStrategy,
+  templateId,
+  onConfigureTemplate,
 }: {
   page: WorkspacePage;
   workspace: WorkspaceSnapshot;
@@ -113,6 +124,8 @@ export function WorkspaceContent({
   marketInitialTool: "quotes" | "chain";
   researchStrategyId: string;
   onOpenStrategy: (id: string, market: "cash" | "options") => void;
+  templateId: TemplateId;
+  onConfigureTemplate: (id: TemplateId) => void;
 }) {
   switch (page) {
     case "Overview":
@@ -131,7 +144,15 @@ export function WorkspaceContent({
         />
       );
     case "Strategy library":
-      return <StrategyLibraryScreen />;
+      return <StrategyLibraryScreen onConfigure={onConfigureTemplate} />;
+    case "Backtest studio":
+      return (
+        <BacktestStudioScreen
+          key={templateId}
+          templateId={templateId}
+          onBrowse={() => onNavigate("Strategy library")}
+        />
+      );
     case "Strategy lab":
       return (
         <StrategyLabScreen

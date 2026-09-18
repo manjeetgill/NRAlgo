@@ -5,6 +5,9 @@ Updated 18 September 2026. Paths are relative to the repository root. This cover
 ## Dependency direction
 
 New screen infrastructure:
+- [frontend/src/features/backtest-studio/backtest-studio-screen.tsx](../frontend/src/features/backtest-studio/backtest-studio-screen.tsx): historical CSV input, parameter validation, calculated results and export.
+- [frontend/src/features/backtest-studio/daily-backtest.ts](../frontend/src/features/backtest-studio/daily-backtest.ts): bounded OHLC validation and deterministic EMA/RSI/channel research calculations; no data generator.
+- [frontend/src/lib/download.ts](../frontend/src/lib/download.ts): local file downloads and formula-safe CSV encoding.
 - [frontend/src/features/strategy-library/strategy-library-screen.tsx](../frontend/src/features/strategy-library/strategy-library-screen.tsx): rule catalog and explicit configuration navigation.
 - [frontend/src/features/strategy-library/strategy-templates.ts](../frontend/src/features/strategy-library/strategy-templates.ts): versioned EMA, RSI and channel rule descriptions and parameter defaults.
 - [frontend/src/features/spread-builder/spread-payoff.ts](../frontend/src/features/spread-builder/spread-payoff.ts): exact expiry extrema and breakevens with unbounded tail handling.
