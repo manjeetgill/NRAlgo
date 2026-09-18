@@ -1,6 +1,6 @@
 "use client";
 /** Owner-scoped, abortable research library read. No trading commands or wallet access. */
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { requestApiJson } from "@/lib/api";
 
 export interface SavedResearchSummary {
@@ -38,6 +38,9 @@ export function useStrategyLibrary(csrf: string) {
   const [strategies, setStrategies] = useState<SavedResearchSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [revision, setRevision] = useState(0);
+  /** Explicit retry refetches this screen's library, not an unrelated workspace summary. */
+  const refresh = useCallback(() => setRevision((current) => current + 1), []);
   useEffect(() => {
     const controller = new AbortController();
     /** Fetch the saved library, retaining errors instead of substituting records. */
@@ -71,6 +74,6 @@ export function useStrategyLibrary(csrf: string) {
     }
     void loadLibrary();
     return () => controller.abort();
-  }, [csrf]);
-  return { strategies, loading, error };
+  }, [csrf, revision]);
+  return { strategies, loading, error, refresh };
 }

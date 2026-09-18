@@ -65,9 +65,16 @@ export function StrategiesScreen({
           </div>
         </div>
         {library.error && (
-          <p className="error" role="alert">
-            {library.error}
-          </p>
+          <div className="error" role="alert">
+            <p>{library.error}</p>
+            <Button
+              disabled={library.loading}
+              variant="secondary"
+              onClick={library.refresh}
+            >
+              Retry saved strategies
+            </Button>
+          </div>
         )}
         {library.loading ? (
           <p role="status">Loading saved strategies…</p>
@@ -122,9 +129,11 @@ export function StrategiesScreen({
                 {!filtered.length && (
                   <tr>
                     <td colSpan={5}>
-                      {search || market !== "all"
-                        ? "No strategies match these filters."
-                        : "No saved strategies yet. Create a strategy to begin."}
+                      {library.error
+                        ? "Saved strategies could not be loaded. This is not a confirmed empty library; retry the request."
+                        : search || market !== "all"
+                          ? "No strategies match these filters."
+                          : "No saved strategies yet. Create a strategy to begin."}
                     </td>
                   </tr>
                 )}
