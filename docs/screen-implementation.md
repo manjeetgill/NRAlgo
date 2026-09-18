@@ -1,6 +1,6 @@
 # Screen implementation — 18 September 2026
 
-Source of truth: **NRIAlgo_Latest_App_Screens.pdf**, 93 pages. This supersedes the older PDF/HTML. The first 13 pages define the main screens; later pages show dialogs and alternate states. Layouts and workflows follow that reference, but its fictional prices, balances, reports, connection states and sample text are not application data.
+Historical screen-build reference: **NRIAlgo_Latest_App_Screens.pdf**, 93 pages. The newer **NRIAlgo_Complete_Screen_Specifications.pdf** is now the acceptance source of truth; see [the complete specification audit](specification-audit.md) and [requirement register](specification-acceptance.json). The earlier implementation below is not evidence of compliance with the newer production contracts. Fictional reference prices, balances, reports, connection states and sample text are not application data.
 
 ## Screen commits
 

@@ -6,6 +6,8 @@
     "node": ">=22.13.0"
   },
   "scripts": {
+    "audit:spec": "node scripts/check-specification-acceptance.mjs",
+    "check:acceptance": "node scripts/check-specification-acceptance.mjs --strict",
     "test:browser": "node tests/e2e/kotak-smoke.mjs",
     "format": "prettier --write 'backend/**/*.ts' run.ts 'tests/**/*.{ts,mjs}' 'frontend/src/**/*.{ts,tsx,css}' frontend/next.config.ts frontend/postcss.config.mjs",
     "lint": "eslint . --concurrency=off --cache --quiet",

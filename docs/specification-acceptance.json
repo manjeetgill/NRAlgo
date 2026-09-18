@@ -1,0 +1,3455 @@
+{
+  "source": {
+    "file": "NRIAlgo_Complete_Screen_Specifications.pdf",
+    "sha256": "7f4c317fdc4c7445afc2a2d4fec86c78c5337c9d5d7ce9ed687c8c6ead7dc91c",
+    "pages": 215
+  },
+  "requirements": [
+    {
+      "id": "SH-F01",
+      "title": "Navigation",
+      "page": 5,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "SH-F01-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "SH-F01-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "SH-F02",
+      "title": "Mobile menu",
+      "page": 5,
+      "status": "partial",
+      "evidence": [
+        "docs/specification-audit.md"
+      ],
+      "note": "Mobile dialog traps Shift+Tab, background inert and Escape returns focus, verified at390px. Resize/all-device coverage incomplete.",
+      "checks": [
+        {
+          "id": "SH-F02-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "SH-F02-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "SH-F03",
+      "title": "Dialogs and drawers",
+      "page": 5,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "SH-F03-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "SH-F03-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "SH-F04",
+      "title": "Product tour",
+      "page": 5,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "SH-F04-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "SH-F04-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "SH-F05",
+      "title": "Help and full screen",
+      "page": 5,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "SH-F05-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "SH-F05-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "SH-F06",
+      "title": "Avatar and session expiry",
+      "page": 5,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "SH-F06-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "SH-F06-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "SH-F07",
+      "title": "Reset workspace",
+      "page": 5,
+      "status": "user-override",
+      "evidence": [],
+      "note": "User requested removal of fabricated/demo data. No global destructive reset is exposed.",
+      "checks": [
+        {
+          "id": "SH-F07-S",
+          "status": "user-override",
+          "evidence": []
+        },
+        {
+          "id": "SH-F07-E",
+          "status": "user-override",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "SH-F08",
+      "title": "Account/environment switch",
+      "page": 6,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "SH-F08-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "SH-F08-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "SH-F09",
+      "title": "Downloads",
+      "page": 6,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "SH-F09-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "SH-F09-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "SH-T01",
+      "title": "Tenant/account isolation",
+      "page": 7,
+      "status": "partial",
+      "evidence": [
+        "tests/backend/api.test.mjs"
+      ],
+      "note": "Owner isolation has tests; workspace membership/account-role matrix and export/download surfaces are incomplete."
+    },
+    {
+      "id": "SH-T02",
+      "title": "Role enforcement",
+      "page": 7,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "SH-T03",
+      "title": "UI state coverage",
+      "page": 7,
+      "status": "partial",
+      "evidence": [
+        "tests/frontend/workspace-foundation.test.ts"
+      ],
+      "note": "Malformed response and state fencing covered; every screen's eight states and all HTTP failure branches not exercised."
+    },
+    {
+      "id": "SH-T04",
+      "title": "Accessibility and layout",
+      "page": 8,
+      "status": "partial",
+      "evidence": [
+        "docs/specification-audit.md"
+      ],
+      "note": "Browser checked 390px backtest/menu focus; 768px,200% zoom and all screen/dialog combinations not completed."
+    },
+    {
+      "id": "SH-T05",
+      "title": "Reconnect and ordering",
+      "page": 8,
+      "status": "partial",
+      "evidence": [
+        "tests/backend/kotak-market-data.test.mjs"
+      ],
+      "note": "Session revocation/cache fencing tested; full sequence-gap resnapshot semantics not implemented."
+    },
+    {
+      "id": "SH-T06",
+      "title": "Retry and concurrency",
+      "page": 8,
+      "status": "partial",
+      "evidence": [
+        "tests/backend/live.test.mjs"
+      ],
+      "note": "OMS retry/ambiguous-send concurrency tested; saves/previews/export jobs do not all meet shared idempotency contract."
+    },
+    {
+      "id": "SH-T07",
+      "title": "Persistence and recovery",
+      "page": 8,
+      "status": "partial",
+      "evidence": [
+        "tests/backend/live.test.mjs"
+      ],
+      "note": "OMS restart recovery tested; durable runners/outbox/data jobs absent."
+    },
+    {
+      "id": "SH-T08",
+      "title": "Observability",
+      "page": 8,
+      "status": "partial",
+      "evidence": [
+        "tests/backend/api.test.mjs"
+      ],
+      "note": "Public error codes, no-store, correlation IDs and no raw validation input tested. End-to-end event correlation, alerts and metrics incomplete."
+    },
+    {
+      "id": "SH-T09",
+      "title": "Capacity target",
+      "page": 8,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "SH-T10",
+      "title": "Degraded capacity",
+      "page": 8,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "01-D01",
+      "title": "Daily P&L",
+      "page": 15,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "01-D02",
+      "title": "Running strategies",
+      "page": 15,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "01-D03",
+      "title": "Broker readiness",
+      "page": 15,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "01-D04",
+      "title": "Recent activity",
+      "page": 15,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "01-D05",
+      "title": "Readiness checklist",
+      "page": 15,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "01-F01",
+      "title": "Load or change account",
+      "page": 16,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "01-F01-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "01-F01-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "01-F02",
+      "title": "Review readiness",
+      "page": 16,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "01-F02-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "01-F02-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "01-F03",
+      "title": "Open recent event",
+      "page": 16,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "01-F03-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "01-F03-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "01-F04",
+      "title": "Use quick actions",
+      "page": 17,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "01-F04-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "01-F04-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "01-F05",
+      "title": "Refresh after a change",
+      "page": 17,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "01-F05-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "01-F05-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "01-T01",
+      "title": "Mixed scope",
+      "page": 18,
+      "status": "partial",
+      "evidence": [
+        "tests/frontend/trading-mode.test.ts"
+      ],
+      "note": "Mode isolation covered; multi-account race browser acceptance remains."
+    },
+    {
+      "id": "01-T02",
+      "title": "P&L arithmetic",
+      "page": 18,
+      "status": "partial",
+      "evidence": [
+        "tests/frontend/overview-model.test.ts"
+      ],
+      "note": "Unknown/partial open books remain unavailable. Daily fees/baseline arithmetic is not implemented."
+    },
+    {
+      "id": "01-T03",
+      "title": "Readiness truth",
+      "page": 18,
+      "status": "partial",
+      "evidence": [
+        "tests/backend/kotak-live.test.mjs"
+      ],
+      "note": "Execution backend rejects missing authorization; Overview does not expose complete risk readiness reasons/lease."
+    },
+    {
+      "id": "01-T04",
+      "title": "Partial outage",
+      "page": 18,
+      "status": "partial",
+      "evidence": [
+        "tests/frontend/overview-model.test.ts"
+      ],
+      "note": "Partial/outage snapshot retention tested; simultaneous broker outage and activity browser scenario not run."
+    },
+    {
+      "id": "01-T05",
+      "title": "Event order",
+      "page": 18,
+      "status": "verified-automated",
+      "evidence": [
+        "tests/frontend/audit-model.test.ts"
+      ],
+      "note": "Server-time ordering and duplicate-ID projection verified in the model used by Overview."
+    },
+    {
+      "id": "01-T06",
+      "title": "Navigation",
+      "page": 18,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "02-D01",
+      "title": "Definitions",
+      "page": 26,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "02-D02",
+      "title": "Deployment status",
+      "page": 26,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "02-D03",
+      "title": "P&L",
+      "page": 26,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "02-D04",
+      "title": "Eligibility",
+      "page": 26,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "02-D05",
+      "title": "Filters",
+      "page": 26,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "02-F01",
+      "title": "Browse and filter",
+      "page": 27,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "02-F01-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "02-F01-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "02-F02",
+      "title": "Create strategy",
+      "page": 27,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "02-F02-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "02-F02-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "02-F03",
+      "title": "Open existing definition",
+      "page": 27,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "02-F03-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "02-F03-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "02-F04",
+      "title": "Start paper deployment",
+      "page": 28,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "02-F04-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "02-F04-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "02-F05",
+      "title": "Pause deployment",
+      "page": 28,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "02-F05-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "02-F05-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "02-F06",
+      "title": "Return from edit or backtest",
+      "page": 28,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "02-F06-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "02-F06-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "02-T01",
+      "title": "Filter combination",
+      "page": 29,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "02-T02",
+      "title": "Version pinning",
+      "page": 29,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "02-T03",
+      "title": "Duplicate start",
+      "page": 30,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "02-T04",
+      "title": "Pause with exposure",
+      "page": 30,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "02-T05",
+      "title": "Runner crash",
+      "page": 30,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "02-T06",
+      "title": "Definition restore",
+      "page": 30,
+      "status": "partial",
+      "evidence": [
+        "tests/frontend/research-draft.test.ts"
+      ],
+      "note": "Basket definitions persist in navigation; MA period schema and immutable version restore not implemented."
+    },
+    {
+      "id": "03-D01",
+      "title": "Catalog",
+      "page": 45,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "03-D02",
+      "title": "Rules",
+      "page": 45,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "03-D03",
+      "title": "Parameter schema",
+      "page": 45,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "03-D04",
+      "title": "Rule clarification",
+      "page": 46,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "03-D05",
+      "title": "Eligibility",
+      "page": 46,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "03-F01",
+      "title": "Browse templates",
+      "page": 46,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "03-F01-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "03-F01-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "03-F02",
+      "title": "Configure template",
+      "page": 47,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "03-F02-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "03-F02-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "03-F03",
+      "title": "Inspect exact rules",
+      "page": 47,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "03-F03-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "03-F03-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "03-F04",
+      "title": "Resolve Hilega Milega rules",
+      "page": 47,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "03-F04-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "03-F04-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "03-F05",
+      "title": "Build a rule with AI",
+      "page": 47,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "03-F05-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "03-F05-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "03-F06",
+      "title": "Promote a tested template",
+      "page": 48,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "03-F06-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "03-F06-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "03-T01",
+      "title": "EMA contract",
+      "page": 49,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "03-T02",
+      "title": "RSI contract",
+      "page": 49,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "03-T03",
+      "title": "Breakout window",
+      "page": 49,
+      "status": "verified-automated",
+      "evidence": [
+        "tests/frontend/specification-calculations.test.ts"
+      ],
+      "note": "Completed-close breakout excludes current high; next-open entry verified."
+    },
+    {
+      "id": "03-T04",
+      "title": "Blocked rules",
+      "page": 49,
+      "status": "partial",
+      "evidence": [
+        "frontend/src/features/strategy-library/strategy-library-screen.tsx"
+      ],
+      "note": "Unresolved Hilega cannot run; clarify/save-rule workflow absent."
+    },
+    {
+      "id": "03-T05",
+      "title": "Agent injection",
+      "page": 49,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "03-T06",
+      "title": "Stale result",
+      "page": 49,
+      "status": "partial",
+      "evidence": [
+        "frontend/src/features/workspace/workspace-content.tsx"
+      ],
+      "note": "Template-keyed remount clears local reports; exact version-handoff acceptance not run."
+    },
+    {
+      "id": "04-D01",
+      "title": "Dataset",
+      "page": 54,
+      "status": "partial",
+      "evidence": [
+        "frontend/src/features/backtest-studio/backtest-report.ts"
+      ],
+      "note": "SHA256 canonical dataset fingerprint and unverified provenance label; no source registry/instrument/adjustment certification."
+    },
+    {
+      "id": "04-D02",
+      "title": "Run configuration",
+      "page": 54,
+      "status": "partial",
+      "evidence": [
+        "frontend/src/features/backtest-studio/backtest-report.ts"
+      ],
+      "note": "Input-frozen settings/hash/engine manifest; no durable server run identity."
+    },
+    {
+      "id": "04-D03",
+      "title": "OHLC bars",
+      "page": 54,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "04-D04",
+      "title": "Results",
+      "page": 55,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "04-D05",
+      "title": "Job progress",
+      "page": 55,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "04-F01",
+      "title": "Choose rules and parameters",
+      "page": 56,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "04-F01-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "04-F01-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "04-F02",
+      "title": "Upload daily CSV",
+      "page": 56,
+      "status": "partial",
+      "evidence": [
+        "tests/frontend/specification-calculations.test.ts"
+      ],
+      "note": "Validate-before-commit and preserved previous dataset implemented; browser file-chooser success/error acceptance not performed.",
+      "checks": [
+        {
+          "id": "04-F02-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "04-F02-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "04-F03",
+      "title": "Use synthetic data",
+      "page": 56,
+      "status": "user-override",
+      "evidence": [],
+      "note": "User explicitly prohibited generated/demo market data; synthetic input control intentionally omitted.",
+      "checks": [
+        {
+          "id": "04-F03-S",
+          "status": "user-override",
+          "evidence": []
+        },
+        {
+          "id": "04-F03-E",
+          "status": "user-override",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "04-F04",
+      "title": "Run a test",
+      "page": 56,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "04-F04-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "04-F04-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "04-F05",
+      "title": "Inspect results and trades",
+      "page": 57,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "04-F05-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "04-F05-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "04-F06",
+      "title": "Export result",
+      "page": 57,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "04-F06-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "04-F06-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "04-F07",
+      "title": "Customize timeframe and session",
+      "page": 57,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "04-F07-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "04-F07-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "04-F08",
+      "title": "Cancel or leave run",
+      "page": 57,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "04-F08-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "04-F08-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "04-T01",
+      "title": "No future information",
+      "page": 59,
+      "status": "verified-automated",
+      "evidence": [
+        "tests/frontend/specification-calculations.test.ts"
+      ],
+      "note": "Future-suffix mutation preserves earlier trades/equity for all three daily rules."
+    },
+    {
+      "id": "04-T02",
+      "title": "Accounting oracle",
+      "page": 59,
+      "status": "verified-automated",
+      "evidence": [
+        "tests/frontend/specification-calculations.test.ts"
+      ],
+      "note": "Exact PDF oracle: quantity 10, 100→110, two 20 fees, net 60."
+    },
+    {
+      "id": "04-T03",
+      "title": "Ambiguous stop/target",
+      "page": 59,
+      "status": "verified-automated",
+      "evidence": [
+        "tests/frontend/specification-calculations.test.ts"
+      ],
+      "note": "Both touched: stop-first exit at 98 and explicit reason."
+    },
+    {
+      "id": "04-T04",
+      "title": "Gap behavior",
+      "page": 59,
+      "status": "verified-automated",
+      "evidence": [
+        "tests/frontend/specification-calculations.test.ts"
+      ],
+      "note": "Gap 95 takes priority over queued rule exit and cannot fill at stop 98."
+    },
+    {
+      "id": "04-T05",
+      "title": "CSV boundary",
+      "page": 59,
+      "status": "verified-automated",
+      "evidence": [
+        "tests/frontend/specification-calculations.test.ts"
+      ],
+      "note": "59/60/10000/10001 boundaries, duplicate/bad dates and invalid OHLC; duplicate CSV headers also rejected."
+    },
+    {
+      "id": "04-T06",
+      "title": "Warmup and no trades",
+      "page": 60,
+      "status": "verified-automated",
+      "evidence": [
+        "tests/frontend/specification-calculations.test.ts"
+      ],
+      "note": "Warmup rejection, no-trade flat series and finite equity verified."
+    },
+    {
+      "id": "04-T07",
+      "title": "Parameter/report binding",
+      "page": 60,
+      "status": "partial",
+      "evidence": [
+        "tests/frontend/specification-calculations.test.ts"
+      ],
+      "note": "Hashes/settings freeze before async work and input edits clear report; browser delayed-read/edit race not yet exercised."
+    },
+    {
+      "id": "04-T08",
+      "title": "Timeframe boundary",
+      "page": 60,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "04-T09",
+      "title": "Cancel and retry",
+      "page": 60,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "04-T10",
+      "title": "Complete export",
+      "page": 60,
+      "status": "verified-automated",
+      "evidence": [
+        "tests/frontend/specification-calculations.test.ts"
+      ],
+      "note": "JSON round-trip retains all trades beyond 50-row table window."
+    },
+    {
+      "id": "05-D01",
+      "title": "Editable draft",
+      "page": 72,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "05-D02",
+      "title": "Instrument choices",
+      "page": 72,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "05-D03",
+      "title": "Validation",
+      "page": 72,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "05-D04",
+      "title": "Backtest preview",
+      "page": 73,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "05-D05",
+      "title": "Agent draft",
+      "page": 73,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "05-F01",
+      "title": "Create or open draft",
+      "page": 73,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "05-F01-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "05-F01-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "05-F02",
+      "title": "Edit and validate",
+      "page": 74,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "05-F02-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "05-F02-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "05-F03",
+      "title": "Save draft",
+      "page": 74,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "05-F03-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "05-F03-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "05-F04",
+      "title": "Run calculated backtest",
+      "page": 74,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "05-F04-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "05-F04-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "05-F05",
+      "title": "Inspect trade log",
+      "page": 74,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "05-F05-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "05-F05-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "05-F06",
+      "title": "Accept an AI proposal",
+      "page": 75,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "05-F06-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "05-F06-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "05-F07",
+      "title": "Leave with unsaved changes",
+      "page": 75,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "05-F07-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "05-F07-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "05-T01",
+      "title": "Input validation",
+      "page": 76,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "05-T02",
+      "title": "Save idempotency",
+      "page": 76,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "05-T03",
+      "title": "Concurrent editing",
+      "page": 76,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "05-T04",
+      "title": "Real result binding",
+      "page": 76,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "05-T05",
+      "title": "Instrument compatibility",
+      "page": 76,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "05-T06",
+      "title": "Unsaved draft",
+      "page": 76,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "05-T07",
+      "title": "AI parity",
+      "page": 77,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "06-D01",
+      "title": "Leg definitions",
+      "page": 84,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "06-D02",
+      "title": "Premiums",
+      "page": 84,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "06-D03",
+      "title": "Payoff",
+      "page": 84,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "06-D04",
+      "title": "Margin and fees",
+      "page": 85,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "06-D05",
+      "title": "Basket execution",
+      "page": 85,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "06-F01",
+      "title": "Add or remove legs",
+      "page": 85,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "06-F01-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "06-F01-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "06-F02",
+      "title": "Inspect expiry payoff",
+      "page": 86,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "06-F02-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "06-F02-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "06-F03",
+      "title": "Save and reopen spread",
+      "page": 86,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "06-F03-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "06-F03-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "06-F04",
+      "title": "Backtest spread",
+      "page": 86,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "06-F04-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "06-F04-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "06-F05",
+      "title": "Review basket",
+      "page": 86,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "06-F05-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "06-F05-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "06-F06",
+      "title": "Confirm basket",
+      "page": 87,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "06-F06-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "06-F06-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "06-F07",
+      "title": "Refresh expired preview",
+      "page": 87,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "06-F07-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "06-F07-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "06-T01",
+      "title": "Known bull call",
+      "page": 88,
+      "status": "verified-automated",
+      "evidence": [
+        "tests/frontend/specification-calculations.test.ts"
+      ],
+      "note": "Exact PDF bull-call payoff oracle verified."
+    },
+    {
+      "id": "06-T02",
+      "title": "Unbounded tail",
+      "page": 88,
+      "status": "verified-automated",
+      "evidence": [
+        "tests/frontend/specification-calculations.test.ts"
+      ],
+      "note": "Unbounded short-call loss and long-call profit verified."
+    },
+    {
+      "id": "06-T03",
+      "title": "Lot metadata",
+      "page": 89,
+      "status": "partial",
+      "evidence": [
+        "tests/frontend/spread-payoff.test.ts"
+      ],
+      "note": "Explicit signed units used by payoff; historical lot-master revision integration unverified."
+    },
+    {
+      "id": "06-T04",
+      "title": "Margin vs credit",
+      "page": 89,
+      "status": "partial",
+      "evidence": [
+        "tests/backend/kotak-live.test.mjs"
+      ],
+      "note": "Unsupported shorts fail closed; server basket margin preview is not connected."
+    },
+    {
+      "id": "06-T05",
+      "title": "Partial basket",
+      "page": 89,
+      "status": "partial",
+      "evidence": [
+        "tests/backend/live.test.mjs"
+      ],
+      "note": "Core spread coordinator has orphan/partial tests; executable Spread builder preview-to-repair flow unavailable."
+    },
+    {
+      "id": "06-T06",
+      "title": "Stale draft",
+      "page": 89,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "06-T07",
+      "title": "Empty builder",
+      "page": 89,
+      "status": "partial",
+      "evidence": [
+        "frontend/src/features/research/research-workbench.tsx"
+      ],
+      "note": "Empty options draft supported and backend rejects empty legs; complete browser save/run/review rejection paths unverified."
+    },
+    {
+      "id": "07-D01",
+      "title": "Paper account",
+      "page": 100,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "07-D02",
+      "title": "Positions",
+      "page": 100,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "07-D03",
+      "title": "Market inputs",
+      "page": 100,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "07-D04",
+      "title": "Order rules",
+      "page": 101,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "07-D05",
+      "title": "Order lifecycle",
+      "page": 101,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "07-F01",
+      "title": "Switch paper account",
+      "page": 101,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "07-F01-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "07-F01-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "07-F02",
+      "title": "Enter new order",
+      "page": 102,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "07-F02-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "07-F02-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "07-F03",
+      "title": "Review and edit",
+      "page": 102,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "07-F03-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "07-F03-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "07-F04",
+      "title": "Confirm paper order",
+      "page": 102,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "07-F04-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "07-F04-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "07-F05",
+      "title": "Observe fills",
+      "page": 102,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "07-F05-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "07-F05-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "07-F06",
+      "title": "Cancel remainder",
+      "page": 103,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "07-F06-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "07-F06-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "07-F07",
+      "title": "Inspect and export history",
+      "page": 103,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "07-F07-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "07-F07-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "07-T01",
+      "title": "Environment isolation",
+      "page": 104,
+      "status": "partial",
+      "evidence": [
+        "tests/backend/trading-mode.test.mjs"
+      ],
+      "note": "Paper/live routes isolated; tampered future account-ID contract not implemented."
+    },
+    {
+      "id": "07-T02",
+      "title": "Cash transaction",
+      "page": 104,
+      "status": "partial",
+      "evidence": [
+        "tests/backend/paper.test.mjs"
+      ],
+      "note": "Reservation arithmetic covered; named simultaneous HTTP cash-overcommit scenario still needs acceptance evidence."
+    },
+    {
+      "id": "07-T03",
+      "title": "Limit matching",
+      "page": 104,
+      "status": "partial",
+      "evidence": [
+        "tests/backend/paper.test.mjs"
+      ],
+      "note": "Quote-driven marketability covered; PDF exact 105→99 scenario not separately recorded."
+    },
+    {
+      "id": "07-T04",
+      "title": "Sell inventory",
+      "page": 105,
+      "status": "partial",
+      "evidence": [
+        "tests/backend/paper.test.mjs"
+      ],
+      "note": "Unfunded inventory sales reject; UI/server acceptance trace needs attachment."
+    },
+    {
+      "id": "07-T05",
+      "title": "Partial cancel",
+      "page": 105,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "07-T06",
+      "title": "Preview expiry",
+      "page": 105,
+      "status": "partial",
+      "evidence": [
+        "frontend/src/features/paper-trading/paper-trading-screen.tsx"
+      ],
+      "note": "Client TTL exists but no frozen server preview. A client-only timeout does not satisfy the requirement."
+    },
+    {
+      "id": "07-T07",
+      "title": "Account separation",
+      "page": 105,
+      "status": "user-override",
+      "evidence": [],
+      "note": "User limited implementation to Kotak; ICICI must not be fabricated. Paper remains hidden in live mode."
+    },
+    {
+      "id": "08-D01",
+      "title": "Contracts and expiries",
+      "page": 120,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "08-D02",
+      "title": "Spot/chain quotes",
+      "page": 120,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "08-D03",
+      "title": "Depth and Greeks",
+      "page": 120,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "08-D04",
+      "title": "Draft count",
+      "page": 121,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "08-D05",
+      "title": "Feed health",
+      "page": 121,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "08-F01",
+      "title": "Load and change chain",
+      "page": 121,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "08-F01-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "08-F01-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "08-F02",
+      "title": "Stream quote updates",
+      "page": 122,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "08-F02-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "08-F02-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "08-F03",
+      "title": "Inspect call or put",
+      "page": 122,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "08-F03-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "08-F03-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "08-F04",
+      "title": "Add Buy or Sell leg",
+      "page": 122,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "08-F04-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "08-F04-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "08-F05",
+      "title": "Open builder and return",
+      "page": 122,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "08-F05-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "08-F05-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "08-F06",
+      "title": "Handle feed outage",
+      "page": 122,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "08-F06-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "08-F06-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "08-T01",
+      "title": "Call/put identity",
+      "page": 124,
+      "status": "partial",
+      "evidence": [
+        "tests/backend/kotak-market-data.test.mjs"
+      ],
+      "note": "CE/PE metadata normalized; full drawer→persisted canonical-draft acceptance not run."
+    },
+    {
+      "id": "08-T02",
+      "title": "Expiry switch race",
+      "page": 124,
+      "status": "partial",
+      "evidence": [
+        "tests/frontend/option-chain-lifecycle.test.ts"
+      ],
+      "note": "Subscription stability/generation cleanup exists; exact A/B delayed snapshot case not recorded."
+    },
+    {
+      "id": "08-T03",
+      "title": "Missing field",
+      "page": 124,
+      "status": "partial",
+      "evidence": [
+        "tests/backend/kotak-market-data.test.mjs"
+      ],
+      "note": "Missing provider fields normalize to null; connected UI case still required."
+    },
+    {
+      "id": "08-T04",
+      "title": "Sequence recovery",
+      "page": 124,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "08-T05",
+      "title": "Freshness",
+      "page": 124,
+      "status": "partial",
+      "evidence": [
+        "tests/frontend/overview-model.test.ts"
+      ],
+      "note": "Stale/future price rejection covered; executable preview/feed outage journey not certified."
+    },
+    {
+      "id": "08-T06",
+      "title": "No execution side effect",
+      "page": 124,
+      "status": "partial",
+      "evidence": [
+        "tests/backend/kotak-market-data.test.mjs"
+      ],
+      "note": "Read-only feed boundary covered; browser spy across all quote/draft actions not run."
+    },
+    {
+      "id": "08-T07",
+      "title": "Metadata change",
+      "page": 124,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "08-T08",
+      "title": "Draft limits and duplicates",
+      "page": 124,
+      "status": "partial",
+      "evidence": [
+        "frontend/src/features/workspace/workspace-shell.tsx"
+      ],
+      "note": "Four-leg cap exists. Duplicate policy currently rejects the contract regardless of side, stricter than same-side-only requirement."
+    },
+    {
+      "id": "08-T09",
+      "title": "Greeks provenance",
+      "page": 125,
+      "status": "partial",
+      "evidence": [
+        "frontend/src/components/live-option-chain.tsx"
+      ],
+      "note": "Missing Greeks shown unavailable; provenance/model timestamp scenario not end-to-end tested."
+    },
+    {
+      "id": "09-D01",
+      "title": "Order intent",
+      "page": 132,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "09-D02",
+      "title": "Broker state",
+      "page": 132,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "09-D03",
+      "title": "Fills/trades",
+      "page": 132,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "09-D04",
+      "title": "Timeline",
+      "page": 133,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "09-D05",
+      "title": "Export",
+      "page": 133,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "09-F01",
+      "title": "Filter and search history",
+      "page": 133,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "09-F01-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "09-F01-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "09-F02",
+      "title": "Inspect order and fills",
+      "page": 134,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "09-F02-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "09-F02-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "09-F03",
+      "title": "Cancel open remainder",
+      "page": 134,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "09-F03-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "09-F03-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "09-F04",
+      "title": "Receive live updates",
+      "page": 134,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "09-F04-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "09-F04-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "09-F05",
+      "title": "Recover unknown submission",
+      "page": 134,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "09-F05-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "09-F05-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "09-F06",
+      "title": "Export selected records",
+      "page": 135,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "09-F06-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "09-F06-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "09-F07",
+      "title": "Open new paper order",
+      "page": 135,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "09-F07-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "09-F07-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "09-T01",
+      "title": "Partial arithmetic",
+      "page": 136,
+      "status": "partial",
+      "evidence": [
+        "tests/backend/live.test.mjs"
+      ],
+      "note": "Core cumulative quantities covered; distinct fill ledger/central UI cancellation acceptance incomplete."
+    },
+    {
+      "id": "09-T02",
+      "title": "Fill/cancel race",
+      "page": 136,
+      "status": "partial",
+      "evidence": [
+        "tests/backend/live.test.mjs"
+      ],
+      "note": "Unconfirmed cancellations remain unresolved; specified late full-fill race through UI unverified."
+    },
+    {
+      "id": "09-T03",
+      "title": "Duplicate fill",
+      "page": 136,
+      "status": "partial",
+      "evidence": [
+        "tests/backend/live.test.mjs"
+      ],
+      "note": "Monotonic broker observations tested; separate unique provider-fill ledger absent."
+    },
+    {
+      "id": "09-T04",
+      "title": "Ambiguous placement",
+      "page": 137,
+      "status": "partial",
+      "evidence": [
+        "tests/backend/kotak-live.test.mjs"
+      ],
+      "note": "Lost/malformed acknowledgement stays UNKNOWN without blind retry; support/UI recovery journey not fully exercised."
+    },
+    {
+      "id": "09-T05",
+      "title": "State regression",
+      "page": 137,
+      "status": "partial",
+      "evidence": [
+        "tests/backend/live.test.mjs"
+      ],
+      "note": "Regression halts rather than rewriting order truth; complete UI timeline acceptance incomplete."
+    },
+    {
+      "id": "09-T06",
+      "title": "Export security",
+      "page": 137,
+      "status": "partial",
+      "evidence": [
+        "tests/frontend/download.test.ts"
+      ],
+      "note": "Formula/quote/newline encoding tested; complete authorized paginated server export not implemented."
+    },
+    {
+      "id": "09-T07",
+      "title": "Account access",
+      "page": 137,
+      "status": "partial",
+      "evidence": [
+        "tests/backend/live.test.mjs"
+      ],
+      "note": "Account-bound OMS guards tested; export job URL ownership not applicable until jobs exist."
+    },
+    {
+      "id": "10-D01",
+      "title": "Connection metadata",
+      "page": 155,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "10-D02",
+      "title": "Capabilities",
+      "page": 155,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "10-D03",
+      "title": "Secrets",
+      "page": 155,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "10-D04",
+      "title": "Health",
+      "page": 155,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "10-D05",
+      "title": "Exposure summary",
+      "page": 155,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "10-F01",
+      "title": "Connect account",
+      "page": 156,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "10-F01-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "10-F01-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "10-F02",
+      "title": "Verify session",
+      "page": 156,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "10-F02-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "10-F02-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "10-F03",
+      "title": "Reconnect expired session",
+      "page": 156,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "10-F03-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "10-F03-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "10-F04",
+      "title": "Disconnect with exposure",
+      "page": 157,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "10-F04-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "10-F04-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "10-F05",
+      "title": "Provider outage",
+      "page": 157,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "10-F05-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "10-F05-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "10-T01",
+      "title": "Callback replay",
+      "page": 158,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "10-T02",
+      "title": "Cross-user callback",
+      "page": 158,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "10-T03",
+      "title": "Secret leakage",
+      "page": 159,
+      "status": "partial",
+      "evidence": [
+        "tests/backend/kotak-auth.test.mjs"
+      ],
+      "note": "Sensitive broker diagnostics redacted in adapter tests; all browser/error/audit surfaces require combined acceptance."
+    },
+    {
+      "id": "10-T04",
+      "title": "Expiry handling",
+      "page": 159,
+      "status": "partial",
+      "evidence": [
+        "tests/backend/live.test.mjs"
+      ],
+      "note": "Session gate halts dispatch; outage exposure retained only in mounted UI, not durable across restart."
+    },
+    {
+      "id": "10-T05",
+      "title": "Disconnect race",
+      "page": 159,
+      "status": "partial",
+      "evidence": [
+        "tests/backend/kotak-live.test.mjs"
+      ],
+      "note": "Session fencing tested; disconnect command/exposure dialog race needs complete acceptance."
+    },
+    {
+      "id": "10-T06",
+      "title": "Capability mismatch",
+      "page": 159,
+      "status": "partial",
+      "evidence": [
+        "tests/backend/kotak-live.test.mjs"
+      ],
+      "note": "Unsupported execution fails closed; broker UI capability verification is not account-specific."
+    },
+    {
+      "id": "10-T07",
+      "title": "Reconnect identity",
+      "page": 159,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "11-D01",
+      "title": "Open positions",
+      "page": 168,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "11-D02",
+      "title": "Marks and P&L",
+      "page": 168,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "11-D03",
+      "title": "Execution authorization",
+      "page": 168,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "11-D04",
+      "title": "Exit plan",
+      "page": 169,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "11-D05",
+      "title": "Flatten progress",
+      "page": 169,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "11-F01",
+      "title": "Load all open positions",
+      "page": 170,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "11-F01-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "11-F01-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "11-F02",
+      "title": "Review and re-arm",
+      "page": 170,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "11-F02-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "11-F02-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "11-F03",
+      "title": "Halt new entries",
+      "page": 170,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "11-F03-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "11-F03-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "11-F04",
+      "title": "Exit one position",
+      "page": 171,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "11-F04-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "11-F04-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "11-F05",
+      "title": "Flatten all",
+      "page": 171,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "11-F05-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "11-F05-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "11-F06",
+      "title": "Recover monitoring",
+      "page": 171,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "11-F06-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "11-F06-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "11-F07",
+      "title": "Inspect completed exit",
+      "page": 171,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "11-F07-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "11-F07-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "11-T01",
+      "title": "All open positions",
+      "page": 173,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "11-T02",
+      "title": "Known valuation",
+      "page": 173,
+      "status": "verified-automated",
+      "evidence": [
+        "tests/frontend/overview-adapter.test.ts"
+      ],
+      "note": "10 units, average2910/mark2940→300; missing mark remains unavailable."
+    },
+    {
+      "id": "11-T03",
+      "title": "Halt race",
+      "page": 173,
+      "status": "partial",
+      "evidence": [
+        "tests/backend/live.test.mjs"
+      ],
+      "note": "Final entry gate rechecks halt/session; exact paused-dispatch generation scenario requires acceptance trace."
+    },
+    {
+      "id": "11-T04",
+      "title": "Protective exits",
+      "page": 173,
+      "status": "partial",
+      "evidence": [
+        "backend/live/execution.ts"
+      ],
+      "note": "Risk-reducing core semantics exist; user-facing external-position emergency exits not implemented."
+    },
+    {
+      "id": "11-T05",
+      "title": "Re-arm expiry",
+      "page": 173,
+      "status": "partial",
+      "evidence": [
+        "tests/backend/kotak-live.test.mjs"
+      ],
+      "note": "Permission expiry tested; browser stale Armed banner journey not executed."
+    },
+    {
+      "id": "11-T06",
+      "title": "Double flatten",
+      "page": 173,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "11-T07",
+      "title": "Partial failure",
+      "page": 173,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "11-T08",
+      "title": "Broker outage",
+      "page": 173,
+      "status": "partial",
+      "evidence": [
+        "tests/frontend/overview-model.test.ts"
+      ],
+      "note": "Mounted same-account exposure retained on disconnect/partial failure. Persisted last-known snapshot after navigation/restart remains open."
+    },
+    {
+      "id": "12-D01",
+      "title": "Identity",
+      "page": 183,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "12-D02",
+      "title": "MFA state",
+      "page": 183,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "12-D03",
+      "title": "Recovery credentials",
+      "page": 183,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "12-D04",
+      "title": "Sessions",
+      "page": 184,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "12-D05",
+      "title": "Security events",
+      "page": 184,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "12-F01",
+      "title": "Open profile and sessions",
+      "page": 184,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "12-F01-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "12-F01-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "12-F02",
+      "title": "Change password",
+      "page": 185,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "12-F02-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "12-F02-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "12-F03",
+      "title": "Enroll MFA",
+      "page": 185,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "12-F03-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "12-F03-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "12-F04",
+      "title": "Disable MFA",
+      "page": 185,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "12-F04-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "12-F04-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "12-F05",
+      "title": "Generate recovery codes",
+      "page": 185,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "12-F05-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "12-F05-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "12-F06",
+      "title": "Revoke another session",
+      "page": 186,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "12-F06-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "12-F06-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "12-F07",
+      "title": "Handle current-session expiry",
+      "page": 186,
+      "status": "partial",
+      "evidence": [
+        "tests/frontend/api-contract.test.ts"
+      ],
+      "note": "Confirmed SESSION_EXPIRED clears private shell; MFA401 does not. Browser forced-expiry scenario unverified.",
+      "checks": [
+        {
+          "id": "12-F07-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "12-F07-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "12-T01",
+      "title": "Enrollment proof",
+      "page": 187,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "12-T02",
+      "title": "OTP replay",
+      "page": 187,
+      "status": "partial",
+      "evidence": [
+        "tests/backend/api.test.mjs"
+      ],
+      "note": "TOTP replay prevention tested; general action-scoped single-use reauth challenge not implemented."
+    },
+    {
+      "id": "12-T03",
+      "title": "Recovery single-use",
+      "page": 187,
+      "status": "partial",
+      "evidence": [
+        "tests/backend/api.test.mjs"
+      ],
+      "note": "Hashed recovery use covered; exact concurrent recovery-code scenario requires evidence."
+    },
+    {
+      "id": "12-T04",
+      "title": "MFA disable gate",
+      "page": 188,
+      "status": "partial",
+      "evidence": [
+        "tests/backend/security.test.mjs"
+      ],
+      "note": "MFA change disconnects broker access; armed exposure/protective-exit combined case incomplete."
+    },
+    {
+      "id": "12-T05",
+      "title": "Session enforcement",
+      "page": 188,
+      "status": "partial",
+      "evidence": [
+        "tests/backend/api.test.mjs"
+      ],
+      "note": "Session revocation and feed lease enforcement tested separately; socket/cached-token acceptance journey not run."
+    },
+    {
+      "id": "12-T06",
+      "title": "Cross-user sessions",
+      "page": 188,
+      "status": "partial",
+      "evidence": [
+        "tests/backend/api.test.mjs"
+      ],
+      "note": "Cross-owner session revoke and opaque session listing tested; full UI read/revoke scenario not executed."
+    },
+    {
+      "id": "12-T07",
+      "title": "Sensitive response",
+      "page": 188,
+      "status": "partial",
+      "evidence": [
+        "tests/backend/api.test.mjs"
+      ],
+      "note": "no-store headers enforced; all browser history/cache/analytics recovery surfaces not examined."
+    },
+    {
+      "id": "13-D01",
+      "title": "Domain events",
+      "page": 200,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "13-D02",
+      "title": "Event store",
+      "page": 200,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "13-D03",
+      "title": "Readable projection",
+      "page": 200,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "13-D04",
+      "title": "Search index",
+      "page": 201,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "13-D05",
+      "title": "Exports",
+      "page": 201,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "13-F01",
+      "title": "Browse and filter",
+      "page": 201,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "13-F01-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "13-F01-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "13-F02",
+      "title": "Inspect an event",
+      "page": 202,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "13-F02-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "13-F02-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "13-F03",
+      "title": "Follow cross-screen action",
+      "page": 202,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "13-F03-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "13-F03-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "13-F04",
+      "title": "Export history",
+      "page": 202,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "13-F04-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "13-F04-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "13-F05",
+      "title": "Handle concurrent events",
+      "page": 202,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "13-F05-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "13-F05-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "13-F06",
+      "title": "Handle retention boundaries",
+      "page": 203,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment.",
+      "checks": [
+        {
+          "id": "13-F06-S",
+          "status": "open",
+          "evidence": []
+        },
+        {
+          "id": "13-F06-E",
+          "status": "open",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "id": "13-T01",
+      "title": "Atomic recording",
+      "page": 204,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "13-T02",
+      "title": "Event deduplication",
+      "page": 204,
+      "status": "partial",
+      "evidence": [
+        "tests/frontend/audit-model.test.ts"
+      ],
+      "note": "UI duplicate projection covered; transactional outbox consumer event-ID uniqueness not implemented."
+    },
+    {
+      "id": "13-T03",
+      "title": "Timezone boundary",
+      "page": 204,
+      "status": "partial",
+      "evidence": [
+        "tests/frontend/audit-model.test.ts"
+      ],
+      "note": "IST day-boundary rendering tested; server date filters absent."
+    },
+    {
+      "id": "13-T04",
+      "title": "Redaction",
+      "page": 204,
+      "status": "partial",
+      "evidence": [
+        "tests/backend/kotak-auth.test.mjs"
+      ],
+      "note": "Broker error redaction tested; structured audit whitelist absent."
+    },
+    {
+      "id": "13-T05",
+      "title": "Export completeness",
+      "page": 204,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "13-T06",
+      "title": "Link permissions",
+      "page": 204,
+      "status": "open",
+      "evidence": [],
+      "note": "Not accepted against the complete case. See the section assessment."
+    },
+    {
+      "id": "13-T07",
+      "title": "No mutation",
+      "page": 204,
+      "status": "partial",
+      "evidence": [
+        "frontend/src/features/activity/activity-screen.tsx"
+      ],
+      "note": "No edit/delete UI or routes; append-only database privileges absent and retention deletes history."
+    }
+  ],
+  "schemaVersion": 1,
+  "reviewedAt": "2026-09-18",
+  "baseCommit": "cc521e3",
+  "reviewCodeCommit": "0add9b6",
+  "verification": {
+    "command": "npm run check",
+    "result": "passed",
+    "backendTests": 119,
+    "frontendTests": 63,
+    "architectureTests": 6,
+    "build": "npm run build passed",
+    "environment": "Local; disposable PostgreSQL test schemas; broker stubs; live execution disabled",
+    "scope": "Existing workspace includes preserved pre-existing unrelated lockfile/test edits. Not a clean-room or connected-broker certification."
+  },
+  "releaseAccepted": false,
+  "sections": [
+    {
+      "id": "SH",
+      "name": "Shared contracts",
+      "gap": "Owner isolation and CSRF exist; workspace roles, transactional outbox, complete route/filter/draft restoration, performance/failover evidence and operational sign-off remain open."
+    },
+    {
+      "id": "01",
+      "name": "Overview",
+      "gap": "Open-position P&L is not daily P&L; overnight baseline/fees policy and worker-derived running count are missing. Scope and stale-exposure safeguards have tests."
+    },
+    {
+      "id": "02",
+      "name": "Strategies",
+      "gap": "Saved research definitions are not immutable StrategyVersion records or deployments. Running/paused filters, leases, start/pause and revision-safe editing remain unimplemented."
+    },
+    {
+      "id": "03",
+      "name": "Strategy library",
+      "gap": "Three implemented daily rules; no versioned shared strategy AST or durable promotion. Hilega/AI are explicitly unavailable, not certified features."
+    },
+    {
+      "id": "04",
+      "name": "Backtest studio",
+      "gap": "Bounded daily CSV calculation works locally; durable jobs/cancellation, provenance registry, sessions/intraday rules and corporate-action validation remain open."
+    },
+    {
+      "id": "05",
+      "name": "Algo lab",
+      "gap": "Current screen edits scheduled baskets, not the specified full MA/rule editor. Revision conflicts, idempotent saves, durable unsaved-change guard and AI validation remain open."
+    },
+    {
+      "id": "06",
+      "name": "Spread builder",
+      "gap": "Analytic same-expiry payoff exists. Canonical metadata-preserving draft versions and server-priced executable basket review are not wired through this screen; no real margin/repair certification."
+    },
+    {
+      "id": "07",
+      "name": "Paper trading",
+      "gap": "Separate transactional LIMIT/DAY ledger exists but is hidden in live mode. Frozen server previews, partial fills and replay-model versioning remain open; ICICI is outside user scope."
+    },
+    {
+      "id": "08",
+      "name": "Option chain",
+      "gap": "Master contracts and shared real-data feed exist. Snapshot/sequence-gap protocol, canonical durable drafts and metadata-revision revalidation require acceptance work."
+    },
+    {
+      "id": "09",
+      "name": "Orders & trades",
+      "gap": "App OMS history exists; complete broker-originated orders/fill ledger, date/account filters, revision-safe cancel UI, cursor pagination and complete server exports remain open."
+    },
+    {
+      "id": "10",
+      "name": "Broker connections",
+      "gap": "Kotak-only session-bound adapter exists. Masked persistent account identity, per-capability verification, cross-account reconnect and exposure-aware disconnect require acceptance work."
+    },
+    {
+      "id": "11",
+      "name": "Live positions",
+      "gap": "Single broker monitoring and guarded app OMS exist. All-authorized-account discovery, durable outage snapshots, frozen exit plans and non-atomic flatten progress remain open."
+    },
+    {
+      "id": "12",
+      "name": "Account & security",
+      "gap": "Real password/MFA/session services exist. Enrollment cancellation, action-scoped recent-auth proofs, recovery regeneration and device/last-active metadata remain open."
+    },
+    {
+      "id": "13",
+      "name": "Audit log",
+      "gap": "Legacy owner text events only; UI dedup/time ordering added. Structured immutable envelopes, outbox, authorized entity links, retention boundaries and full exports remain open."
+    }
+  ],
+  "scope": "Review of all numbered requirements; evidence is deliberately conservative. Automated model pass is not broker certification or screen-wide acceptance. Shared prose, journey and visual sign-offs remain in specification-audit.md."
+}
