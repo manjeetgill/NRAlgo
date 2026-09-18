@@ -1,4 +1,16 @@
 /** Shared browser transport. Secrets stay on the same origin; mutations are never retried. */
+const sessionExpiryListeners = new Set<() => void>();
+
+/** One session owner clears every screen when the server explicitly rejects the app session.
+ * An invalid MFA proof also uses HTTP 401, so status alone must not log the user out. */
+export function subscribeSessionExpiry(listener: () => void): () => void {
+  sessionExpiryListeners.add(listener);
+  return () => {
+    sessionExpiryListeners.delete(listener);
+  };
+}
+
+/** Same-origin JSON request with bounded reads, structured errors and no automatic mutation retry. */
 export async function requestApiJson(
   path: string,
   method = "GET",
@@ -31,9 +43,29 @@ export async function requestApiJson(
     );
   });
   if (!response.ok) {
+    if (response.status === 401 && result?.code === "SESSION_EXPIRED") {
+      for (const listener of sessionExpiryListeners) {
+        listener();
+      }
+    }
     const detail =
       typeof result?.detail === "string" ? result.detail : "Request failed.";
-    throw Object.assign(new Error(detail), { status: response.status });
+    const correlationId =
+      typeof result?.correlationId === "string" &&
+      /^[a-f0-9-]{36}$/i.test(result.correlationId)
+        ? result.correlationId
+        : undefined;
+    throw Object.assign(
+      new Error(
+        correlationId ? `${detail} Reference: ${correlationId}` : detail,
+      ),
+      {
+        status: response.status,
+        code: result?.code,
+        correlationId,
+        retryable: result?.retryable === true,
+      },
+    );
   }
   return result;
 }

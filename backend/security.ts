@@ -24,8 +24,12 @@ export const equal = (a: unknown, b: unknown) =>
     Buffer.from(digest(String(b))),
   );
 /** Throw an intentionally public HTTP error; callers must not include secrets in detail. */
-export const fail = (status: number, detail: string): never => {
-  throw Object.assign(new Error(detail), { status, detail });
+export const fail = (
+  status: number,
+  detail: string,
+  publicCode?: "SESSION_EXPIRED",
+): never => {
+  throw Object.assign(new Error(detail), { status, detail, publicCode });
 };
 // Bound native crypto work even when an HTTP client disconnects before hashing finishes.
 let activePasswordHashes = 0;

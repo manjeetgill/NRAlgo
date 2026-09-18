@@ -2,7 +2,7 @@
 
 /** Authentication and workspace snapshots have one lifecycle owner; screens never keep copies of session state. */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { requestApiJson } from "@/lib/api";
+import { requestApiJson, subscribeSessionExpiry } from "@/lib/api";
 import type { AuthStatus, WorkspaceSnapshot } from "./workspace-types";
 import { createLatestRequest } from "@/lib/latest-request";
 import { parseAuthStatus, parseWorkspaceSnapshot } from "./workspace-api";
@@ -16,6 +16,7 @@ export function useWorkspaceSession() {
   const readGate = useRef(createLatestRequest());
   const mounted = useRef(false);
   const mutationPending = useRef(false);
+  const expiryPending = useRef(false);
 
   /** Cancel superseded reads before beginning another; recheck identity after every awaited response. */
   const onRefresh = useCallback(async () => {
@@ -38,6 +39,7 @@ export function useWorkspaceSession() {
         return;
       }
       setWorkspace(next);
+      expiryPending.current = false;
       setAuth(null);
       setError("");
     } catch (cause) {
@@ -77,6 +79,49 @@ export function useWorkspaceSession() {
       }
     }
   }, []);
+
+  /** Expiry on any screen immediately unmounts private data and stops its subscriptions.
+   * Fetch only the public sign-in policy; expired background requests cannot cause a refresh loop. */
+  useEffect(
+    () =>
+      subscribeSessionExpiry(() => {
+        if (!mounted.current || expiryPending.current) {
+          return;
+        }
+        expiryPending.current = true;
+        const request = readGate.current.begin();
+        setWorkspace(null);
+        setAuth(null);
+        setError("Your session expired. Please sign in again.");
+        void requestApiJson(
+          "/auth/status",
+          "GET",
+          undefined,
+          undefined,
+          15000,
+          request.signal,
+        )
+          .then(
+            /** Only the latest authentication lifecycle may publish policy. */ (
+              result,
+            ) => {
+              if (mounted.current && request.isCurrent()) {
+                setAuth(parseAuthStatus(result));
+              }
+            },
+          )
+          .catch(
+            /** Keep private data cleared even if the sign-in service is unavailable. */ () => {
+              if (mounted.current && request.isCurrent()) {
+                setError(
+                  "Session expired. Sign-in service unavailable; retry when connected.",
+                );
+              }
+            },
+          );
+      }),
+    [],
+  );
 
   /** Mount one initial read; cleanup invalidates both workspace and nested auth-policy promises. */
   useEffect(() => {

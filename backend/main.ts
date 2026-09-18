@@ -5,6 +5,7 @@
 import express, { type ErrorRequestHandler, type Response } from "express";
 import { z } from "zod";
 import { randomBytes, randomUUID } from "node:crypto";
+import { apiErrorContract } from "./api-error-contract.js";
 import {
   openDatabaseStore,
   isEntryPoint,
@@ -136,6 +137,7 @@ export function createApiApplication(
     }
   };
   app.disable("x-powered-by");
+  app.use(apiErrorContract);
   app.use((req, res, next) => {
     res.set({
       "Cache-Control": "no-store",
@@ -380,7 +382,7 @@ export function createApiApplication(
         .find((v) => v.startsWith("nexus_session="))
         ?.slice(14) || "";
     if (!/^[A-Za-z0-9_-]{64}$/.test(raw)) {
-      fail(401, "Please sign in.");
+      fail(401, "Please sign in.", "SESSION_EXPIRED");
     }
     const [session] = await store.transaction((query) =>
       query<LoginSession>("SELECT * FROM sessions WHERE token_hash=$1", [
@@ -388,7 +390,7 @@ export function createApiApplication(
       ]),
     );
     if (!session || !session.user_id || session.expires < seconds()) {
-      fail(401, "Please sign in.");
+      fail(401, "Please sign in.", "SESSION_EXPIRED");
     }
     if (
       !["GET", "HEAD"].includes(req.method) &&
@@ -679,12 +681,14 @@ export function createApiApplication(
       code?: string;
       name?: string;
       detail?: string;
+      publicCode?: "SESSION_EXPIRED";
     };
     const status = err instanceof z.ZodError ? 422 : error.status || 500;
     if (status >= 500) {
       console.error("API request failed:", error.code || error.name);
     }
     res.status(status).json({
+      ...(error.publicCode ? { code: error.publicCode } : {}),
       detail:
         err instanceof z.ZodError
           ? "Invalid request fields."

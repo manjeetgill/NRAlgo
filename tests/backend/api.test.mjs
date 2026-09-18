@@ -23,6 +23,34 @@ import { TOTP } from "otpauth";
 import { createPostgresTestStore } from "../helpers/postgres.mjs";
 
 const creds = { username: "testowner", password: "test-password-long" };
+test("SH-T08 API failures provide safe codes, correlation identity and no-store without echoing caller IDs", async (t) => {
+  const { request, owner } = await fixture(t);
+  const expired = await request("/api/workspace", "GET", undefined, {
+    "X-Correlation-ID": "untrusted-secret",
+  });
+  assert.equal(expired.status, 401);
+  assert.equal(expired.data.code, "SESSION_EXPIRED");
+  assert.equal(expired.data.retryable, false);
+  assert.equal(expired.data.message, expired.data.detail);
+  assert.match(expired.data.correlationId, /^[a-f0-9-]{36}$/);
+  assert.equal(
+    expired.headers.get("x-correlation-id"),
+    expired.data.correlationId,
+  );
+  assert.equal(expired.headers.get("cache-control"), "no-store");
+  assert.doesNotMatch(JSON.stringify(expired.data), /untrusted-secret/);
+  await owner();
+  const invalid = await request("/api/research/strategies", "POST", {
+    password: "must-not-echo",
+  });
+  assert.equal(invalid.status, 422);
+  assert.equal(invalid.data.code, "VALIDATION_FAILED");
+  assert.doesNotMatch(JSON.stringify(invalid.data), /must-not-echo/);
+  assert.notEqual(invalid.data.correlationId, expired.data.correlationId);
+  const missing = await request("/api/not-a-route");
+  assert.equal(missing.status, 404);
+  assert.equal(missing.data.code, "NOT_FOUND");
+});
 test("compiled backend retains the original workspace path", () => {
   assert.equal(root, fileURLToPath(new URL("../../", import.meta.url)));
 });
