@@ -1,5 +1,5 @@
 "use client";
-/** Local historical CSV workbench. No generated prices, external upload or execution side effects. */
+/** Broker historical workbench. No uploaded/generated prices or execution side effects. */
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -10,16 +10,26 @@ import type { BacktestSettings } from "./daily-backtest";
 import { useDailyBacktest } from "./use-daily-backtest";
 import { formatInr } from "@/lib/format";
 import { downloadText } from "@/lib/download";
+import {
+  InstrumentPicker,
+  type BrokerInstrument,
+} from "@/components/instrument-picker";
+import { historyDay, historyRequestFor } from "@/lib/market-history";
 
-/** Keep uploaded data/results private to this mounted screen; changing input invalidates the report. */
+/** Keep provider data/results private to this mounted screen; changing input invalidates the report. */
 export function BacktestStudioScreen({
+  csrf,
   templateId = "ema",
   onBrowse,
 }: {
+  csrf: string;
   templateId?: TemplateId;
   onBrowse: () => void;
 }) {
   const template = strategyTemplates.find((item) => item.id === templateId)!;
+  const [instrument, setInstrument] = useState<BrokerInstrument | null>(null);
+  const [from, setFrom] = useState(() => historyDay(-180));
+  const [to, setTo] = useState(() => historyDay(-1));
   const [settings, setSettings] = useState<BacktestSettings>({
     template: templateId,
     first: template.defaults[0],
@@ -33,15 +43,16 @@ export function BacktestStudioScreen({
   });
   const {
     bars,
-    filename,
+    history,
     report,
     error,
     loading,
     running,
-    selectFile,
+    loadHistory,
+    clearDataset,
     run,
     invalidateReport,
-  } = useDailyBacktest();
+  } = useDailyBacktest(csrf);
   /** Start local calculation; the hook owns validation, failure state and immutable input binding. */
   function onRun() {
     void run(settings);
@@ -70,14 +81,85 @@ export function BacktestStudioScreen({
       </div>
       <div className="environment">
         <div>
-          <strong>{filename || "Historical data required"}</strong>
+          <strong>
+            {history
+              ? `${history.instrument.symbol} · ${history.source}`
+              : "Broker historical data required"}
+          </strong>
           <span>
             {bars.length
-              ? `${bars.length} daily candles · ${bars[0].date} to ${bars.at(-1)!.date} · user-supplied, provenance not independently verified`
-              : "Select your historical daily OHLC CSV. Data is processed locally and is not sent to a broker."}
+              ? `${bars.length} broker daily candles · ${bars[0].date} to ${bars.at(-1)!.date}`
+              : "Connect your broker, select an instrument and load completed daily candles. Calculation does not place orders."}
           </span>
         </div>
       </div>
+      <section className="panel screen-card">
+        <h2>Broker historical data</h2>
+        <InstrumentPicker
+          broker="kotak"
+          market="cash"
+          csrf={csrf}
+          disabled={running}
+          onSelect={(selected) => {
+            clearDataset();
+            setInstrument(selected);
+          }}
+        />
+        <p>
+          Selected:{" "}
+          {instrument
+            ? `${instrument.symbol} · NSE cash · ${instrument.instrument}`
+            : "Choose a cash instrument above"}
+        </p>
+        <div className="research-fields">
+          <label>
+            From (IST)
+            <input
+              type="date"
+              value={from}
+              max={to}
+              onChange={(event) => {
+                clearDataset();
+                setFrom(event.target.value);
+              }}
+            />
+          </label>
+          <label>
+            To (IST)
+            <input
+              type="date"
+              value={to}
+              min={from}
+              max={historyDay(-1)}
+              onChange={(event) => {
+                clearDataset();
+                setTo(event.target.value);
+              }}
+            />
+          </label>
+        </div>
+        <Button
+          disabled={!instrument || loading || running || !from || !to}
+          onClick={() => {
+            if (instrument) {
+              void loadHistory(historyRequestFor(instrument, from, to, "day"));
+            }
+          }}
+        >
+          {loading ? "Loading broker history…" : "Load broker history"}
+        </Button>
+        <p>
+          Daily cash history · up to 180 calendar days per request · at least 60
+          valid trading candles required. Current-master contracts only; no
+          expired-contract substitutions or missing-session padding.
+        </p>
+        {history && (
+          <p>
+            Fetched {new Date(history.fetchedAt).toLocaleString("en-IN")} ·{" "}
+            {history.adjustmentPolicy}
+          </p>
+        )}
+      </section>
       <section className="panel screen-card">
         <h2>Rules and parameters</h2>
         <p>
@@ -106,22 +188,11 @@ export function BacktestStudioScreen({
           <Button disabled={!bars.length || loading || running} onClick={onRun}>
             {running ? "Calculating…" : "Run calculated backtest"}
           </Button>
-          <label>
-            Upload daily CSV
-            <input
-              type="file"
-              accept=".csv,text/csv"
-              onChange={
-                /** The hook catches file-read/parse failures and ignores superseded reads. */ (
-                  event,
-                ) => void selectFile(event.target.files?.[0])
-              }
-            />
-          </label>
         </div>
         <p>
-          CSV: date,open,high,low,close · 60–10,000 rows · ascending unique
-          YYYY-MM-DD dates · maximum 2 MB.
+          Broker history is held only in this browser tab and cleared when you
+          leave this screen. Review the provider adjustment policy before
+          relying on results.
         </p>
         {loading && <p role="status">Validating historical data…</p>}
         {error && (
@@ -150,8 +221,8 @@ export function BacktestStudioScreen({
         <article className="panel screen-card">
           <h2>Ready to test</h2>
           <p>
-            Upload historical data and run the selected rules. Results will be
-            calculated from your inputs.
+            Load broker historical data and run the selected rules. Results will
+            be calculated from those candles and your parameters.
           </p>
         </article>
       ) : (
@@ -181,7 +252,8 @@ export function BacktestStudioScreen({
           <article className="panel screen-card">
             <h2>Calculated equity curve</h2>
             <p>
-              {report.manifest.filename} · {report.from} to {report.to}
+              {report.manifest.request.stockCode} · {report.manifest.provider} ·{" "}
+              {report.from} to {report.to}
             </p>
             <p style={{ overflowWrap: "anywhere" }}>
               Dataset SHA-256: {report.manifest.datasetHash}

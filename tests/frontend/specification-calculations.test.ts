@@ -3,13 +3,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   runDailyBacktest,
-  parseDailyCsv,
   validateDailyBars,
   type DailyBar,
   type BacktestSettings,
 } from "../../frontend/src/features/backtest-studio/daily-backtest";
 import { createBacktestReport } from "../../frontend/src/features/backtest-studio/backtest-report";
-import { readDailyDataset } from "../../frontend/src/features/backtest-studio/use-daily-backtest";
+import { dailyBarsFromHistory } from "../../frontend/src/features/backtest-studio/backtest-report";
+import type { HistoryDataset } from "../../frontend/src/lib/market-history";
 import { summarizePayoff } from "../../frontend/src/features/spread-builder/spread-payoff";
 
 const configuration: BacktestSettings = {
@@ -39,12 +39,36 @@ function oneEntry() {
   rows[20] = { ...rows[20], high: 103, close: 102 };
   return rows;
 }
-/** Encode complete input rows using the public upload format. */
-function csv(rows: DailyBar[]) {
-  return (
-    "date,open,high,low,close\n" +
-    rows.map((bar) => Object.values(bar).join(",")).join("\n")
-  );
+/** Isolated provider fixture; not selectable market data in the application. */
+function history(rows = candles()): HistoryDataset {
+  return {
+    source: "test-broker",
+    instrument: {
+      instrument: "123",
+      masterToken: "123",
+      market: "cash",
+      symbol: "TEST",
+      name: "TEST",
+      lotSize: 1,
+    },
+    request: {
+      market: "cash",
+      instrument: "123",
+      stockCode: "TEST",
+      interval: "day",
+      from: rows[0].date,
+      to: rows.at(-1)!.date,
+    },
+    candles: rows.map(({ date, ...bar }) => ({
+      ...bar,
+      timestamp: `${date}T09:15:00+05:30`,
+      volume: null,
+      openInterest: null,
+    })),
+    fetchedAt: "2026-09-18T06:00:00Z",
+    adjustmentPolicy: "test fixture",
+    coverage: "test fixture",
+  };
 }
 
 test("04-T02 accounting oracle: ten at 100, exit 110, two 20 fees yields net 60", () => {
@@ -115,12 +139,12 @@ test("03-T03 breakout excludes current high and uses completed close before next
   assert.equal(trade.entryDate, rows[21].date);
   assert.equal(trade.entry, 100);
 });
-test("04-T05 CSV boundaries reject 59/10001 rows, accept 60/10000 and reject bad OHLC/dates", () => {
+test("04-T05 daily data boundaries reject 59/10001 rows, accept 60/10000 and reject bad OHLC/dates (CSV superseded)", () => {
   for (const length of [59, 10001]) {
-    assert.throws(() => parseDailyCsv(csv(candles(length))), /60–10,000/);
+    assert.throws(() => validateDailyBars(candles(length)), /60–10,000/);
   }
   for (const length of [60, 10000]) {
-    assert.equal(parseDailyCsv(csv(candles(length))).length, length);
+    assert.doesNotThrow(() => validateDailyBars(candles(length)));
   }
   for (const patch of [
     { date: "2025-02-30" },
@@ -132,16 +156,6 @@ test("04-T05 CSV boundaries reject 59/10001 rows, accept 60/10000 and reject bad
     rows[5] = { ...rows[5], ...patch };
     assert.throws(() => validateDailyBars(rows));
   }
-  assert.throws(
-    () =>
-      parseDailyCsv(
-        csv(candles()).replace(
-          "date,open,high,low,close",
-          "date,open,high,low,close,close",
-        ),
-      ),
-    /unique/,
-  );
 });
 test("04-T06 warmup errors are explicit; flat data has finite equity and no manufactured trades", () => {
   assert.throws(
@@ -164,23 +178,22 @@ test("04-T06 warmup errors are explicit; flat data has finite equity and no manu
 test("04-T07 report manifest pins input copies and changes fingerprints when parameters/data change", async () => {
   const rows = oneEntry(),
     settings = { ...configuration };
-  const pending = createBacktestReport(rows, settings, "oracle.csv");
+  const origin = history(rows);
+  const pending = createBacktestReport(rows, settings, origin);
+  origin.request.stockCode = "CHANGED";
   settings.fee = 999;
   rows[0].close = 100.5;
   const result = await pending;
   assert.equal(result.settings.fee, 20);
-  assert.equal(result.manifest.filename, "oracle.csv");
-  const same = await createBacktestReport(
-    oneEntry(),
-    configuration,
-    "renamed.csv",
-  );
+  assert.equal(result.manifest.request.stockCode, "TEST");
+  assert.equal(result.manifest.source, "Broker historical API");
+  const same = await createBacktestReport(oneEntry(), configuration, history());
   assert.equal(result.manifest.datasetHash, same.manifest.datasetHash);
   assert.equal(
     result.manifest.configurationHash,
     same.manifest.configurationHash,
   );
-  const changed = await createBacktestReport(rows, settings, "changed.csv");
+  const changed = await createBacktestReport(rows, settings, history(rows));
   assert.notEqual(changed.manifest.datasetHash, result.manifest.datasetHash);
   assert.notEqual(
     changed.manifest.configurationHash,
@@ -196,22 +209,21 @@ test("04-T10 exported report retains every trade beyond the 50-row UI window", a
   const report = await createBacktestReport(
     rows,
     { ...configuration, capital: 100000, allocation: 1, fee: 0 },
-    "full.csv",
+    history(rows),
   );
   assert.ok(report.trades.length > 50);
   const exported = JSON.parse(JSON.stringify(report));
   assert.deepEqual(exported.trades, report.trades);
   assert.equal(exported.manifest.rowCount, 300);
 });
-test("04-F02 validation helper rejects replacement before producing a new committed dataset", async () => {
-  const previous = await readDailyDataset(
-    new File([csv(candles())], "valid.csv"),
-  );
-  await assert.rejects(
-    readDailyDataset(new File(["date,open\nbad,broken"], "invalid.csv")),
-  );
-  assert.equal(previous.filename, "valid.csv");
-  assert.equal(previous.bars.length, 90);
+test("04-F02 broker daily validation rejects intraday data and duplicate days (upload superseded)", () => {
+  assert.equal(dailyBarsFromHistory(history()).length, 90);
+  const intraday = history();
+  intraday.request.interval = "1minute";
+  assert.throws(() => dailyBarsFromHistory(intraday), /daily cash/);
+  const duplicate = history();
+  duplicate.candles[1].timestamp = duplicate.candles[0].timestamp;
+  assert.throws(() => dailyBarsFromHistory(duplicate), /unordered/);
 });
 test("06-T01 known bull call has loss 2710, profit 7290 and breakeven 25054.2", () => {
   const result = summarizePayoff([

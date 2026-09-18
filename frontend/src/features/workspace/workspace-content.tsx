@@ -164,6 +164,7 @@ export function WorkspaceContent({
     case "Backtest studio":
       return (
         <BacktestStudioScreen
+          csrf={workspace.csrf}
           key={templateId}
           templateId={templateId}
           onBrowse={() => onNavigate("Strategy library")}

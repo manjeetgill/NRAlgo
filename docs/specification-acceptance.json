@@ -971,11 +971,11 @@
       "id": "04-F02",
       "title": "Upload daily CSV",
       "page": 56,
-      "status": "partial",
+      "status": "user-override",
       "evidence": [
         "tests/frontend/specification-calculations.test.ts"
       ],
-      "note": "Validate-before-commit and preserved previous dataset implemented; browser file-chooser success/error acceptance not performed.",
+      "note": "Superseded by the user's 2026-09-18 broker-history-only request. Upload UI/parser removed; contract/range reads now invalidate old data and reports. See docs/broker-history-and-charts.md.",
       "checks": [
         {
           "id": "04-F02-S",
@@ -1153,11 +1153,11 @@
       "id": "04-T05",
       "title": "CSV boundary",
       "page": 59,
-      "status": "verified-automated",
+      "status": "user-override",
       "evidence": [
         "tests/frontend/specification-calculations.test.ts"
       ],
-      "note": "59/60/10000/10001 boundaries, duplicate/bad dates and invalid OHLC; duplicate CSV headers also rejected."
+      "note": "CSV input superseded by broker history only. Daily row/date/OHLC boundaries remain covered; historical response scope and interval are validated separately."
     },
     {
       "id": "04-T06",
@@ -3403,7 +3403,7 @@
     {
       "id": "04",
       "name": "Backtest studio",
-      "gap": "Bounded daily CSV calculation works locally; durable jobs/cancellation, provenance registry, sessions/intraday rules and corporate-action validation remain open."
+      "gap": "Broker daily history feeds local calculation; export records provider, exact query and hashes. Durable jobs/cancellation, provenance registry, sessions/intraday rules and corporate-action validation remain open."
     },
     {
       "id": "05",

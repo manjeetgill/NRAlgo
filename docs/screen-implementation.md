@@ -9,7 +9,7 @@ Historical screen-build reference: **NRIAlgo_Latest_App_Screens.pdf**, 93 pages.
 | 1 | Overview | `778be3a` | Selected-domain account snapshot, shared cached marks, positions and audit shortcuts |
 | 2 | Strategies | `a2c661b` | Owner-saved research definitions, search, market filters and editor navigation |
 | 3 | Strategy library | `1f630ea` | Versioned EMA, RSI and channel rule definitions; configuration navigation |
-| 4 | Backtest studio | `777b97a` | Validated local daily OHLC CSV, calculated signals, costs, equity and trade results |
+| 4 | Backtest studio | `777b97a` (initial; broker-history update follows) | Broker daily OHLC selection, calculated signals, costs, equity, trade results and provenance export |
 | 5 | Algo lab | `6f530ca` | Saved scheduled cash research, actual broker candles and saved reports |
 | 6 | Spread builder | `311bb30` | Exact listed contracts, editable basket, historical research and analytic expiry risk |
 | 7 | Paper trading | `518686f` | Separate virtual ledger with actual broker quotes; reviewed LIMIT orders when enabled |
@@ -30,7 +30,7 @@ Follow-up integration fixes preserve complete spread drafts across navigation, p
 - Overview and Live positions use an initial/explicit account snapshot and cached stream marks. Cache reads do not repeatedly fetch broker reports.
 - Complete spread definitions persist in account-scoped memory while navigating. They are not stored in localStorage. Sign-out/session replacement clears them.
 - The old generated-price run API returns **410 Gone**. Local and Compose startup no longer launch its worker; standalone legacy worker startup is disabled. Existing database rows and regression helpers are retained without feeding dashboard metrics.
-- CSV backtests use user-supplied data; provenance and corporate-action adjustments are not independently verified. Signals use completed bars and next-open fills; stops/targets use documented ambiguity assumptions.
+- Backtests load broker historical candles; provider/query provenance is recorded, while corporate-action adjustments are not independently verified. Signals use completed bars and next-open fills; stops/targets use documented ambiguity assumptions. See [broker history and charts](broker-history-and-charts.md).
 - Audit categories are derived from stored messages, not authoritative server event types. Export covers only the loaded, filtered snapshot (latest 50 records), not the entire durable audit.
 - Session device identity and last-active time are not collected, so neither is invented. Revocation does not close exchange positions.
 

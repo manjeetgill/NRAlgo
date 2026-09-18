@@ -1,96 +1,104 @@
 "use client";
-/** Own local dataset replacement and report invalidation; failed uploads retain the last valid dataset. */
+/** Broker dataset loading and generation-fenced local calculations; no uploads or background history polling. */
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  parseDailyCsv,
-  type BacktestSettings,
-  type DailyBar,
-} from "./daily-backtest";
-import { createBacktestReport } from "./backtest-report";
+  fetchMarketHistory,
+  type HistoryRequest,
+  type HistoryDataset,
+} from "@/lib/market-history";
+import type { BacktestSettings, DailyBar } from "./daily-backtest";
+import { createBacktestReport, dailyBarsFromHistory } from "./backtest-report";
 
-/** Validate completely before replacing a dataset. An upload error never commits partial candles. */
-export async function readDailyDataset(
-  file: Pick<File, "name" | "size" | "text">,
-) {
-  if (file.size > 2000000) {
-    throw new Error("CSV must be at most 2 MB.");
-  }
-  return { filename: file.name, bars: parseDailyCsv(await file.text()) };
-}
-
-/** Fence file reads and async report hashing against edits, later uploads and component unmount. */
-export function useDailyBacktest() {
+/** Abort obsolete reads and invalidate reports whenever selected contract/range/settings change. */
+export function useDailyBacktest(csrf: string) {
   const [dataset, setDataset] = useState<{
-    filename: string;
+    history: HistoryDataset;
     bars: DailyBar[];
-  }>({ filename: "", bars: [] });
+  } | null>(null);
   const [report, setReport] = useState<Awaited<
     ReturnType<typeof createBacktestReport>
   > | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [running, setRunning] = useState(false);
-  const fileGeneration = useRef(0),
+  const generation = useRef(0),
     runGeneration = useRef(0),
-    runPending = useRef(false),
-    mounted = useRef(false);
+    pending = useRef(false);
+  const request = useRef<AbortController | null>(null);
+  const mounted = useRef(false);
 
-  /** Invalidate late file/hash results without making any server request. */
+  /** Dispose HTTP work and ignore late hashing results when the screen/session leaves. */
   useEffect(() => {
     mounted.current = true;
-    const uploads = fileGeneration,
+    const reads = generation,
       runs = runGeneration;
     return () => {
       mounted.current = false;
-      uploads.current++;
+      reads.current++;
       runs.current++;
+      request.current?.abort();
     };
   }, []);
 
-  /** Every executable input edit clears the old report; a late hash cannot restore it. */
+  /** A rules edit cannot leave a result labelled with newer settings. */
   const invalidateReport = useCallback(() => {
     runGeneration.current++;
     setReport(null);
   }, []);
 
-  /** Preserve the committed dataset on cancellation, malformed CSV and read failure. */
-  const selectFile = useCallback(
-    async (file: File | undefined) => {
-      if (!file) {
-        return;
-      }
-      const generation = ++fileGeneration.current;
-      invalidateReport();
+  /** Selection edits remove old data immediately, including a pending response for another contract. */
+  const clearDataset = useCallback(() => {
+    generation.current++;
+    request.current?.abort();
+    setDataset(null);
+    setLoading(false);
+    setError("");
+    invalidateReport();
+  }, [invalidateReport]);
+
+  /** Fetch once from the configured provider; accept the complete response only after daily validation. */
+  const loadHistory = useCallback(
+    async (input: HistoryRequest) => {
+      clearDataset();
+      const current = ++generation.current;
+      const controller = new AbortController();
+      request.current = controller;
       setLoading(true);
-      setError("");
       try {
-        const next = await readDailyDataset(file);
-        if (generation === fileGeneration.current) {
-          setDataset(next);
+        const history = await fetchMarketHistory(
+          input,
+          csrf,
+          controller.signal,
+        );
+        const bars = dailyBarsFromHistory(history);
+        if (current === generation.current) {
+          setDataset({ history, bars });
         }
       } catch (cause) {
-        if (generation === fileGeneration.current) {
+        if (current === generation.current) {
           setError(
-            `${cause instanceof Error ? cause.message : "CSV unavailable."} Previous valid data, if any, is unchanged.`,
+            cause instanceof Error
+              ? cause.message
+              : "Broker history unavailable.",
           );
         }
       } finally {
-        if (generation === fileGeneration.current) {
+        if (current === generation.current) {
           setLoading(false);
         }
       }
     },
-    [invalidateReport],
+    [csrf, clearDataset],
   );
 
-  /** Calculate one bounded local run and bind its export to the exact accepted dataset and settings. */
+  /** Bind each calculation/export to copied broker data and settings; no order API is reachable here. */
   const run = useCallback(
     async (settings: BacktestSettings) => {
-      if (runPending.current || loading) {
+      if (pending.current || loading || !dataset) {
         return;
       }
-      runPending.current = true;
-      const generation = ++runGeneration.current;
+      pending.current = true;
+      const current = ++runGeneration.current;
       setRunning(true);
       setError("");
       setReport(null);
@@ -98,17 +106,17 @@ export function useDailyBacktest() {
         const next = await createBacktestReport(
           dataset.bars,
           settings,
-          dataset.filename,
+          dataset.history,
         );
-        if (generation === runGeneration.current) {
+        if (current === runGeneration.current) {
           setReport(next);
         }
       } catch (cause) {
-        if (generation === runGeneration.current) {
+        if (current === runGeneration.current) {
           setError(cause instanceof Error ? cause.message : "Backtest failed.");
         }
       } finally {
-        runPending.current = false;
+        pending.current = false;
         if (mounted.current) {
           setRunning(false);
         }
@@ -117,12 +125,14 @@ export function useDailyBacktest() {
     [dataset, loading],
   );
   return {
-    ...dataset,
+    bars: dataset?.bars ?? [],
+    history: dataset?.history,
     report,
     error,
     loading,
     running,
-    selectFile,
+    loadHistory,
+    clearDataset,
     run,
     invalidateReport,
   };

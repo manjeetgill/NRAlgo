@@ -2,7 +2,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  parseDailyCsv,
   runDailyBacktest,
   validateDailyBars,
   type DailyBar,
@@ -29,8 +28,7 @@ function bars(): DailyBar[] {
     close: 100,
   }));
 }
-test("CSV rejects missing headers, invalid dates, inconsistent OHLC and duplicate dates", () => {
-  assert.throws(() => parseDailyCsv("symbol,price\nA,1"), /Required CSV/);
+test("daily data rejects invalid dates, inconsistent OHLC and duplicate dates", () => {
   for (const mutation of [
     (rows: DailyBar[]) => {
       rows[2].date = rows[1].date;
@@ -47,13 +45,7 @@ test("CSV rejects missing headers, invalid dates, inconsistent OHLC and duplicat
     assert.throws(() => validateDailyBars(rows));
   }
   const rows = bars();
-  assert.deepEqual(
-    parseDailyCsv(
-      "date,open,high,low,close\n" +
-        rows.map((row) => Object.values(row).join(",")).join("\n"),
-    ),
-    rows,
-  );
+  assert.doesNotThrow(() => validateDailyBars(rows));
 });
 test("flat prices produce no fabricated trades or gains for all three rules", () => {
   for (const template of ["ema", "rsi", "breakout"] as const) {

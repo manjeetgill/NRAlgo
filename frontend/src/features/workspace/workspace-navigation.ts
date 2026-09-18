@@ -47,7 +47,7 @@ export const workspacePageDescriptions: Partial<Record<WorkspacePage, string>> =
     "Strategy library":
       "Explore transparent rules before configuring a historical backtest.",
     "Backtest studio":
-      "Validate signal strategies against your historical OHLC data.",
+      "Validate signal strategies against broker historical OHLC data.",
     "Strategy lab":
       "Build and replay scheduled strategies using broker historical candles.",
     "Spread builder":

@@ -1,5 +1,4 @@
 /** Pure daily cash-equity research engine. Accepts supplied OHLC only; cannot fetch data or place orders. */
-import { parse } from "csv-parse/browser/esm/sync";
 import type { TemplateId } from "@/features/strategy-library/strategy-templates";
 export interface DailyBar {
   date: string;
@@ -35,7 +34,9 @@ export interface DailyTrade {
 /** Validate full calendar dates, strict ordering, finite positive OHLC and high/low containment. */
 export function validateDailyBars(bars: DailyBar[]): void {
   if (bars.length < 60 || bars.length > 10000) {
-    throw new Error("Supply 60–10,000 daily rows.");
+    throw new Error(
+      "Requires 60–10,000 daily candles. Adjust the selected historical range.",
+    );
   }
   bars.forEach((bar, index) => {
     const date = new Date(`${bar.date}T00:00:00Z`);
@@ -53,42 +54,6 @@ export function validateDailyBars(bars: DailyBar[]): void {
       throw new Error(`Invalid or unordered OHLC at row ${index + 2}.`);
     }
   });
-}
-/** Parse locally with strict columns/size bounds; file contents are never sent to a broker. */
-export function parseDailyCsv(text: string): DailyBar[] {
-  if (new TextEncoder().encode(text).byteLength > 2000000) {
-    throw new Error("CSV must be at most 2 MB.");
-  }
-  const rows = parse(text, {
-    /** Duplicate headers otherwise silently replace a price column in the CSV parser. */
-    columns: (headers: string[]) => {
-      if (new Set(headers).size !== headers.length) {
-        throw new Error("CSV column names must be unique.");
-      }
-      return headers;
-    },
-    bom: true,
-    trim: true,
-    skip_empty_lines: true,
-    max_record_size: 1024,
-  }) as Record<string, string>[];
-  if (
-    !rows.length ||
-    !["date", "open", "high", "low", "close"].every((name) =>
-      Object.hasOwn(rows[0], name),
-    )
-  ) {
-    throw new Error("Required CSV columns: date,open,high,low,close.");
-  }
-  const bars = rows.map((row) => ({
-    date: row.date,
-    open: Number(row.open),
-    high: Number(row.high),
-    low: Number(row.low),
-    close: Number(row.close),
-  }));
-  validateDailyBars(bars);
-  return bars;
 }
 /** Bound numeric work and capital assumptions before performing any calculations. */
 export function validateBacktestSettings(settings: BacktestSettings): void {
@@ -327,7 +292,7 @@ export function runDailyBacktest(bars: DailyBar[], settings: BacktestSettings) {
     grossLoss = -losses.reduce((sum, trade) => sum + trade.pnl, 0);
   return {
     settings: { ...settings },
-    source: "user-supplied daily OHLC",
+    source: "historical daily OHLC",
     from: bars[0].date,
     to: bars.at(-1)!.date,
     endingEquity: cash,
