@@ -26,3 +26,24 @@ export const workspaceNavigation: ReadonlyArray<{
   { name: "Account & security", icon: ShieldCheck },
   { name: "Activity log", icon: Clock3 },
 ];
+
+/** Human-facing screen names stay independent from the stable internal navigation keys. */
+export const workspacePageLabels: Partial<Record<WorkspacePage, string>> = {
+  "Strategy lab": "Algo lab",
+  "Broker paper": "Paper trading",
+  Brokers: "Broker connections",
+  "Live trading": "Live positions",
+  "Activity log": "Audit log",
+};
+
+/** Use one label for the sidebar, breadcrumb and page heading. */
+export function getWorkspacePageLabel(page: WorkspacePage): string {
+  return workspacePageLabels[page] ?? page;
+}
+
+/** Stable, readable fragment routes contain no account identifiers or credentials. */
+export function getWorkspacePageHash(page: WorkspacePage): string {
+  return `#/${getWorkspacePageLabel(page)
+    .toLowerCase()
+    .replaceAll(/[^a-z0-9]+/g, "-")}`;
+}

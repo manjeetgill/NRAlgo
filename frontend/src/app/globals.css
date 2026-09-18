@@ -232,6 +232,10 @@ button {
 .app-shell {
   min-height: 100vh;
 }
+.navigation-toggle,
+.navigation-overlay {
+  display: none;
+}
 .sidebar {
   overflow-y: auto;
   width: 238px;

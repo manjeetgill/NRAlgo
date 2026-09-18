@@ -1,6 +1,6 @@
 "use client";
 /** Shared layout owns navigation only. Session, forms, quotes and broker commands have separate owners. */
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Activity,
   ArrowUpRight,
@@ -8,14 +8,21 @@ import {
   CircleHelp,
   LockKeyhole,
   LogOut,
+  Menu,
+  X,
   ShieldCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getTradingMode, isTradingPageVisible } from "@/lib/trading-mode";
-import { workspaceNavigation } from "./workspace-navigation";
+import {
+  getWorkspacePageHash,
+  getWorkspacePageLabel,
+  workspaceNavigation,
+} from "./workspace-navigation";
 import { WorkspaceContent } from "./workspace-content";
 import { ScreenErrorBoundary } from "./screen-error-boundary";
 import type { WorkspacePage, WorkspaceSnapshot } from "./workspace-types";
+import "./workspace-responsive.css";
 /** Preserve navigation after a screen failure and remount private state after account/mode changes. */
 export function WorkspaceShell({
   workspace,
@@ -31,6 +38,7 @@ export function WorkspaceShell({
   onSignOut: () => Promise<void>;
 }) {
   const [requestedPage, setPage] = useState<WorkspacePage>("Overview");
+  const [menuOpen, setMenuOpen] = useState(false);
   const [marketInitialTool, setMarketInitialTool] = useState<
     "quotes" | "chain"
   >("quotes");
@@ -39,18 +47,51 @@ export function WorkspaceShell({
     ? requestedPage
     : "Overview";
   /** Stable navigation callback lets independent screens own their effects. */
-  const onNavigate = useCallback(
-    (destination: WorkspacePage) => setPage(destination),
-    [],
-  );
+  const onNavigate = useCallback((destination: WorkspacePage) => {
+    setPage(destination);
+    setMenuOpen(false);
+    window.location.hash = getWorkspacePageHash(destination);
+  }, []);
+  /** Restore deep links and browser history; unknown or hidden destinations fail back to Overview. */
+  useEffect(() => {
+    function restoreLocation() {
+      const destination = [
+        ...workspaceNavigation.map((item) => item.name),
+        "Learn the stack" as const,
+      ].find((item) => getWorkspacePageHash(item) === window.location.hash);
+      setPage(
+        destination && isTradingPageVisible(destination, tradingMode)
+          ? destination
+          : "Overview",
+      );
+      setMenuOpen(false);
+    }
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setMenuOpen(false);
+    }
+    restoreLocation();
+    window.addEventListener("hashchange", restoreLocation);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.removeEventListener("hashchange", restoreLocation);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [tradingMode]);
   /** This shortcut changes presentation only, never account/execution permissions. */
   const onExploreOptionChain = useCallback(() => {
     setMarketInitialTool("chain");
-    setPage("Market data");
-  }, []);
+    onNavigate("Market data");
+  }, [onNavigate]);
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
+    <div className={`app-shell${menuOpen ? " navigation-open" : ""}`}>
+      {menuOpen && (
+        <button
+          className="navigation-overlay"
+          aria-label="Close navigation"
+          onClick={() => setMenuOpen(false)}
+        />
+      )}
+      <aside className="sidebar" id="workspace-navigation">
         <a
           className="brand"
           href="#"
@@ -89,13 +130,13 @@ export function WorkspaceShell({
               }) => (
                 <button
                   key={name}
-                  aria-label={name}
+                  aria-label={getWorkspacePageLabel(name)}
                   aria-current={page === name ? "page" : undefined}
                   className={page === name ? "active" : ""}
                   onClick={() => onNavigate(name)}
                 >
                   <Icon size={18} />
-                  <span>{name}</span>
+                  <span>{getWorkspacePageLabel(name)}</span>
                 </button>
               ),
             )}
@@ -141,9 +182,18 @@ export function WorkspaceShell({
       </aside>
       <div className="main-shell">
         <header className="topbar">
+          <button
+            className="navigation-toggle"
+            aria-label={menuOpen ? "Close navigation" : "Open navigation"}
+            aria-expanded={menuOpen}
+            aria-controls="workspace-navigation"
+            onClick={() => setMenuOpen(!menuOpen)}
+          >
+            {menuOpen ? <X size={20} /> : <Menu size={20} />}
+          </button>
           <div className="breadcrumb">
             Workspace <ChevronRight size={13} />
-            <strong>{page}</strong>
+            <strong>{getWorkspacePageLabel(page)}</strong>
           </div>
           <div className="topbar-right">
             <span className="local-badge">
@@ -160,7 +210,7 @@ export function WorkspaceShell({
             <div className="heading">
               <div>
                 <p className="eyebrow">YOUR TRADING COMMAND CENTER</p>
-                <h1>{page}</h1>
+                <h1>{getWorkspacePageLabel(page)}</h1>
                 <p>
                   {page === "Strategies" || page === "Strategy lab"
                     ? "Build and validate your ideas. Live execution requires separate authorization."

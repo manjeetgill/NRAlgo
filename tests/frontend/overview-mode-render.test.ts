@@ -52,7 +52,9 @@ test("live Overview markup contains no paper UI, virtual balance, replay card or
   const markup = renderOverview(false);
   assert.match(markup, /Live position P&amp;L/);
   assert.match(markup, /Available margin/);
-  assert.match(markup, /Open live trading/);
+  assert.match(markup, /Create a strategy/);
+  assert.match(markup, /Open positions/);
+  assert.doesNotMatch(markup, /demo|sample|fixture/i);
   assert.doesNotMatch(markup, /paper|simulated|virtual|replay/i);
 });
 

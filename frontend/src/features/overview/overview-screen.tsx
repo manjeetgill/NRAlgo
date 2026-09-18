@@ -165,7 +165,7 @@ export function OverviewScreen({
         </button>
       </section>
 
-      {/* Paper/live headline values come from independent snapshots, never demo constants. */}
+      {/* Headline values come from the selected account snapshot, never fabricated constants. */}
       <div className={styles.metrics}>
         {mode === "paper" && (
           <article className={styles.metric} aria-label="Paper profit and loss">
@@ -177,6 +177,33 @@ export function OverviewScreen({
             </strong>
             <p>Realized + unrealized · paper ledger, all time</p>
           </article>
+        )}
+        <article className={styles.metric} aria-label="Available account funds">
+          <div>
+            {mode === "paper" ? "Available virtual cash" : "Available margin"}
+            <Wallet size={17} />
+          </div>
+          <strong>{formatAccountMoney(snapshot?.availableFunds)}</strong>
+          <p>
+            {mode === "paper"
+              ? "After order reservations"
+              : "Broker buying power · not cash balance"}
+          </p>
+        </article>
+        {mode === "live" && (
+          <button
+            className={`${styles.metric} ${styles.metricButton}`}
+            onClick={onTogglePositions}
+            aria-expanded={showPositions}
+            aria-controls="overview-positions"
+          >
+            <div>
+              Open positions
+              <Activity size={17} />
+            </div>
+            <strong>{snapshot?.positions?.length ?? "—"}</strong>
+            <p>View positions and their latest marks</p>
+          </button>
         )}
         {mode === "live" && (
           <article
@@ -411,11 +438,9 @@ export function OverviewScreen({
             <div className={styles.quickActions}>
               <button
                 className={styles.primary}
-                onClick={onNavigateTo(
-                  mode === "paper" ? "Strategy lab" : "Live trading",
-                )}
+                onClick={onNavigateTo("Strategy lab")}
               >
-                {mode === "paper" ? "Create a strategy" : "Open live trading"}
+                Create a strategy
               </button>
               <button onClick={onNavigateTo("Brokers")}>
                 Connect a broker
