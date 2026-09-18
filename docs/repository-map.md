@@ -5,14 +5,20 @@ Updated 18 September 2026. Paths are relative to the repository root. This cover
 ## Dependency direction
 
 New screen infrastructure:
+- [backend/historical-market-data.ts](../backend/historical-market-data.ts): bounded provider-neutral historical requests and candle validation.
+- [backend/historical-market-data-routes.ts](../backend/historical-market-data-routes.ts): owner-authenticated, CSRF-protected, quota-limited history for research and charts; exact master identities only.
+- [frontend/src/lib/market-history.ts](../frontend/src/lib/market-history.ts): same-origin history transport, IST dates, exact contract requests and response-scope validation.
+- [frontend/src/features/option-chain/use-contract-history.ts](../frontend/src/features/option-chain/use-contract-history.ts): abortable selection-keyed history reads without tick-driven refetches.
+- [frontend/src/features/option-chain/contract-price-chart.tsx](../frontend/src/features/option-chain/contract-price-chart.tsx): lazy-loaded Lightweight Charts candlesticks plus a shared-feed LTP line; no generated candles.
+- [frontend/src/app/legal/charting/page.tsx](../frontend/src/app/legal/charting/page.tsx): public TradingView attribution and license link.
 - [backend/api-error-contract.ts](../backend/api-error-contract.ts): public JSON error codes, retry classification and server-generated correlation IDs without exposing raw exceptions.
 - [frontend/src/features/backtest-studio/backtest-report.ts](../frontend/src/features/backtest-studio/backtest-report.ts): local immutable-input report manifest with SHA-256 dataset/configuration fingerprints; does not claim durable server storage or verified provenance.
-- [frontend/src/features/backtest-studio/use-daily-backtest.ts](../frontend/src/features/backtest-studio/use-daily-backtest.ts): atomic CSV replacement, retained valid data after errors and generation-fenced report calculation.
+- [frontend/src/features/backtest-studio/use-daily-backtest.ts](../frontend/src/features/backtest-studio/use-daily-backtest.ts): abortable broker history reads, immediate selection invalidation and generation-fenced report calculation.
 - [frontend/src/features/account/account-sessions.tsx](../frontend/src/features/account/account-sessions.tsx): real owner-scoped session listing and confirmed revocation without device metadata fabrication.
 - [frontend/src/features/orders/order-records-table.tsx](../frontend/src/features/orders/order-records-table.tsx): selected-domain filtering, details, safe export and explicit virtual cancellation.
 - [frontend/src/features/option-chain/option-chain-screen.tsx](../frontend/src/features/option-chain/option-chain-screen.tsx): standalone chain and research-draft navigation.
 - [frontend/src/features/option-chain/use-market-feed.ts](../frontend/src/features/option-chain/use-market-feed.ts): abortable sequential shared-price cache reads, without broker report polling.
-- [frontend/src/features/backtest-studio/backtest-studio-screen.tsx](../frontend/src/features/backtest-studio/backtest-studio-screen.tsx): historical CSV input, parameter validation, calculated results and export.
+- [frontend/src/features/backtest-studio/backtest-studio-screen.tsx](../frontend/src/features/backtest-studio/backtest-studio-screen.tsx): broker instrument/date selection, historical daily data, calculated results and provenance export.
 - [frontend/src/features/backtest-studio/daily-backtest.ts](../frontend/src/features/backtest-studio/daily-backtest.ts): bounded OHLC validation and deterministic EMA/RSI/channel research calculations; no data generator.
 - [frontend/src/lib/download.ts](../frontend/src/lib/download.ts): local file downloads and formula-safe CSV encoding.
 - [frontend/src/features/strategy-library/strategy-library-screen.tsx](../frontend/src/features/strategy-library/strategy-library-screen.tsx): rule catalog and explicit configuration navigation.

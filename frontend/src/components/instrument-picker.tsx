@@ -62,7 +62,7 @@ export function CashSymbolSelect({
       setResult(null);
       try {
         const data = await requestApiJson(
-          "/paper/kotak/instruments",
+          "/market/instruments",
           "POST",
           { market: "cash", query: search, offset: nextOffset },
           csrf,
@@ -197,7 +197,6 @@ export function CashSymbolSelect({
 }
 /** Search broker metadata and notify selection; choosing a contract never submits an order. */
 export function InstrumentPicker({
-  broker,
   market,
   csrf,
   disabled,
@@ -232,7 +231,7 @@ export function InstrumentPicker({
     setError("");
     try {
       const data = await requestApiJson(
-        `/paper/${broker}/instruments`,
+        "/market/instruments",
         "POST",
         {
           market,

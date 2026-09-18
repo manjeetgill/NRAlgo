@@ -12,7 +12,7 @@ export function createKotakMarketDataProvider(
     id: "kotak",
     capabilities: {
       live: true,
-      historyIntervals: ["1minute", "5minute"],
+      historyIntervals: ["1minute", "5minute", "day"],
       requiresBrokerConnection: true,
       instrumentNamespace: "kotak",
     },
@@ -51,6 +51,28 @@ export function createKotakMarketDataProvider(
     getQuoteSnapshots: (...args) => client.getQuoteSnapshots(...args),
     getHistoricalCandlesForDay: (...args) =>
       client.getHistoricalCandlesForDay(...args),
+    /** Map application interval/segment names only here; the client validates the bounded broker response. */
+    async getHistoricalCandles(userId, sessionHash, request) {
+      const result = await client.fetchMarketData(userId, sessionHash, {
+        operation: "history",
+        exchange: request.market === "cash" ? "nse_cm" : "nse_fo",
+        instrument: request.instrument,
+        from: request.from,
+        to: request.to,
+        interval: { "1minute": "1min", "5minute": "5min", day: "D" }[
+          request.interval
+        ] as "1min" | "5min" | "D",
+      });
+      if (!("candles" in result)) {
+        throw new Error("Historical response unavailable.");
+      }
+      return result.candles.map((candle) => ({
+        ...candle,
+        timestamp: new Date(
+          candle.timestamp.replace(/([+-]\d{2})(\d{2})$/, "$1:$2"),
+        ).toISOString(),
+      }));
+    },
     startPriceFeed: (...args) => client.startMarketDataStream(...args),
     readPriceFeed: (...args) => client.getMarketDataStreamSnapshot(...args),
     stopPriceFeed: (...args) => client.stopMarketDataStream(...args),

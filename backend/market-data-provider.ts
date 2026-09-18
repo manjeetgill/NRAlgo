@@ -2,6 +2,10 @@
 import type { MarketSnapshot, MarketSegment } from "./broker-data-access.js";
 import type { InstrumentCatalog } from "./instrument-master.js";
 import type { PaperQuote } from "./paper-trading-ledger.js";
+import type {
+  HistoricalRequest,
+  HistoryInterval,
+} from "./historical-market-data.js";
 
 export type MarketDataSession = { userId: string; sessionHash: string };
 export type InstrumentDirectory = Pick<
@@ -29,7 +33,7 @@ export interface MarketDataProvider {
   readonly id: string;
   readonly capabilities: {
     live: boolean;
-    historyIntervals: readonly ("1minute" | "5minute")[];
+    historyIntervals: readonly HistoryInterval[];
     requiresBrokerConnection: boolean;
     /** Existing saved tokens belong to this namespace, not to the selected source. */
     instrumentNamespace: string;
@@ -61,6 +65,12 @@ export interface MarketDataProvider {
     day: string,
     interval: "1minute" | "5minute",
   ): Promise<unknown[]>;
+  /** Return canonical OHLCV for a bounded range; adapters own protocol/auth and session fencing. */
+  getHistoricalCandles(
+    userId: string,
+    sessionHash: string,
+    request: HistoricalRequest,
+  ): Promise<unknown>;
   startPriceFeed(
     userId: string,
     sessionHash: string,

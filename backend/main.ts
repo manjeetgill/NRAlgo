@@ -25,6 +25,7 @@ import {
 } from "./security.js";
 import { BrokerRequestCoordinator } from "./broker-data-access.js";
 import { registerResearchRoutes } from "./strategy-research-routes.js";
+import { registerHistoricalMarketDataRoutes } from "./historical-market-data-routes.js";
 import { registerPaperRoutes } from "./paper-trading-routes.js";
 import { createKotakMarketDataProvider } from "./kotak-market-data-provider.js";
 import {
@@ -658,6 +659,13 @@ export function createApiApplication(
     disconnectUserData(userId);
   });
   registerResearchRoutes(app, store, brokerAccess, production, marketData);
+  registerHistoricalMarketDataRoutes(
+    app,
+    store,
+    brokerAccess,
+    marketData,
+    production,
+  );
   registerKotakLiveRoutes(app, liveManager);
   registerPaperRoutes(
     app,
