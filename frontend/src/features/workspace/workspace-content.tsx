@@ -86,6 +86,8 @@ export function WorkspaceContent({
   onRefresh,
   onExploreOptionChain,
   marketInitialTool,
+  researchStrategyId,
+  onOpenStrategy,
 }: {
   page: WorkspacePage;
   workspace: WorkspaceSnapshot;
@@ -93,6 +95,8 @@ export function WorkspaceContent({
   onRefresh: () => Promise<void>;
   onExploreOptionChain: () => void;
   marketInitialTool: "quotes" | "chain";
+  researchStrategyId: string;
+  onOpenStrategy: (id: string, market: "cash" | "options") => void;
 }) {
   switch (page) {
     case "Overview":
@@ -104,9 +108,19 @@ export function WorkspaceContent({
         />
       );
     case "Strategies":
-      return <StrategiesScreen workspace={workspace} onRefresh={onRefresh} />;
+      return (
+        <StrategiesScreen
+          csrf={workspace.csrf}
+          onOpenStrategy={onOpenStrategy}
+        />
+      );
     case "Strategy lab":
-      return <StrategyLabScreen csrf={workspace.csrf} />;
+      return (
+        <StrategyLabScreen
+          csrf={workspace.csrf}
+          initialStrategyId={researchStrategyId}
+        />
+      );
     case "Broker paper":
       return <PaperTradingScreen csrf={workspace.csrf} />;
     case "Market data":

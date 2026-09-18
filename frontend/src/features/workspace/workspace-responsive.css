@@ -1,4 +1,56 @@
 /* Shared screen shell: narrow viewports use a labelled drawer rather than an icon-only rail. */
+.screen-stack {
+  display: grid;
+  gap: 22px;
+}
+.screen-card {
+  padding: 24px;
+}
+.screen-card h2 {
+  font-size: 18px;
+  margin: 0 0 14px;
+}
+.screen-card p,
+.muted {
+  color: #57677d;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.screen-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+.screen-toolbar label {
+  display: grid;
+  gap: 7px;
+  font-size: 12px;
+}
+.screen-toolbar input {
+  min-width: 240px;
+}
+.screen-filters {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.screen-two-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 22px;
+}
+@media (max-width: 700px) {
+  .screen-two-columns {
+    grid-template-columns: 1fr;
+  }
+  .screen-toolbar input {
+    min-width: 0;
+    width: 100%;
+  }
+}
 @media (max-width: 880px) {
   .app-shell .sidebar {
     transform: translateX(-100%);

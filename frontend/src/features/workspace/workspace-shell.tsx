@@ -39,6 +39,7 @@ export function WorkspaceShell({
 }) {
   const [requestedPage, setPage] = useState<WorkspacePage>("Overview");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [researchStrategyId, setResearchStrategyId] = useState("");
   const [marketInitialTool, setMarketInitialTool] = useState<
     "quotes" | "chain"
   >("quotes");
@@ -82,6 +83,14 @@ export function WorkspaceShell({
     setMarketInitialTool("chain");
     onNavigate("Market data");
   }, [onNavigate]);
+  /** Pass a saved identity in memory; research data remains owner-checked by the API. */
+  const onOpenStrategy = useCallback(
+    (id: string) => {
+      setResearchStrategyId(id);
+      onNavigate("Strategy lab");
+    },
+    [onNavigate],
+  );
   return (
     <div className={`app-shell${menuOpen ? " navigation-open" : ""}`}>
       {menuOpen && (
@@ -237,6 +246,8 @@ export function WorkspaceShell({
               onRefresh={onRefresh}
               onExploreOptionChain={onExploreOptionChain}
               marketInitialTool={marketInitialTool}
+              researchStrategyId={researchStrategyId}
+              onOpenStrategy={onOpenStrategy}
             />
           </ScreenErrorBoundary>
           {page !== "Overview" && (

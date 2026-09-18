@@ -133,7 +133,13 @@ function ResearchChart({ values, label }: { values: number[]; label: string }) {
 }
 
 /** Manage an immutable saved definition separately from editable form state and fetched prices. */
-export function StrategyLabScreen({ csrf }: { csrf: string }) {
+export function StrategyLabScreen({
+  csrf,
+  initialStrategyId = "",
+}: {
+  csrf: string;
+  initialStrategyId?: string;
+}) {
   const [definition, setDefinition] = useState<Definition>(
       structuredClone(initial),
     ),
@@ -235,6 +241,13 @@ export function StrategyLabScreen({ csrf }: { csrf: string }) {
         if (active) {
           setSaved(result.strategies);
           setRuns(result.runs);
+          const selected = (result.strategies as Saved[]).find(
+            (item) => item.id === initialStrategyId,
+          );
+          if (selected) {
+            setDefinition(structuredClone(selected.definition));
+            setStrategyId(selected.id);
+          }
         }
       })
       .catch((failure) => {
@@ -245,7 +258,7 @@ export function StrategyLabScreen({ csrf }: { csrf: string }) {
     return () => {
       active = false;
     };
-  }, [csrf]);
+  }, [csrf, initialStrategyId]);
   /** Quote freshness needs a clock only while its view is visible; editing a basket needs no per-second render. */
   useEffect(() => {
     if (tab !== "quotes" || !quotes.length) {

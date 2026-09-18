@@ -4,6 +4,10 @@ Updated 18 September 2026. Paths are relative to the repository root. This cover
 
 ## Dependency direction
 
+New screen infrastructure:
+- [frontend/src/features/strategies/use-strategy-library.ts](../frontend/src/features/strategies/use-strategy-library.ts): abortable, validated real research library reads.
+- [frontend/src/features/workspace/workspace-responsive.css](../frontend/src/features/workspace/workspace-responsive.css): shared responsive screen layout and mobile navigation.
+
 Screens call feature hooks/adapters → same-origin API → authenticated application services → read-only data provider **or** separately authorized execution adapter. Pure models do not fetch or submit. Research and paper engines never import the live adapter. The workspace presentation flag is not execution permission.
 
 ## Runtime and repository configuration
