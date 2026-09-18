@@ -22,6 +22,7 @@ export const workspaceNavigation: ReadonlyArray<{
   { name: "Strategy lab", icon: FlaskConical },
   { name: "Spread builder", icon: Blocks },
   { name: "Broker paper", icon: Radio },
+  { name: "Option chain", icon: Database },
   { name: "Market data", icon: Database },
   { name: "Orders & trades", icon: ArrowDownLeft },
   { name: "Brokers", icon: Wallet },

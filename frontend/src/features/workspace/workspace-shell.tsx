@@ -24,6 +24,8 @@ import { ScreenErrorBoundary } from "./screen-error-boundary";
 import type { WorkspacePage, WorkspaceSnapshot } from "./workspace-types";
 import "./workspace-responsive.css";
 import type { TemplateId } from "@/features/strategy-library/strategy-templates";
+import type { ResearchLeg } from "@/features/research/research-workbench";
+import type { ChainContract } from "@/components/live-option-chain";
 /** Preserve navigation after a screen failure and remount private state after account/mode changes. */
 export function WorkspaceShell({
   workspace,
@@ -42,6 +44,7 @@ export function WorkspaceShell({
   const [menuOpen, setMenuOpen] = useState(false);
   const [researchStrategyId, setResearchStrategyId] = useState("");
   const [templateId, setTemplateId] = useState<TemplateId>("ema");
+  const [spreadLegs, setSpreadLegs] = useState<ResearchLeg[]>([]);
   const [marketInitialTool, setMarketInitialTool] = useState<
     "quotes" | "chain"
   >("quotes");
@@ -85,15 +88,56 @@ export function WorkspaceShell({
   /** This shortcut changes presentation only, never account/execution permissions. */
   const onExploreOptionChain = useCallback(() => {
     setMarketInitialTool("chain");
-    onNavigate("Market data");
+    onNavigate("Option chain");
   }, [onNavigate]);
   /** Pass a saved identity in memory; research data remains owner-checked by the API. */
   const onOpenStrategy = useCallback(
     (id: string, market: "cash" | "options") => {
       setResearchStrategyId(id);
+      if (market === "options") {
+        setSpreadLegs([]);
+      }
       onNavigate(market === "options" ? "Spread builder" : "Strategy lab");
     },
     [onNavigate],
+  );
+  /** Add exact master metadata to an account-scoped, in-memory draft; never create orders. */
+  const onAddSpreadLeg = useCallback(
+    (contract: ChainContract, side: "buy" | "sell") => {
+      if (!contract.option) {
+        return "Select a listed option contract.";
+      }
+      if (spreadLegs.length >= 4) {
+        return "A spread supports at most four legs. Remove one in the builder first.";
+      }
+      const option = contract.option;
+      if (
+        spreadLegs.some(
+          (leg) =>
+            leg.stockCode === contract.symbol &&
+            leg.expiryDate === option.expiryDate &&
+            leg.right === option.right &&
+            leg.strikePrice === option.strikePrice,
+        )
+      ) {
+        return "This contract is already in your draft. Edit its units in the builder.";
+      }
+      setSpreadLegs([
+        ...spreadLegs,
+        {
+          stockCode: contract.symbol,
+          expiryDate: option.expiryDate,
+          right: option.right,
+          strikePrice: option.strikePrice,
+          side,
+          quantity: contract.lotSize,
+        },
+      ]);
+      setResearchStrategyId("");
+      onNavigate("Spread builder");
+      return "";
+    },
+    [spreadLegs, onNavigate],
   );
   /** Template selection changes research parameters only, not broker execution state. */
   const onConfigureTemplate = useCallback(
@@ -262,6 +306,9 @@ export function WorkspaceShell({
               onOpenStrategy={onOpenStrategy}
               templateId={templateId}
               onConfigureTemplate={onConfigureTemplate}
+              spreadLegs={spreadLegs}
+              onDraftLegsChange={setSpreadLegs}
+              onAddSpreadLeg={onAddSpreadLeg}
             />
           </ScreenErrorBoundary>
           {page !== "Overview" && (

@@ -13,9 +13,12 @@ export type LiveTick = {
   openInterest?: number;
   volume?: string;
   change?: number;
-  depth?: { buy: { price: number }[]; sell: { price: number }[] };
+  depth?: {
+    buy: { price: number; quantity?: number }[];
+    sell: { price: number; quantity?: number }[];
+  };
 };
-type Contract = BrokerInstrument & {
+export type ChainContract = BrokerInstrument & {
   price: number | null;
   bid: number | null;
   ask: number | null;
@@ -25,6 +28,9 @@ type Contract = BrokerInstrument & {
   volume?: number | null;
   change?: number | null;
 };
+type Contract = ChainContract;
+/** A stable empty dependency prevents price renders from reloading the broker chain. */
+const EMPTY_POSITION_STRIKES: { symbol: string; strike: number }[] = [];
 type Chain = {
   warning?: string;
   items: Contract[];
@@ -44,12 +50,17 @@ const amount = (value: number | null | undefined) =>
 export function LiveOptionChain({
   csrf,
   ticks,
-  positionStrikes = [],
+  positionStrikes = EMPTY_POSITION_STRIKES,
+  onAddLeg,
 }: {
   csrf: string;
   ticks: LiveTick[];
   positionStrikes?: { symbol: string; strike: number }[];
+  onAddLeg?: (contract: ChainContract, side: "buy" | "sell") => string;
 }) {
+  const detailDialog = useRef<HTMLDialogElement>(null);
+  const [selectedToken, setSelectedToken] = useState("");
+  const [draftError, setDraftError] = useState("");
   const [index, setIndex] = useState("NIFTY");
   const [members, setMembers] = useState<{
     index: string;
@@ -358,7 +369,21 @@ export function LiveOptionChain({
         className={`chain-ltp ${current ? "has-tick" : ""}`}
         title={item?.symbol}
       >
-        {amount(item?.price)}
+        {item ? (
+          <button
+            className="chain-price-button"
+            aria-label={`Inspect ${item.symbol} ${item.option?.strikePrice} ${right}`}
+            onClick={() => {
+              setSelectedToken(item.instrument);
+              setDraftError("");
+              detailDialog.current?.showModal();
+            }}
+          >
+            {amount(item.price)}
+          </button>
+        ) : (
+          "—"
+        )}
         {!current && (
           <small>
             {!item ? "—" : item.tickAt || item.stale ? "Stale" : "Snapshot"}
@@ -390,8 +415,127 @@ export function LiveOptionChain({
       </>
     );
   };
+  const selected = chain?.items.find(
+    (item) => item.instrument === selectedToken,
+  );
+  const selectedTick = ticks.find(
+    (tick) =>
+      tick.exchange === "nse_fo" && String(tick.instrument) === selectedToken,
+  );
+  /** Only copy metadata into a draft; stale prices never become executable order premiums. */
+  function addSelectedLeg(side: "buy" | "sell") {
+    if (!selected || !onAddLeg) {
+      return;
+    }
+    const message = onAddLeg(selected, side);
+    if (message) {
+      setDraftError(message);
+    } else {
+      detailDialog.current?.close();
+    }
+  }
   return (
     <section className="live-option-chain" aria-label="Live option chain">
+      <dialog
+        ref={detailDialog}
+        className="workspace-dialog contract-drawer"
+        aria-labelledby="contract-detail-title"
+        onClose={() => setSelectedToken("")}
+      >
+        <div className="screen-toolbar">
+          <h2 id="contract-detail-title">Strike detail</h2>
+          <Button
+            variant="secondary"
+            onClick={() => detailDialog.current?.close()}
+          >
+            Close details
+          </Button>
+        </div>
+        {selected ? (
+          <>
+            <p>
+              {selected.symbol} · {selected.option?.expiryDate} ·{" "}
+              {selected.option?.strikePrice} {selected.option?.right}
+            </p>
+            <p>
+              Lot size: {selected.lotSize} units · LTP ₹{amount(selected.price)}{" "}
+              ·{" "}
+              {selectedTick?.receivedRecently
+                ? "Recent quote"
+                : "Snapshot / stale"}
+            </p>
+            <table>
+              <thead>
+                <tr>
+                  <th>Bid qty</th>
+                  <th>Bid</th>
+                  <th>Ask</th>
+                  <th>Ask qty</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Array.from(
+                  {
+                    length: Math.max(
+                      1,
+                      Math.min(
+                        5,
+                        Math.max(
+                          selectedTick?.depth?.buy.length ?? 0,
+                          selectedTick?.depth?.sell.length ?? 0,
+                        ),
+                      ),
+                    ),
+                  },
+                  (_, index) => (
+                    <tr key={index}>
+                      <td>
+                        {selectedTick?.depth?.buy[index]?.quantity ?? "—"}
+                      </td>
+                      <td>
+                        {amount(
+                          selectedTick?.depth?.buy[index]?.price ??
+                            (index === 0 ? selected.bid : null),
+                        )}
+                      </td>
+                      <td>
+                        {amount(
+                          selectedTick?.depth?.sell[index]?.price ??
+                            (index === 0 ? selected.ask : null),
+                        )}
+                      </td>
+                      <td>
+                        {selectedTick?.depth?.sell[index]?.quantity ?? "—"}
+                      </td>
+                    </tr>
+                  ),
+                )}
+              </tbody>
+            </table>
+            <p>
+              Only available broker depth is shown. Greeks and IV are
+              unavailable from this feed.
+            </p>
+            {draftError && <p role="alert">{draftError}</p>}
+            {onAddLeg && (
+              <div className="screen-toolbar">
+                <Button onClick={() => addSelectedLeg("buy")}>
+                  Add Buy leg
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => addSelectedLeg("sell")}
+                >
+                  Add Sell leg
+                </Button>
+              </div>
+            )}
+            <p>Adding a leg opens research. It does not place an order.</p>
+          </>
+        ) : (
+          <p>This contract is no longer in the current chain selection.</p>
+        )}
+      </dialog>
       <header>
         <div>
           <h3>Option chain</h3>

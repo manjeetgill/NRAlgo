@@ -25,6 +25,23 @@
 .workspace-dialog::backdrop {
   background: #101a2e80;
 }
+.contract-drawer {
+  margin: 0 0 0 auto;
+  height: 100dvh;
+  max-height: 100dvh;
+  width: min(490px, 100vw);
+  border-radius: 12px 0 0 12px;
+}
+.chain-price-button {
+  border: 0;
+  background: transparent;
+  color: #335cde;
+  cursor: pointer;
+  padding: 4px;
+  font: inherit;
+  text-decoration: underline dotted;
+  text-underline-offset: 5px;
+}
 @media (max-width: 1150px) {
   .research-workspace-columns {
     grid-template-columns: 1fr;

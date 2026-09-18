@@ -10,7 +10,7 @@ import { OptionChainPicker } from "@/components/option-chain-picker";
 import { InstrumentPicker } from "@/components/instrument-picker";
 import { summarizePayoff } from "@/features/spread-builder/spread-payoff";
 
-type Leg = {
+export type ResearchLeg = {
   stockCode: string;
   side: "buy" | "sell";
   quantity: number;
@@ -18,6 +18,7 @@ type Leg = {
   right?: "call" | "put";
   strikePrice?: number;
 };
+type Leg = ResearchLeg;
 type Definition = {
   broker: "kotak";
   name: string;
@@ -138,14 +139,23 @@ export function ResearchWorkbench({
   csrf,
   initialStrategyId = "",
   initialMarket = "cash",
+  draftLegs,
+  onDraftLegsChange,
 }: {
   csrf: string;
   initialStrategyId?: string;
   initialMarket?: "cash" | "options";
+  draftLegs?: ResearchLeg[];
+  onDraftLegsChange?: (legs: ResearchLeg[]) => void;
 }) {
   const [definition, setDefinition] = useState<Definition>(() =>
       initialMarket === "options"
-        ? { ...structuredClone(initial), name: "", market: "options", legs: [] }
+        ? {
+            ...structuredClone(initial),
+            name: "",
+            market: "options",
+            legs: draftLegs ?? [],
+          }
         : structuredClone(initial),
     ),
     [saved, setSaved] = useState<Saved[]>([]),
@@ -301,6 +311,9 @@ export function ResearchWorkbench({
   }, [playing, run, cursor]);
   /** Any edit invalidates fetched quote identity and the saved ID before another run or draft. */
   function edit(next: Definition) {
+    if (initialMarket === "options") {
+      onDraftLegsChange?.(next.legs);
+    }
     setKotakPolling(false);
     setDefinition(next);
     setStrategyId("");

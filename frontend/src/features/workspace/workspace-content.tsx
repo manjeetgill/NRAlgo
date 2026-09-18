@@ -4,6 +4,16 @@ import dynamic from "next/dynamic";
 import { OverviewScreen } from "@/features/overview/overview-screen";
 import type { WorkspacePage, WorkspaceSnapshot } from "./workspace-types";
 import type { TemplateId } from "@/features/strategy-library/strategy-templates";
+import type { ResearchLeg } from "@/features/research/research-workbench";
+import type { ChainContract } from "@/components/live-option-chain";
+/** Option-chain pricing is shared data, not an order ticket. */
+const OptionChainScreen = dynamic(
+  () =>
+    import("@/features/option-chain/option-chain-screen").then(
+      (module) => module.OptionChainScreen,
+    ),
+  { loading: ScreenLoading },
+);
 /** Historical calculations have no dependencies on order execution. */
 const BacktestStudioScreen = dynamic(
   () =>
@@ -115,6 +125,9 @@ export function WorkspaceContent({
   onOpenStrategy,
   templateId,
   onConfigureTemplate,
+  spreadLegs,
+  onDraftLegsChange,
+  onAddSpreadLeg,
 }: {
   page: WorkspacePage;
   workspace: WorkspaceSnapshot;
@@ -126,6 +139,9 @@ export function WorkspaceContent({
   onOpenStrategy: (id: string, market: "cash" | "options") => void;
   templateId: TemplateId;
   onConfigureTemplate: (id: TemplateId) => void;
+  spreadLegs: ResearchLeg[];
+  onDraftLegsChange: (legs: ResearchLeg[]) => void;
+  onAddSpreadLeg: (contract: ChainContract, side: "buy" | "sell") => string;
 }) {
   switch (page) {
     case "Overview":
@@ -167,6 +183,17 @@ export function WorkspaceContent({
         <SpreadBuilderScreen
           csrf={workspace.csrf}
           initialStrategyId={researchStrategyId}
+          draftLegs={spreadLegs}
+          onDraftLegsChange={onDraftLegsChange}
+        />
+      );
+    case "Option chain":
+      return (
+        <OptionChainScreen
+          csrf={workspace.csrf}
+          legCount={spreadLegs.length}
+          onAddLeg={onAddSpreadLeg}
+          onOpenBuilder={() => onNavigate("Spread builder")}
         />
       );
     case "Market data":

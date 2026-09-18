@@ -5,6 +5,8 @@ Updated 18 September 2026. Paths are relative to the repository root. This cover
 ## Dependency direction
 
 New screen infrastructure:
+- [frontend/src/features/option-chain/option-chain-screen.tsx](../frontend/src/features/option-chain/option-chain-screen.tsx): standalone chain and research-draft navigation.
+- [frontend/src/features/option-chain/use-market-feed.ts](../frontend/src/features/option-chain/use-market-feed.ts): abortable sequential shared-price cache reads, without broker report polling.
 - [frontend/src/features/backtest-studio/backtest-studio-screen.tsx](../frontend/src/features/backtest-studio/backtest-studio-screen.tsx): historical CSV input, parameter validation, calculated results and export.
 - [frontend/src/features/backtest-studio/daily-backtest.ts](../frontend/src/features/backtest-studio/daily-backtest.ts): bounded OHLC validation and deterministic EMA/RSI/channel research calculations; no data generator.
 - [frontend/src/lib/download.ts](../frontend/src/lib/download.ts): local file downloads and formula-safe CSV encoding.
