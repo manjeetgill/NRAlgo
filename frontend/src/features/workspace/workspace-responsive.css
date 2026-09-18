@@ -3,6 +3,33 @@
   display: grid;
   gap: 22px;
 }
+/* Research shows definition and actual results together, collapsing to one column on mobile. */
+.research-workspace-columns {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.9fr) minmax(0, 1.1fr);
+  align-items: start;
+  gap: 22px;
+}
+.research-workspace-columns .research-fields {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.workspace-dialog {
+  border: 1px solid #dee4ed;
+  border-radius: 12px;
+  padding: 26px;
+  color: #162237;
+  width: min(760px, calc(100vw - 32px));
+  max-height: 85vh;
+  overflow: auto;
+}
+.workspace-dialog::backdrop {
+  background: #101a2e80;
+}
+@media (max-width: 1150px) {
+  .research-workspace-columns {
+    grid-template-columns: 1fr;
+  }
+}
 .screen-card {
   padding: 24px;
 }

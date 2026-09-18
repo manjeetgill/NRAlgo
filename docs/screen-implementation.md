@@ -27,4 +27,6 @@ Reference: the supplied NRIAlgo PDF (pages 1–34), presentation guide and click
 
 ## Verification
 
+Algo lab deliberately exposes the implemented scheduled-basket historical engine, not the reference's nonfunctional MA/sample-return controls. A moving-average signal backtest is not presented as implemented. Save and replay use authenticated research APIs; the report and trade-log dialog contain only returned candle results.
+
 Each screen: TypeScript, relevant automated tests, browser inspection and explicit-path commit. Final gate: full repository checks and production build. Real broker acceptance requires a connected account and is not replaced by fixture tests.

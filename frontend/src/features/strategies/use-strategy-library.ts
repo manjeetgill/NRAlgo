@@ -54,15 +54,19 @@ export function useStrategyLibrary(csrf: string) {
           15000,
           controller.signal,
         );
-        if (!controller.signal.aborted)
+        if (!controller.signal.aborted) {
           setStrategies(parseStrategyLibrary(result));
+        }
       } catch (cause) {
-        if (!controller.signal.aborted)
+        if (!controller.signal.aborted) {
           setError(
             cause instanceof Error ? cause.message : "Library unavailable.",
           );
+        }
       } finally {
-        if (!controller.signal.aborted) setLoading(false);
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
       }
     }
     void loadLibrary();

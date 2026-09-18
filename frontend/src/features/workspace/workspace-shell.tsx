@@ -68,7 +68,9 @@ export function WorkspaceShell({
       setMenuOpen(false);
     }
     function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") setMenuOpen(false);
+      if (event.key === "Escape") {
+        setMenuOpen(false);
+      }
     }
     restoreLocation();
     window.addEventListener("hashchange", restoreLocation);
