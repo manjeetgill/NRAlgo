@@ -55,6 +55,7 @@ export async function passwordHash(
 }
 
 // Single API instance. A shared limiter is required before horizontal scaling.
+/** Bound request admission and bucket memory per process; multi-replica deployments need a shared limiter. */
 export function rateLimit(
   limit: number,
   windowMs: number,

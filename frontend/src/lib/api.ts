@@ -5,6 +5,7 @@ export async function requestApiJson(
   body?: unknown,
   csrf?: string,
   timeoutMs = 15000,
+  signal?: AbortSignal,
 ) {
   if (!path.startsWith("/") || path.startsWith("//")) {
     throw new Error("Invalid API path.");
@@ -14,7 +15,10 @@ export async function requestApiJson(
     credentials: "same-origin",
     cache: "no-store",
     redirect: "error",
-    signal: AbortSignal.timeout(timeoutMs),
+    // Caller cancellation and the deadline cover both response headers and JSON consumption.
+    signal: signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)])
+      : AbortSignal.timeout(timeoutMs),
     headers: {
       "Content-Type": "application/json",
       ...(csrf ? { "X-CSRF-Token": csrf } : {}),

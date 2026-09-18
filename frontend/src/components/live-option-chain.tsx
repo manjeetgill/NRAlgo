@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { requestApiJson } from "@/lib/api";
-import type { PaperInstrument } from "./paper-instrument-picker";
+import type { BrokerInstrument } from "./instrument-picker";
 import { Button } from "./ui/button";
 
 export type LiveTick = {
@@ -15,7 +15,7 @@ export type LiveTick = {
   change?: number;
   depth?: { buy: { price: number }[]; sell: { price: number }[] };
 };
-type Contract = PaperInstrument & {
+type Contract = BrokerInstrument & {
   price: number | null;
   bid: number | null;
   ask: number | null;
@@ -81,6 +81,7 @@ export function LiveOptionChain({
     [csrf],
   );
 
+  /** Resolve official index membership on selection; abort the previous HTTP read on change/unmount. */
   useEffect(() => {
     const controller = new AbortController();
     setMembers(null);
@@ -119,6 +120,7 @@ export function LiveOptionChain({
       ? members.symbols.filter((symbol) => symbols.includes(symbol))
       : [];
 
+  /** Load broker-supported underlying facets once per session; ignore a departed screen's promise. */
   useEffect(() => {
     let cancelled = false;
     setSearchError("");
@@ -145,6 +147,7 @@ export function LiveOptionChain({
     };
   }, [read]);
 
+  /** Replace expiries when the underlying changes, fencing old results before selecting the first expiry. */
   useEffect(() => {
     const current = ++generation.current;
     setBusy(true);
@@ -179,6 +182,7 @@ export function LiveOptionChain({
     };
   }, [underlying, read]);
 
+  /** Load one strike page and subscribe its contracts; cleanup invalidates results without stopping the shared feed. */
   useEffect(() => {
     if (!expiry) {
       return;
@@ -217,7 +221,7 @@ export function LiveOptionChain({
               const page = Math.floor((low + high) / 2);
               const rows = page === 0 ? first : await search(page * 50);
               const index = rows.items.findIndex(
-                (item: PaperInstrument) =>
+                (item: BrokerInstrument) =>
                   (item.option?.strikePrice ?? 0) >= target,
               );
               if (index === -1) {
@@ -266,6 +270,7 @@ export function LiveOptionChain({
     };
   }, [underlying, expiry, offset, positionStrikes, read]);
 
+  /** Merge valid cached ticks into the displayed chain only; this effect never calls a broker API. */
   useEffect(() => {
     setChain((previous) =>
       previous

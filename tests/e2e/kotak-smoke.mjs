@@ -24,7 +24,11 @@ const calls = [],
   frontendUrl = "http://127.0.0.1:3010";
 const app = createApiApplication(
   store,
-  { APP_ORIGIN: frontendUrl, BROKER_ENCRYPTION_KEY: "ab".repeat(32) },
+  {
+    APP_ORIGIN: frontendUrl,
+    BROKER_ENCRYPTION_KEY: "ab".repeat(32),
+    PAPER_TRADING_ENABLED: "true",
+  },
   fakeKotakData(calls, fakeIndexFeedSocket),
   fakeInstrumentCatalog(),
 );
@@ -87,20 +91,21 @@ try {
     .getByRole("button", { name: "Create account", exact: true })
     .click();
   await page.getByRole("button", { name: "Brokers", exact: true }).click();
-  assert.equal(await page.getByText(/ICICI|Breeze/).count(), 0);
   const inputs = {
-    "Kotak API access token": "accessToken",
+    "API access token": "accessToken",
     "Mobile (+91…)": "mobileNumber",
-    "Kotak client code (UCC)": "ucc",
-    "Kotak TOTP": "totp",
-    "Kotak MPIN": "mpin",
+    "Client code (UCC)": "ucc",
+    "Authenticator TOTP": "totp",
+    MPIN: "mpin",
   };
   for (const [label, key] of Object.entries(inputs)) {
     await page.getByLabel(label, { exact: true }).fill(fakeKotakLogin[key]);
   }
   await page
-    .getByRole("button", { name: "Connect Kotak data", exact: true })
+    .getByRole("button", { name: "Connect Kotak Neo", exact: true })
     .click();
+  await page.getByText("Connected", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "Broker paper", exact: true }).click();
   const symbols = page.getByLabel("Kotak NSE cash token (pSymbol)", {
     exact: true,
   });

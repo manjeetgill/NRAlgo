@@ -6,7 +6,7 @@ import { useBrokerConnection } from "@/features/brokers/use-broker-connection";
 import { Button } from "@/components/ui/button";
 
 /** Render implemented provider login fields and leave async/session management to the connection hook. */
-export function BrokerConnectionPanel({ csrf }: { csrf: string }) {
+export function BrokersScreen({ csrf }: { csrf: string }) {
   const adapter = brokerConnectionAdapters[0];
   const connection = useBrokerConnection(adapter, csrf);
   const [credentials, setCredentials] = useState<Record<string, string>>({});

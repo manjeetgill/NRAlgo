@@ -18,16 +18,14 @@ const rupees = (value: number | null) =>
         style: "currency",
         currency: "INR",
       }).format(value);
+/** Load reports on explicit refresh and revalue open positions from the shared cached price feed. */
 export function KotakAccountReports({
   csrf,
-  autoRefresh = false,
   loadOnMount = false,
   summaryOnly = false,
   onOpenMarket,
 }: {
   csrf: string;
-  /** The server caches broker calls, so this may safely update the UI each second. */
-  autoRefresh?: boolean;
   /** Load one broker snapshot when this live view opens; it never starts a polling loop. */
   loadOnMount?: boolean;
   /** Overview shows live headline metrics only; position details live on their own tab. */
@@ -91,17 +89,14 @@ export function KotakAccountReports({
     },
     [csrf],
   );
+  /** Load one initial report when requested; subsequent price changes come from the cached feed, not report polling. */
   useEffect(() => {
-    if (!autoRefresh && !loadOnMount) {
+    if (!loadOnMount) {
       return;
     }
     void refresh(false);
-    if (!autoRefresh) {
-      return;
-    }
-    const timer = setInterval(() => void refresh(false), 1000);
-    return () => clearInterval(timer);
-  }, [autoRefresh, loadOnMount, refresh]);
+  }, [loadOnMount, refresh]);
+  /** Revalue one report from shared cached ticks; cleanup ends this viewer, not other screens' subscriptions. */
   useEffect(() => {
     const report = latestReport.current;
     if (!report) {
@@ -229,11 +224,9 @@ export function KotakAccountReports({
       <Button type="button" disabled={busy} onClick={() => void refresh()}>
         {busy
           ? "Loading Kotak reports…"
-          : autoRefresh
-            ? "Refresh now · auto-refreshing every second"
-            : data
-              ? "Refresh position marks and P&L"
-              : "Load live positions and marks"}
+          : data
+            ? "Refresh position marks and P&L"
+            : "Load live positions and marks"}
       </Button>
       {data?.observedAt && (
         <p role="status">

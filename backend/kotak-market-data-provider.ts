@@ -3,6 +3,7 @@ import type { KotakMarketDataClient } from "./kotak-market-data-client.js";
 import { InstrumentCatalog } from "./instrument-master.js";
 import type { MarketDataProvider } from "./market-data-provider.js";
 
+/** Adapt Kotak reads to the provider contract without exposing order placement. */
 export function createKotakMarketDataProvider(
   client: KotakMarketDataClient,
   catalog = new InstrumentCatalog(),
@@ -17,6 +18,7 @@ export function createKotakMarketDataProvider(
     },
     instruments: catalog,
     isConnected: (user, session) => client.isConnected(user, session),
+    /** Load an allowlisted master only when the requested segment cache is stale. */
     async prepareInstruments(session, market, reserve) {
       if (!client.isConnected(session.userId, session.sessionHash)) {
         throw Object.assign(new Error("Connect Kotak first."), {

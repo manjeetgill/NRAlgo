@@ -127,6 +127,7 @@ function extractSafeBrokerErrorMessage(
   secrets: string[] = [],
 ): string {
   const sensitiveValues = [...secrets];
+  /** Collect known sensitive fields for redaction without logging or returning credential values. */
   function collectSensitiveResponseValues(value: unknown, depth = 0) {
     if (!value || typeof value !== "object" || depth > 6) {
       return;
@@ -145,6 +146,7 @@ function extractSafeBrokerErrorMessage(
     }
   }
   collectSensitiveResponseValues(raw);
+  /** Strip credentials and token-shaped values from public broker error diagnostics. */
   function redact(text: string) {
     for (const secret of sensitiveValues
       .filter(Boolean)
@@ -171,6 +173,7 @@ function extractSafeBrokerErrorMessage(
       .slice(0, 400);
   }
   const messages: string[] = [];
+  /** Traverse only bounded broker error fields; never expose the full response payload. */
   function collectBrokerErrorMessages(value: unknown, depth = 0) {
     if (
       !value ||

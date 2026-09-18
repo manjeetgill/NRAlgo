@@ -1,12 +1,12 @@
 "use client";
-/** Current-master search only. Selecting a row fills a paper ticket; it never submits an order.
+/** Current-master search only. Selecting a row fills a caller-owned ticket; it never submits an order.
  * Cash symbols load after connection; searches are owner-authenticated and CSRF protected.
  * No broker secrets enter React.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { requestApiJson } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-export interface PaperInstrument {
+export interface BrokerInstrument {
   masterToken: string;
   instrument: string;
   symbol: string;
@@ -21,7 +21,7 @@ export interface PaperInstrument {
   };
 }
 type SearchResult = {
-  items: PaperInstrument[];
+  items: BrokerInstrument[];
   total: number;
   expiries: string[];
   underlyings: string[];
@@ -31,7 +31,7 @@ type SearchResult = {
 /** Browse current supported NSE EQ symbols after connection, then send only verified metadata
  * to the ticket. Pages stay bounded to 50; no full-market quote requests or guessed tokens.
  */
-export function KotakCashSymbolSelect({
+export function CashSymbolSelect({
   csrf,
   connected,
   disabled,
@@ -42,8 +42,8 @@ export function KotakCashSymbolSelect({
   csrf: string;
   connected: boolean;
   disabled: boolean;
-  selected: PaperInstrument | null;
-  onSelect: (instrument: PaperInstrument) => void;
+  selected: BrokerInstrument | null;
+  onSelect: (instrument: BrokerInstrument) => void;
   onClear: () => void;
 }) {
   const [query, setQuery] = useState("");
@@ -53,6 +53,7 @@ export function KotakCashSymbolSelect({
     [busy, setBusy] = useState(false),
     [offset, setOffset] = useState(0);
   const generation = useRef(0);
+  /** Fetch one bounded symbol page; only the newest request can replace the current result. */
   const load = useCallback(
     async (search: string, nextOffset: number) => {
       const current = ++generation.current;
@@ -94,9 +95,9 @@ export function KotakCashSymbolSelect({
       setError("");
       setBusy(false);
     }
-    const cleanupGeneration = generation.current + 1;
+    const requestGeneration = generation;
     return () => {
-      generation.current = cleanupGeneration;
+      requestGeneration.current++;
     };
   }, [connected, load]);
   const items = result?.items || [];
@@ -194,7 +195,8 @@ export function KotakCashSymbolSelect({
     </section>
   );
 }
-export function PaperInstrumentPicker({
+/** Search broker metadata and notify selection; choosing a contract never submits an order. */
+export function InstrumentPicker({
   broker,
   market,
   csrf,
@@ -205,7 +207,7 @@ export function PaperInstrumentPicker({
   market: "cash" | "options";
   csrf: string;
   disabled: boolean;
-  onSelect: (instrument: PaperInstrument) => void;
+  onSelect: (instrument: BrokerInstrument) => void;
 }) {
   const [query, setQuery] = useState(market === "options" ? "NIFTY" : ""),
     [expiry, setExpiry] = useState(""),
@@ -216,6 +218,7 @@ export function PaperInstrumentPicker({
     [offset, setOffset] = useState(0);
   const [underlying, setUnderlying] = useState("");
   const generation = useRef(0);
+  /** Invalidate late searches when this picker leaves the page; no broker subscription is owned here. */
   useEffect(
     () => () => {
       generation.current++;

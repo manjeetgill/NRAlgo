@@ -10,6 +10,7 @@ export const INDEX_FILES = {
   NIFTYFPI: "ind_niftyIndiaFPI150_list.csv",
 } as const;
 
+/** Parse the bounded official CSV; reject malformed symbols before deduplication. */
 export function parseConstituents(csv: string): string[] {
   const rows = parse(csv, {
     columns: true,

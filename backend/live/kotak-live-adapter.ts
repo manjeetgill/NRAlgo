@@ -24,12 +24,14 @@ export interface KotakExecutionSession {
   ): Promise<unknown>;
 }
 type Row = Record<string, unknown>;
+/** Require a JSON object before interpreting broker execution fields. */
 function record(raw: unknown): Row {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     throw new Error("Invalid Kotak report");
   }
   return raw as Row;
 }
+/** Require the documented success envelope; ambiguous outcomes are not definitive rejections. */
 function success(raw: unknown) {
   const row = record(raw);
   if (String(row.stat).toLowerCase() !== "ok" || Number(row.stCode) !== 200) {
@@ -37,6 +39,7 @@ function success(raw: unknown) {
   }
   return row;
 }
+/** Require a complete bounded broker book before reconciliation. */
 function rows(raw: unknown) {
   const result = success(raw);
   if (!Array.isArray(result.data) || result.data.length >= 10000) {
@@ -44,6 +47,7 @@ function rows(raw: unknown) {
   }
   return result.data.map(record);
 }
+/** Reject missing, blank and non-finite broker numbers instead of substituting zero. */
 function numeric(value: unknown) {
   if (
     (typeof value !== "number" && typeof value !== "string") ||
@@ -54,6 +58,7 @@ function numeric(value: unknown) {
   }
   return Number(value);
 }
+/** Normalize integer exchange units without multiplying lot size again. */
 function units(value: unknown) {
   const n = numeric(value);
   if (!Number.isSafeInteger(n) || n < 0) {
@@ -61,6 +66,7 @@ function units(value: unknown) {
   }
   return n;
 }
+/** Convert rupees to safe integer paise; reject unsupported precision. */
 function paise(value: unknown) {
   const n = numeric(value) * 100,
     rounded = Math.round(n);
@@ -71,6 +77,7 @@ function paise(value: unknown) {
 }
 export const kotakOrderTag = (key: string) =>
   `NA${createHash("sha256").update(key).digest("hex").slice(0, 20)}`;
+/** Bind identity to the permitted exchange, product and exact broker token. */
 function identity(row: Row) {
   const segment = row.exSeg,
     product = row.prod;
@@ -100,6 +107,7 @@ export class KotakLiveAdapter implements ExecutionBrokerAdapter {
     this.accountBinding = session.accountBinding;
   }
 
+  /** Verify current contract, lot multiple, tick alignment and reduce-only sale restriction. */
   public validateIntent(raw: OrderIntent) {
     const intent = orderIntentSchema.parse(raw),
       contract = this.resolve(intent.instrument);
@@ -120,6 +128,7 @@ export class KotakLiveAdapter implements ExecutionBrokerAdapter {
     }
     return contract;
   }
+  /** Send one LIMIT/DAY intent without retries; acknowledgement is not proof of fill. */
   public async placeOrder(intent: OrderIntent, signal: AbortSignal) {
     const contract = this.validateIntent(intent);
     const raw = success(
@@ -160,6 +169,7 @@ export class KotakLiveAdapter implements ExecutionBrokerAdapter {
       cashDeltaPaise: null,
     });
   }
+  /** Verify broker correlation, identity, order terms and cumulative fill consistency. */
   private normalize(
     row: Row,
     known: OrderIntent[],
@@ -238,6 +248,7 @@ export class KotakLiveAdapter implements ExecutionBrokerAdapter {
       cashDeltaPaise: null,
     });
   }
+  /** Select only orders matching persisted app intents; exclude manual or foreign orders. */
   public async getCancellationOrders(signal: AbortSignal) {
     const known = await this.knownIntents();
     const book = rows(
@@ -257,6 +268,7 @@ export class KotakLiveAdapter implements ExecutionBrokerAdapter {
         ),
       );
   }
+  /** Recheck ownership before requesting cancellation; terminal confirmation comes from later reconciliation. */
   public async cancelOrder(brokerOrderId: string, signal: AbortSignal) {
     const owned = await this.getCancellationOrders(signal);
     if (!owned.some((o) => o.brokerOrderId === brokerOrderId)) {
@@ -270,6 +282,7 @@ export class KotakLiveAdapter implements ExecutionBrokerAdapter {
       ),
     );
   }
+  /** Require a current session and fresh positive integer-paise quote before risk checks. */
   public async getQuote(
     instrument: string,
     _side: OrderIntent["side"],
@@ -289,6 +302,7 @@ export class KotakLiveAdapter implements ExecutionBrokerAdapter {
     }
     return result;
   }
+  /** Normalize bounded books, RMS buying power, exposure and P&L without fabricating cash-ledger values. */
   public async getSnapshot(signal: AbortSignal) {
     const started = Date.now();
     const [orderRaw, positionRaw, limitRaw, known] = await Promise.all([

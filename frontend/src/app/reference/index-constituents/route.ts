@@ -14,6 +14,7 @@ const cache = new Map<string, { until: number; value: Membership }>();
 const pending = new Map<string, Promise<Membership>>();
 const failures = new Map<string, number>();
 
+/** Download one fixed official CSV with timeout, byte cap and redirect rejection; cache validated results only. */
 async function download(index: keyof typeof INDEX_FILES): Promise<Membership> {
   const source = `https://www.niftyindices.com/IndexConstituent/${INDEX_FILES[index]}`;
   const response = await fetch(source, {
@@ -58,6 +59,7 @@ async function download(index: keyof typeof INDEX_FILES): Promise<Membership> {
   return value;
 }
 
+/** Serve fixed-index constituents with single-flight caching and failure cooldown; never accept arbitrary URLs. */
 export async function GET(request: Request) {
   const index = new URL(request.url).searchParams.get("index") ?? "";
   if (!Object.hasOwn(INDEX_FILES, index)) {

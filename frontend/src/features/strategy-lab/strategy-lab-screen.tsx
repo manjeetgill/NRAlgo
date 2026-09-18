@@ -3,11 +3,11 @@
 /** Research workbench: saved cash/options baskets, real-history replay and read-only quote feeds.
  * This component has no order-submission endpoint. Quotes and history are read-only.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { requestApiJson } from "@/lib/api";
-import { Button } from "./ui/button";
-import { OptionChainPicker } from "./option-chain-picker";
-import { PaperInstrumentPicker } from "./paper-instrument-picker";
+import { Button } from "@/components/ui/button";
+import { OptionChainPicker } from "@/components/option-chain-picker";
+import { InstrumentPicker } from "@/components/instrument-picker";
 
 type Leg = {
   stockCode: string;
@@ -133,7 +133,7 @@ function ResearchChart({ values, label }: { values: number[]; label: string }) {
 }
 
 /** Manage an immutable saved definition separately from editable form state and fetched prices. */
-export function StrategyLabPanel({ csrf }: { csrf: string }) {
+export function StrategyLabScreen({ csrf }: { csrf: string }) {
   const [definition, setDefinition] = useState<Definition>(
       structuredClone(initial),
     ),
@@ -227,6 +227,7 @@ export function StrategyLabPanel({ csrf }: { csrf: string }) {
     setSaved(result.strategies);
     setRuns(result.runs);
   }
+  /** Read saved research once per session; discard late results after navigation or session replacement. */
   useEffect(() => {
     let active = true;
     void researchRequest("", csrf)
@@ -245,27 +246,39 @@ export function StrategyLabPanel({ csrf }: { csrf: string }) {
       active = false;
     };
   }, [csrf]);
+  /** Quote freshness needs a clock only while its view is visible; editing a basket needs no per-second render. */
   useEffect(() => {
-    const timer = setInterval(() => setClock(Date.now()), 1000);
+    if (tab !== "quotes" || !quotes.length) {
+      return;
+    }
+    /** Update visible freshness labels without fetching broker records. */
+    const tick = () => {
+      if (!document.hidden) {
+        setClock(Date.now());
+      }
+    };
+    tick();
+    const timer = setInterval(tick, 1000);
+    /** Release the clock when leaving quotes, clearing quotes or unmounting. */
     return () => clearInterval(timer);
-  }, []);
+  }, [tab, quotes.length]);
+  /** Advance historical playback without invoking a second setter from inside a state updater. */
   useEffect(() => {
     if (!playing || !run) {
       return;
     }
-    const timer = setInterval(
-      () =>
-        setCursor((current) => {
-          if (current >= run.points.length - 1) {
-            setPlaying(false);
-            return current;
-          }
-          return current + 1;
-        }),
+    if (cursor >= run.points.length - 1) {
+      setPlaying(false);
+      return;
+    }
+    const timer = setTimeout(
+      /** Advance at most one completed bar, keeping the updater pure. */ () =>
+        setCursor((current) => Math.min(current + 1, run.points.length - 1)),
       500,
     );
-    return () => clearInterval(timer);
-  }, [playing, run]);
+    /** A pause, seek or run replacement cancels the queued animation step. */
+    return () => clearTimeout(timer);
+  }, [playing, run, cursor]);
   /** Any edit invalidates fetched quote identity and the saved ID before another run or draft. */
   function edit(next: Definition) {
     setKotakPolling(false);
@@ -274,6 +287,7 @@ export function StrategyLabPanel({ csrf }: { csrf: string }) {
     setQuotes([]);
     setNotice("");
   }
+  /** Edit one research leg and invalidate derived previews without changing live execution state. */
   function editLeg(index: number, patch: Partial<Leg>) {
     edit({
       ...definition,
@@ -282,6 +296,7 @@ export function StrategyLabPanel({ csrf }: { csrf: string }) {
       ),
     });
   }
+  /** Run explicit research work with busy/error feedback; historical results cannot dispatch orders. */
   async function act(action: () => Promise<void>) {
     setBusy(true);
     setError("");
@@ -346,27 +361,38 @@ export function StrategyLabPanel({ csrf }: { csrf: string }) {
   const strikes = definition.legs.map((leg) => leg.strikePrice || 0),
     payoffLow = Math.min(...strikes) * 0.8,
     payoffHigh = Math.max(...strikes) * 1.2;
-  const payoff =
-    allFresh && sameExpiry
-      ? Array.from({ length: 61 }, (_, index) => {
-          const spot = payoffLow + ((payoffHigh - payoffLow) * index) / 60;
-          return definition.legs.reduce(
-            (sum, leg, i) =>
-              sum +
-              (leg.side === "buy" ? 1 : -1) *
-                leg.quantity *
-                (Math.max(
-                  0,
-                  leg.right === "call"
-                    ? spot - leg.strikePrice!
-                    : leg.strikePrice! - spot,
-                ) -
-                  (leg.side === "buy" ? quotes[i].ask : quotes[i].bid)) -
-              2 * definition.feePerOrder,
-            0,
-          );
-        })
-      : [];
+  const payoff = useMemo(
+    /** Reuse the 61-point grid while only the freshness clock changes; this is illustrative research, not executable pricing. */ () =>
+      allFresh && sameExpiry
+        ? Array.from({ length: 61 }, (_, index) => {
+            const spot = payoffLow + ((payoffHigh - payoffLow) * index) / 60;
+            return definition.legs.reduce(
+              (sum, leg, i) =>
+                sum +
+                (leg.side === "buy" ? 1 : -1) *
+                  leg.quantity *
+                  (Math.max(
+                    0,
+                    leg.right === "call"
+                      ? spot - leg.strikePrice!
+                      : leg.strikePrice! - spot,
+                  ) -
+                    (leg.side === "buy" ? quotes[i].ask : quotes[i].bid)) -
+                2 * definition.feePerOrder,
+              0,
+            );
+          })
+        : [],
+    [
+      allFresh,
+      sameExpiry,
+      payoffLow,
+      payoffHigh,
+      definition.legs,
+      definition.feePerOrder,
+      quotes,
+    ],
+  );
   const point = run?.points[cursor];
   return (
     <section className="research-lab" aria-label="Strategy lab">
@@ -512,7 +538,7 @@ export function StrategyLabPanel({ csrf }: { csrf: string }) {
           )}
           <p>Research data broker: Kotak Neo</p>
           {definition.broker === "kotak" && definition.market === "cash" && (
-            <PaperInstrumentPicker
+            <InstrumentPicker
               broker="kotak"
               market="cash"
               csrf={csrf}

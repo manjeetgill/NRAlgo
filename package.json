@@ -7,7 +7,7 @@
   },
   "scripts": {
     "test:browser": "node tests/e2e/kotak-smoke.mjs",
-    "format": "prettier --write 'backend/**/*.ts' run.ts 'tests/**/*.mjs' 'frontend/src/**/*.{ts,tsx,css}' frontend/next.config.ts frontend/postcss.config.mjs",
+    "format": "prettier --write 'backend/**/*.ts' run.ts 'tests/**/*.{ts,mjs}' 'frontend/src/**/*.{ts,tsx,css}' frontend/next.config.ts frontend/postcss.config.mjs",
     "lint": "eslint . --concurrency=off --cache --quiet",
     "lint:all": "eslint . --concurrency=off --cache",
     "dev": "npm run build:backend && node --env-file-if-exists=.env --import tsx run.ts",
@@ -17,7 +17,8 @@
     "test": "npm run build:backend && node --test tests/backend/*.test.mjs",
     "typecheck": "tsc --noEmit",
     "build:backend": "tsc",
-    "check": "npm test && npm --prefix frontend run typecheck",
+    "check": "npm run lint && npm test && npm --prefix frontend run typecheck && npm --prefix frontend test && npm run test:architecture",
+    "test:architecture": "node --test tests/architecture/*.test.mjs",
     "build": "npm run build:backend && npm --prefix frontend run build"
   },
   "dependencies": {

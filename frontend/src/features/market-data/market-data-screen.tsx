@@ -74,7 +74,7 @@ function getResultPreview(result: Result | null) {
 }
 
 /** Stop and release the socket on navigation; hidden views stop lease polling automatically. */
-export function KotakMarketDataPanel({
+export function MarketDataScreen({
   csrf,
   prefilledInstruments = [],
   initialTool = "quotes",
@@ -93,6 +93,7 @@ export function KotakMarketDataPanel({
     prefilledInstruments.join(",") || "Nifty 50",
   );
   const prefilledInstrumentKey = prefilledInstruments.join(",");
+  /** Apply explicit workspace shortcuts without overwriting unrelated form changes on normal renders. */
   useEffect(() => {
     if (prefilledInstrumentKey) {
       setInstrumentInput(prefilledInstrumentKey);
@@ -115,8 +116,7 @@ export function KotakMarketDataPanel({
   const [errorMessage, setErrorMessage] = useState("");
   const segments = getSupportedExchanges(selectedTool);
 
-  // The feed is shared with the overview. The server viewer lease owns cleanup.
-
+  /** Read the server's shared feed cache without overlapping requests; stop the local timer on cleanup, not other viewers' feed. */
   useEffect(() => {
     if (!isPollingStream) {
       return;

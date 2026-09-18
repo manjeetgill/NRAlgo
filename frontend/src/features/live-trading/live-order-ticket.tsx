@@ -1,9 +1,10 @@
 "use client";
 /** Explicit real-money ticket, separate from simulated ledgers. Never submits on mount or retry. */
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { createLatestRequest } from "@/lib/latest-request";
 import { requestApiJson } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import type { PaperInstrument } from "./paper-instrument-picker";
+import type { BrokerInstrument } from "@/components/instrument-picker";
 
 type Intent = {
   instrument: string;
@@ -34,7 +35,10 @@ type LiveStatus = {
 const money = (paise: number) =>
   (paise / 100).toLocaleString("en-IN", { style: "currency", currency: "INR" });
 
-export function LiveExecutionPanel({ csrf }: { csrf: string }) {
+/** Render explicit live controls, retaining server, MFA, risk and confirmation safeguards. */
+export function LiveOrderTicket({ csrf }: { csrf: string }) {
+  const statusGate = useRef(createLatestRequest());
+  const actionPending = useRef(false);
   const [status, setStatus] = useState<LiveStatus | null>(null),
     [error, setError] = useState("");
   const [busy, setBusy] = useState(false),
@@ -51,24 +55,54 @@ export function LiveExecutionPanel({ csrf }: { csrf: string }) {
     [armProof, setArmProof] = useState("");
   const [market, setMarket] = useState<"cash" | "options">("cash"),
     [query, setQuery] = useState("");
-  const [items, setItems] = useState<PaperInstrument[]>([]),
-    [selected, setSelected] = useState<PaperInstrument | null>(null);
+  const [items, setItems] = useState<BrokerInstrument[]>([]),
+    [selected, setSelected] = useState<BrokerInstrument | null>(null);
   const [side, setSide] = useState<"buy" | "sell">("buy"),
     [quantity, setQuantity] = useState(""),
     [price, setPrice] = useState("");
   const [preview, setPreview] = useState<Preview | null>(null),
     [proof, setProof] = useState("");
   const [uncertain, setUncertain] = useState(false);
-  async function refresh() {
-    const result = await requestApiJson("/live/status");
-    setStatus(result);
-    setConfigured(Boolean(result.accountId));
+  /** Read control status without arming, reconciling or submitting orders. */
+  const refresh = useCallback(async () => {
+    const read = statusGate.current.begin();
+    const result = await requestApiJson(
+      "/live/status",
+      "GET",
+      undefined,
+      undefined,
+      15000,
+      read.signal,
+    );
+    if (read.isCurrent()) {
+      setStatus(result);
+      setConfigured(Boolean(result.accountId));
+    }
     return result;
-  }
+  }, []);
+  /** Load status once and cancel obsolete reads on account change/unmount; never cancel or retry a submitted order here. */
   useEffect(() => {
-    void refresh().catch((e) => setError(e.message));
-  }, [csrf]);
+    let active = true;
+    void refresh().catch(
+      /** Ignore failures from a departed account view. */ (e) => {
+        if (active) {
+          setError(e.message);
+        }
+      },
+    );
+    const gate = statusGate.current;
+    /** Read cancellation changes UI ownership only, not broker state. */
+    return () => {
+      active = false;
+      gate.invalidate();
+    };
+  }, [csrf, refresh]);
+  /** Run explicit UI work with busy/error feedback; never automatically retry uncertain submissions. */
   async function action(work: () => Promise<void>) {
+    if (actionPending.current) {
+      return;
+    }
+    actionPending.current = true;
     setBusy(true);
     setError("");
     setMessage("");
@@ -77,11 +111,13 @@ export function LiveExecutionPanel({ csrf }: { csrf: string }) {
     } catch (e) {
       setError((e as Error).message);
     } finally {
+      actionPending.current = false;
       setBusy(false);
     }
   }
   const post = (path: string, body: unknown = {}) =>
     requestApiJson(`/live/${path}`, "POST", body, csrf, 30000);
+  /** Discard reviewed previews when inputs change so old confirmations cannot authorize different terms. */
   function invalidate() {
     setPreview(null);
     setProof("");

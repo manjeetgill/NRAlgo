@@ -26,6 +26,7 @@ const rupees = (value: number | null) =>
         style: "currency",
         currency: "INR",
       }).format(value);
+/** Render read-only broker holdings/positions separately from virtual balances. */
 export function BrokerPortfolioPanel({
   broker,
   csrf,

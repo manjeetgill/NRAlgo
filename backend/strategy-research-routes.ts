@@ -76,6 +76,7 @@ export function registerResearchRoutes(
   brokerDataReader: MarketDataProvider,
 ) {
   const catalog = brokerDataReader.instruments;
+  /** Reject unsupported historical-data capability before attempting provider research requests. */
   function requireHistory(interval: "1minute" | "5minute") {
     if (!brokerDataReader.capabilities.historyIntervals.includes(interval)) {
       fail(

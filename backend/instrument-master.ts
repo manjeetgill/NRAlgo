@@ -262,6 +262,7 @@ export class InstrumentCatalog {
       ? value
       : undefined;
   }
+  /** Check master freshness before resolving contracts; stale metadata cannot authorize execution. */
   public isFresh(broker: PaperBroker, market: "cash" | "options") {
     return Boolean(this.current(`${broker}:${market}`));
   }

@@ -6,6 +6,7 @@ import { instrumentSearchSchema } from "../instrument-master.js";
 import { orderIntentSchema, riskLimitsSchema } from "./contracts.js";
 import type { KotakLiveManager } from "./kotak-live-manager.js";
 
+/** Mount strict, authenticated live commands with explicit confirmations and sanitized errors. */
 export function registerKotakLiveRoutes(
   app: Express,
   manager: KotakLiveManager,

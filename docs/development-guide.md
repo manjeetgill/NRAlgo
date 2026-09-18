@@ -4,6 +4,61 @@ The project uses ordinary TypeScript functions and classes. Financial calculatio
 requests and screen code have different responsibilities; keeping those boundaries is more
 important than reducing the number of lines.
 
+The [repository map](repository-map.md) documents every owned source file and the
+purpose of configuration, tests and tools. The [dated review](code-review-2026-09-18.md)
+records fixed findings, known limitations and evidence. Update those documents when
+moving a responsibility; comments are contracts that must stay true.
+
+## Screen and hook structure
+
+- `app/page.tsx` is only the Next route. `workspace-app.tsx` composes authentication
+  and the signed-in shell. `workspace-shell.tsx` owns layout/navigation; it must not
+  acquire broker credentials, calculate fills or hold another screen's form state.
+- Each destination has `features/<screen>/<screen>-screen.tsx`. `workspace-content.tsx`
+  lazily loads non-overview destinations with literal Next dynamic-import options.
+  A keyed error boundary contains render failures without automatically repeating
+  any mutation. Keep shared components only when more than one feature uses them.
+- Name request lifecycles `use-<responsibility>.ts`, pure calculations `*-model.ts`,
+  contracts `*-types.ts`, and network adaptation `*-api.ts`/`*-adapter.ts`. Component
+  and hook names are broker-neutral. Keep Kotak in protocol adapters/diagnostics.
+- Use `useState` for displayed state and `useRef` for request generations, in-flight
+  locks and DOM handles. A ref lock prevents duplicate submissions before a busy
+  state re-render; it is not a replacement for durable server idempotency.
+- Use `useCallback` when identity is a hook dependency or part of a stable component
+  contract. Use `useMemo` for material derived work (payoff curves, flattened fills),
+  not every string or arithmetic operation. Neither hook is a security mechanism.
+- Use `useEffect` only to synchronise external lifecycles: reads, subscriptions,
+  clocks or native dialogs. Document its trigger, ownership and cleanup. Do not put
+  a trade submission in an effect or invoke another setter inside a state updater.
+- Reads must ignore/abort obsolete responses on navigation, account change and
+  Strict Mode remount. `lib/latest-request.ts` provides that generation/abort gate.
+  `use-workspace-session.ts` owns auth/workspace lifecycle, validates JSON, and polls
+  sequentially only while paper jobs run. Do not restore unconditional root polling.
+- API callbacks document the endpoint's purpose, units, authorization, errors and
+  retry policy. Handle every promise rejection. Aborting a client request does not
+  undo a broker mutation; reconcile uncertain submissions instead of retrying.
+- Document named functions, exported contracts, effects and non-obvious callback
+  blocks with intent and invariants. Explain why a dependency or guard exists, not
+  every JSX field. Keep monetary display in rupees and execution/ledger values in
+  integer paise; keep quantity units explicit.
+
+Screens are separated now, but the existing research and paper screens still
+contain substantial form code. Extract their own hooks/model/components when
+changing those workflows; do not introduce a generic controller framework merely
+to move lines. Existing wire names and database columns are compatibility contracts.
+
+## Before adding the next screen
+
+1. Add the screen under its feature, document its data/permission boundary, and
+   register it in workspace navigation/content. Keep paper/live guards explicit.
+2. Keep calculations pure and validate data at the API boundary. Never turn a
+   missing broker value into a plausible zero or silently use a paper fallback.
+3. Cover loading, empty, unavailable, denied, stale and superseded-read states.
+   Mutation tests use fake brokers and verify idempotency/ownership.
+4. Run `npm run check` and `npm run build`; inspect the actual screen in a browser.
+   Run the isolated browser/container gates in CI before merging. Update the file
+   map and release notes in the same commit. Do not enable real execution to test UI.
+
 ## Where to start
 
 | What you are investigating                                        | Start here                                            |
@@ -20,7 +75,7 @@ important than reducing the number of lines.
 | Historical strategy calculations                                  | `backend/historical-strategy-simulator.ts`            |
 | Saved research strategies and historical replay requests          | `backend/strategy-research-routes.ts`                 |
 | Real positions/holdings response fields                           | `backend/broker-portfolio-normalizer.ts`              |
-| Market-data form state and requests                               | `frontend/src/components/kotak-market-data-panel.tsx` |
+| Market-data form state and requests                               | `frontend/src/features/market-data/market-data-screen.tsx` |
 
 Framework entry files such as `page.tsx` and `layout.tsx` keep their required Next.js names.
 Broker field names such as `pSymbol`, `sid`, `ltp` and `neoSymbol` stay unchanged at the API
@@ -73,7 +128,7 @@ expire broker sessions and quotes; reconnect rather than bypassing freshness che
 After a refactor, run `make check`, `make build`, and `npm run test:browser`. Tests use fake brokers
 and isolated PostgreSQL schemas; they must never place a real order. A readability refactor must
 not change order matching, database data, public API payloads or broker authentication behavior.
-# Market-data adapters
+## Market-data adapters
 
 `backend/market-data-provider.ts` is the shared data boundary for instrument discovery,
 display quotes, simulated-fill quotes, history and the dashboard price feed.

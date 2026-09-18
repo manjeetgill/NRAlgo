@@ -7,7 +7,7 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { requestApiJson } from "@/lib/api";
-import { Button } from "./ui/button";
+import { Button } from "@/components/ui/button";
 
 /** Send same-origin authenticated JSON, with CSRF and a deadline longer than SDK authentication. */
 function requestAuthenticatedJson(
@@ -20,7 +20,7 @@ function requestAuthenticatedJson(
 }
 
 /** Manage application credentials and MFA without changing broker credentials. */
-export function AccountPanel({
+export function AccountScreen({
   csrf,
   onRefresh,
 }: {
@@ -33,6 +33,7 @@ export function AccountPanel({
   const [mfaEnabled, setMfaEnabled] = useState(false),
     [enrollmentSecret, setEnrollmentSecret] = useState("");
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
+  /** Read MFA policy for this app session; never populate an unmounted account screen from an old response. */
   useEffect(() => {
     let active = true;
     void requestAuthenticatedJson("/auth/mfa", csrf)

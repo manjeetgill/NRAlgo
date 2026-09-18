@@ -1,0 +1,137 @@
+"use client";
+/** Lazy screen boundary: Overview does not eagerly download every trading/research editor. */
+import dynamic from "next/dynamic";
+import { OverviewScreen } from "@/features/overview/overview-screen";
+import type { WorkspacePage, WorkspaceSnapshot } from "./workspace-types";
+/** Accessible fallback while the selected screen's code is fetched. */
+function ScreenLoading() {
+  return <p role="status">Loading screen…</p>;
+}
+/** Static imports let Next build independent chunks; named-export callbacks return components, not commands. */
+const StrategiesScreen = dynamic(
+  () =>
+    import("@/features/strategies/strategies-screen").then(
+      (module) => module.StrategiesScreen,
+    ),
+  { loading: ScreenLoading },
+);
+const StrategyLabScreen = dynamic(
+  () =>
+    import("@/features/strategy-lab/strategy-lab-screen").then(
+      (module) => module.StrategyLabScreen,
+    ),
+  { loading: ScreenLoading },
+);
+const PaperTradingScreen = dynamic(
+  () =>
+    import("@/features/paper-trading/paper-trading-screen").then(
+      (module) => module.PaperTradingScreen,
+    ),
+  { loading: ScreenLoading },
+);
+const MarketDataScreen = dynamic(
+  () =>
+    import("@/features/market-data/market-data-screen").then(
+      (module) => module.MarketDataScreen,
+    ),
+  { loading: ScreenLoading },
+);
+const OrdersScreen = dynamic(
+  () =>
+    import("@/features/orders/orders-screen").then(
+      (module) => module.OrdersScreen,
+    ),
+  { loading: ScreenLoading },
+);
+const BrokersScreen = dynamic(
+  () =>
+    import("@/features/brokers/brokers-screen").then(
+      (module) => module.BrokersScreen,
+    ),
+  { loading: ScreenLoading },
+);
+const LiveTradingScreen = dynamic(
+  () =>
+    import("@/features/live-trading/live-trading-screen").then(
+      (module) => module.LiveTradingScreen,
+    ),
+  { loading: ScreenLoading },
+);
+const AccountScreen = dynamic(
+  () =>
+    import("@/features/account/account-screen").then(
+      (module) => module.AccountScreen,
+    ),
+  { loading: ScreenLoading },
+);
+const ActivityScreen = dynamic(
+  () =>
+    import("@/features/activity/activity-screen").then(
+      (module) => module.ActivityScreen,
+    ),
+  { loading: ScreenLoading },
+);
+const LearningScreen = dynamic(
+  () =>
+    import("@/features/learning/learning-screen").then(
+      (module) => module.LearningScreen,
+    ),
+  { loading: ScreenLoading },
+);
+/** Resolve only presentation components; the dispatcher cannot submit orders or read another account. */
+export function WorkspaceContent({
+  page,
+  workspace,
+  onNavigate,
+  onRefresh,
+  onExploreOptionChain,
+  marketInitialTool,
+}: {
+  page: WorkspacePage;
+  workspace: WorkspaceSnapshot;
+  onNavigate: (page: WorkspacePage) => void;
+  onRefresh: () => Promise<void>;
+  onExploreOptionChain: () => void;
+  marketInitialTool: "quotes" | "chain";
+}) {
+  switch (page) {
+    case "Overview":
+      return (
+        <OverviewScreen
+          workspace={workspace}
+          onNavigate={onNavigate}
+          onExploreOptionChain={onExploreOptionChain}
+        />
+      );
+    case "Strategies":
+      return <StrategiesScreen workspace={workspace} onRefresh={onRefresh} />;
+    case "Strategy lab":
+      return <StrategyLabScreen csrf={workspace.csrf} />;
+    case "Broker paper":
+      return <PaperTradingScreen csrf={workspace.csrf} />;
+    case "Market data":
+      return (
+        <MarketDataScreen
+          csrf={workspace.csrf}
+          initialTool={marketInitialTool}
+        />
+      );
+    case "Orders & trades":
+      return <OrdersScreen workspace={workspace} onNavigate={onNavigate} />;
+    case "Brokers":
+      return <BrokersScreen csrf={workspace.csrf} />;
+    case "Live trading":
+      return <LiveTradingScreen csrf={workspace.csrf} />;
+    case "Account & security":
+      return <AccountScreen csrf={workspace.csrf} onRefresh={onRefresh} />;
+    case "Activity log":
+      return (
+        <ActivityScreen
+          workspace={workspace}
+          tradingMode={workspace.paper_trading_enabled ? "paper" : "live"}
+        />
+      );
+    case "Learn the stack":
+      return <LearningScreen />;
+  }
+}

@@ -14,13 +14,13 @@ import {
 } from "react";
 import { requestApiJson } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { BrokerPortfolioPanel } from "./broker-portfolio-panel";
-import { KotakOptionChain } from "./kotak-option-chain";
+import { BrokerPortfolioPanel } from "@/components/broker-portfolio-panel";
+import { KotakOptionChain } from "@/components/kotak-option-chain";
 import {
-  PaperInstrumentPicker,
-  KotakCashSymbolSelect,
-  type PaperInstrument,
-} from "./paper-instrument-picker";
+  InstrumentPicker,
+  CashSymbolSelect,
+  type BrokerInstrument,
+} from "@/components/instrument-picker";
 type Broker = "kotak";
 type Order = {
   key: string;
@@ -74,7 +74,8 @@ function request(path: string, csrf: string, body?: unknown, method?: string) {
     95000,
   );
 }
-export function PaperTradingPanel({ csrf }: { csrf: string }) {
+/** Mount one virtual wallet; no control here can call live execution. */
+export function PaperTradingScreen({ csrf }: { csrf: string }) {
   const broker: Broker = "kotak";
   const [portfolio, setPortfolio] = useState(false);
   return (
@@ -114,7 +115,7 @@ function PaperWallet({ broker, csrf }: { broker: Broker; csrf: string }) {
     lotSize: 1,
   });
   const [selectedInstrument, setSelectedInstrument] =
-    useState<PaperInstrument | null>(null);
+    useState<BrokerInstrument | null>(null);
   const contractFields = useMemo(
     () => ({
       ...(market === "options" ? { option } : {}),
@@ -135,6 +136,7 @@ function PaperWallet({ broker, csrf }: { broker: Broker; csrf: string }) {
     mpin: "",
   });
   const [, tick] = useState(0);
+  /** Load the virtual wallet once; the local clock only ages quote labels, and both lifecycles stop on unmount. */
   useEffect(() => {
     let active = true;
     request(broker, csrf)
@@ -148,7 +150,11 @@ function PaperWallet({ broker, csrf }: { broker: Broker; csrf: string }) {
           setError(e.message);
         }
       });
-    const timer = setInterval(() => tick((value) => value + 1), 1000);
+    const timer = setInterval(() => {
+      if (!document.hidden) {
+        tick((value) => value + 1);
+      }
+    }, 1000);
     return () => {
       active = false;
       clearInterval(timer);
@@ -190,6 +196,7 @@ function PaperWallet({ broker, csrf }: { broker: Broker; csrf: string }) {
     },
     [broker, contractFields, csrf, instrument],
   );
+  /** Optional paper matching is serialized by act; stop polling on hidden tabs and remove the listener on cleanup. */
   useEffect(() => {
     if (!automatic) {
       return;
@@ -391,7 +398,7 @@ function PaperWallet({ broker, csrf }: { broker: Broker; csrf: string }) {
           />
         )}
         {!(broker === "kotak" && market === "cash") && (
-          <PaperInstrumentPicker
+          <InstrumentPicker
             key={`${broker}:${market}`}
             broker={broker}
             market={market as "cash" | "options"}
@@ -494,7 +501,7 @@ function PaperWallet({ broker, csrf }: { broker: Broker; csrf: string }) {
         )}
         <div className="paper-grid">
           {broker === "kotak" && market === "cash" ? (
-            <KotakCashSymbolSelect
+            <CashSymbolSelect
               csrf={csrf}
               connected={Boolean(wallet?.connected)}
               disabled={busy}

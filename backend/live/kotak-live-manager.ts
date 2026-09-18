@@ -57,16 +57,19 @@ export class KotakLiveManager {
       );
     }
   }
+  /** Fail closed when execution is disabled or the manager is shutting down. */
   private requireEnabled() {
     if (!this.enabled || this.closed) {
       fail(409, "Live execution is disabled on this server.");
     }
   }
+  /** Serialize account work; a prior rejection releases the queue but never retries dispatch. */
   private serial<T>(entry: Entry, action: () => Promise<T>): Promise<T> {
     const work = entry.tail.catch(() => {}).then(action);
     entry.tail = work.catch(() => {});
     return work;
   }
+  /** Recheck broker identity, durable session, permission expiry and trading day before dispatch. */
   private async authorize(query: Query, entry: Entry) {
     this.requireEnabled();
     if (entry.revoked || !entry.connection.isCurrent()) {
@@ -92,6 +95,7 @@ export class KotakLiveManager {
       fail(409, "Live permission expired or revoked. Reconcile and arm again.");
     }
   }
+  /** Reuse only the current account/session and serialize initialization of explicit execution control. */
   private async entry(
     session: LoginSession,
     limits?: RiskLimits,
@@ -123,6 +127,7 @@ export class KotakLiveManager {
       this.pending.delete(session.user_id);
     }
   }
+  /** Initialize an explicitly requested control session with a durable halt and bounded monitoring. */
   private async open(
     session: LoginSession,
     limits?: RiskLimits,
@@ -214,6 +219,7 @@ export class KotakLiveManager {
     this.schedule(entry);
     return entry;
   }
+  /** Monitor sequentially; lost authorization latches halt and cannot auto-arm the account. */
   private schedule(entry: Entry) {
     if (this.closed || entry.revoked) {
       return;
@@ -264,10 +270,12 @@ export class KotakLiveManager {
     }, 2000);
     entry.timer.unref();
   }
+  /** Configure a halted account with validated limits; this grants no trading permission. */
   public async configure(session: LoginSession, limits: RiskLimits) {
     const entry = await this.entry(session, limits);
     return this.status(session, entry);
   }
+  /** Resolve current supported contracts for the authenticated session without submitting orders. */
   public async instruments(session: LoginSession, input: InstrumentSearch) {
     this.requireEnabled();
     if (!this.client.isConnected(session.user_id, session.token_hash)) {
@@ -283,6 +291,7 @@ export class KotakLiveManager {
     }
     return this.catalog.search("kotak", input);
   }
+  /** Read durable state without opening an execution session, changing permissions or scheduling cancellation. */
   public async status(session: LoginSession, existing?: Entry) {
     if (!this.enabled) {
       return {
@@ -292,7 +301,15 @@ export class KotakLiveManager {
         reason: "Live execution disabled",
       };
     }
-    const entry = existing ?? (await this.entry(session));
+    const entry = existing ?? this.entries.get(session.user_id);
+    if (
+      !entry ||
+      entry.revoked ||
+      entry.session.token_hash !== session.token_hash ||
+      !entry.connection.isCurrent()
+    ) {
+      return this.readDormantStatus(session);
+    }
     const status = await entry.service.status();
     const [account] = await this.store.transaction((q) =>
       q<{ limits: string; snapshot: string }>(
@@ -323,10 +340,71 @@ export class KotakLiveManager {
       })),
     };
   }
+  /** A disconnected/restarted control plane may display its own saved records, but never imply it is armed. */
+  private async readDormantStatus(session: LoginSession) {
+    const connection = this.client.executionSession(
+      session.user_id,
+      session.token_hash,
+    );
+    return this.store.transaction(async (query) => {
+      const [account] = await query<{
+        id: string;
+        limits: string;
+        snapshot: string;
+      }>(
+        "SELECT id,limits,snapshot FROM live_accounts WHERE user_id=$1 AND broker_binding=$2",
+        [session.user_id, connection.accountBinding],
+      );
+      if (!account) {
+        return {
+          enabled: true,
+          armed: false,
+          halted: true,
+          reason:
+            "Configure live risk limits before reconciliation and arming.",
+          orders: [],
+        };
+      }
+      const orders = await query<{
+        id: string;
+        state: string;
+        intent: string;
+        broker_order: string;
+      }>(
+        "SELECT id,state,intent,broker_order FROM live_orders WHERE account_id=$1 ORDER BY created_at",
+        [account.id],
+      );
+      return {
+        enabled: true,
+        armed: false,
+        halted: true,
+        accountId: account.id,
+        reason:
+          "Execution session inactive. Explicit reconciliation and arming required; check broker exposure.",
+        limits: JSON.parse(account.limits),
+        snapshot: account.snapshot ? JSON.parse(account.snapshot) : null,
+        accounting: "broker-rms (cash-ledger drift checks unavailable)",
+        orders: orders.map(
+          /** Project stored order records only; never contact the broker from a status read. */ (
+            order,
+          ) => ({
+            id: order.id,
+            state: order.state,
+            intent: JSON.parse(order.intent),
+            brokerOrder: order.broker_order
+              ? JSON.parse(order.broker_order)
+              : null,
+          }),
+        ),
+      };
+    });
+  }
+  /** Serialize explicit reconciliation; unresolved exposure remains halted. */
   public async reconcile(session: LoginSession) {
     const entry = await this.entry(session);
     return this.serial(entry, () => entry.service.reconcile());
   }
+  /** Consume MFA proof and grant short-lived session-bound permission only after clean reconciliation. */
   public async arm(session: LoginSession, token: string) {
     const entry = await this.entry(session);
     return this.serial(entry, async () => {
@@ -388,6 +466,7 @@ export class KotakLiveManager {
       return { armed: true, armedUntil };
     });
   }
+  /** Validate intent and price, then persist a short-lived preview without submitting an order. */
   public async preview(session: LoginSession, input: Omit<OrderIntent, "key">) {
     const entry = await this.entry(session);
     return this.serial(entry, async () => {
@@ -433,6 +512,7 @@ export class KotakLiveManager {
       };
     });
   }
+  /** Resolve a durable preview intent and dispatch at most once; repeated confirmations reuse its identity. */
   public async submit(session: LoginSession, previewId: string) {
     const entry = await this.entry(session);
     return this.serial(entry, async () => {
@@ -475,6 +555,7 @@ export class KotakLiveManager {
       return entry.service.submitReservedOrder(order.id);
     });
   }
+  /** Revoke permission before cancellation work; never auto-flatten positions or queue the kill behind previews. */
   public async halt(session: LoginSession) {
     const entry = await this.entry(session);
     entry.revoked = true;
@@ -487,6 +568,7 @@ export class KotakLiveManager {
       "User halted live execution; cancellation requested, positions are not flattened",
     );
   }
+  /** Block dispatch immediately and persist revocation best effort; outstanding broker exposure may remain. */
   public revoke(userId: string) {
     const entry = this.entries.get(userId);
     if (!entry) {
@@ -508,6 +590,7 @@ export class KotakLiveManager {
       })
       .catch(() => {});
   }
+  /** Stop monitoring and attempt owned-order cancellation; failure never implies broker exposure is closed. */
   public async close() {
     this.closed = true;
     await Promise.all(

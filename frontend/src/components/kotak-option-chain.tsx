@@ -5,8 +5,8 @@
 import { useRef, useState } from "react";
 import { requestApiJson } from "@/lib/api";
 import { Button } from "./ui/button";
-import type { PaperInstrument } from "./paper-instrument-picker";
-type ChainRow = PaperInstrument & {
+import type { BrokerInstrument } from "./instrument-picker";
+type ChainRow = BrokerInstrument & {
   price: number | null;
   bid: number | null;
   ask: number | null;
@@ -28,7 +28,7 @@ export function KotakOptionChain({
 }: {
   csrf: string;
   disabled?: boolean;
-  onSelect?: (item: PaperInstrument) => void;
+  onSelect?: (item: BrokerInstrument) => void;
   selectionLabel?: string;
 }) {
   const [underlying, setUnderlying] = useState("NIFTY"),
@@ -38,6 +38,7 @@ export function KotakOptionChain({
     [busy, setBusy] = useState(false),
     [offset, setOffset] = useState(0);
   const generation = useRef(0);
+  /** Fetch the selected bounded option-chain page; never substitute fabricated prices on failure. */
   async function load(nextOffset: number, metadata = false) {
     const current = ++generation.current;
     setBusy(true);

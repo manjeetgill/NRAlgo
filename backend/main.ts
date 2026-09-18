@@ -114,6 +114,7 @@ export function createApiApplication(
     env.MARKET_DATA_PROVIDER || "kotak",
     [kotakMarketData, ...additionalMarketDataProviders],
   );
+  /** Revoke live permission and release provider sessions when application authentication changes. */
   function disconnectUserData(userId: string) {
     liveManager.revoke(userId);
     marketData.disconnect(userId);
@@ -363,7 +364,18 @@ export function createApiApplication(
     },
   );
   // Bound session-database lookups before per-account authorization. One API instance only.
-  app.use("/api", rateLimit(600, 60000, source));
+  const ordinaryAdmissionLimit = rateLimit(600, 60000, source);
+  const haltAdmissionLimit = rateLimit(60, 60000, source);
+  /** Risk-reduction traffic has an independent, bounded budget; market-data traffic cannot exhaust it. */
+  const isLiveHalt = (req: express.Request) =>
+    req.method === "POST" && /^\/live\/halt\/?$/.test(req.path);
+  app.use("/api", (req, res, next) =>
+    (isLiveHalt(req) ? haltAdmissionLimit : ordinaryAdmissionLimit)(
+      req,
+      res,
+      next,
+    ),
+  );
   app.use("/api", async (req, res, next) => {
     const raw =
       (req.headers.cookie || "")
@@ -396,7 +408,15 @@ export function createApiApplication(
     60000,
     (req) => req.res!.locals.session.user_id,
   );
-  app.use("/api", workspaceLimit);
+  const haltAccountLimit = rateLimit(
+    20,
+    60000,
+    (req) => req.res!.locals.session.user_id,
+  );
+  /** Authentication/CSRF still run first. Independent account limits do not bypass ownership checks. */
+  app.use("/api", (req, res, next) =>
+    (isLiveHalt(req) ? haltAccountLimit : workspaceLimit)(req, res, next),
+  );
   app.post("/api/auth/logout", async (req, res) => {
     await store.transaction(async (query) => {
       await lockWorkspaceSettings(query, store, res.locals.session.user_id);

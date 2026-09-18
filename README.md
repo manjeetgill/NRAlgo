@@ -1,6 +1,6 @@
-# NRIAlgo — Kotak Neo paper trading
+# NRIAlgo — trading workspace
 
-One TypeScript repository: Next.js UI, Express API, PostgreSQL, and an educational paper worker. Kotak Neo is the only enabled broker. There is no real-order endpoint or live-trading enable flag in this release.
+One TypeScript repository: Next.js UI, Express API, PostgreSQL, independent market-data contracts, research/paper engines, and a separately authorized live OMS. Kotak Neo is the only implemented broker. **Real-order endpoints exist but are disabled by default.** This is a development foundation, not a production or real-money certification.
 
 ## Run locally
 
@@ -16,7 +16,7 @@ Open http://localhost:3000. The launcher starts this project's PostgreSQL on 127
 
 Create an app account, then open **Brokers** and connect Kotak with your API access token, registered mobile, UCC, current TOTP and MPIN. Credentials are sent only to the server; Kotak tokens stay in session-bound memory. Reconnect after logout or restart. Never put credentials in chat, Git, or frontend environment variables.
 
-The local app database was intentionally reset during the Kotak-only transition. Create a fresh account; old credentials, paper balances and strategies are not restored automatically.
+Existing local data is preserved. Never reset a database as part of a normal upgrade; back up first and apply the reviewed migrations.
 
 ## What works
 
@@ -24,10 +24,12 @@ The local app database was intentionally reset during the Kotak-only transition.
 - **Broker portfolio:** separate read-only positions, holdings, funds, order book and trade book. Real account assets are never copied into the paper balance. Missing data stays unavailable.
 - **Strategy lab:** saved cash/options baskets, live snapshots, optional 15-second polling, single-session and batch historical replay. Historical fills are assumptions, not actual broker fills.
 - **Market data:** all documented market-data API families: seven master files, eight quote filters, expiries, native option/futures chains, nine candle intervals and server-side native-batch WebSocket controls. Validated results can be downloaded as JSON. This explorer is read-only; broader data coverage does not enable futures paper orders.
-- **Overview / Strategies:** the original EMA educational worker uses synthetic prices. It is separate from broker-connected paper trading and explicitly labeled.
+- **Overview:** live mode reads broker funds/positions once and revalues them from the shared price cache. Missing values remain unavailable. Paper mode uses its separate virtual ledger. `PAPER_TRADING_ENABLED=false` hides only paper features, not research or other screens.
+- **Strategies:** live mode opens the research editor, not an automatic execution engine. Paper mode exposes the separate, explicitly synthetic EMA worker.
+- **Orders & trades / Live trading:** read-only app-managed OMS history is separate from explicit configure, arm, preview, submit, reconcile and halt controls. Supported real orders are bounded NSE EQ CNC and long NSE option NRML LIMIT/DAY orders; unsupported products fail closed.
 - **Account & security:** per-user authentication, CSRF protection, MFA, recovery codes and session revocation.
 
-Live execution is unavailable. The broker-neutral risk/OMS models remain unmounted under `backend/live/` for future work; no Kotak order-submission adapter is implemented.
+Live execution requires server activation, the registered static-IP prerequisite, an authenticated Kotak session, app MFA, risk configuration, fresh reconciliation and explicit time-limited arming. Keep `LIVE_TRADING_ENABLED=false` and `KOTAK_STATIC_IP_CONFIRMED=false` while developing. The paper setting never grants live permission. Read [the live execution contract and limitations](docs/development-guide.md#kotak-live-execution-disabled-by-default) before considering activation.
 
 ## Small, extensible design
 
@@ -41,15 +43,18 @@ Live execution is unavailable. The broker-neutral risk/OMS models remain unmount
 | `backend/paper-trading-ledger.ts` / `paper-trading-routes.ts`              | Virtual ledger, fill rules and authenticated paper endpoints          |
 | `backend/historical-strategy-simulator.ts` / `strategy-research-routes.ts` | Pure replay calculations and owner-scoped research APIs               |
 | `backend/main.ts`                                                          | Dependency construction, account auth and route registration          |
-| `frontend/src/components/`                                                 | Feature UI; no broker SDK or credentials persisted in the browser     |
+| `backend/market-data-provider.ts` / `kotak-market-data-provider.ts`           | Replaceable data source, separate from execution and account access   |
+| `backend/live/`                                                           | Durable OMS/risk engine, Kotak execution adapter and guarded routes   |
+| `frontend/src/features/<screen>/`                                         | Dedicated screens, request hooks, models and presentation             |
+| `frontend/src/components/` / `lib/`                                       | Reused UI and bounded shared utilities                               |
 | `backend/database.ts` / `local-database.ts`                                | PostgreSQL migrations and local lifecycle                             |
 
-To add a broker later: implement `BrokerMarketDataReader`, add its authentication route and instrument parser, explicitly register its identifier and UI, and provide offline contract tests. Keep broker symbols scoped by broker; do not translate saved strategies silently. Paper/research models should not need broker-specific branches. Real execution requires a separate adapter and safety review; never add an execution method to the read-only interface.
+To add a data source later, implement `MarketDataProvider` and register it at the composition root. To add an execution broker, separately implement `ExecutionBrokerAdapter`, account/auth binding, instrument resolution and contract tests. Register the UI account adapter rather than adding broker branches to screens. Existing wire contracts remain Kotak-specific at the adapter boundary; a new source is not a URL-only replacement. Never add an execution method to the read-only data interface or silently translate saved instrument tokens.
 
 ## Checks and boundaries
 
-For file responsibilities, naming conventions and VS Code breakpoint setup, see the
-[development guide](docs/development-guide.md).
+Start with the [detailed foundation review](docs/code-review-2026-09-18.md),
+[complete file map](docs/repository-map.md), and [development guide](docs/development-guide.md).
 
 ```sh
 make check
@@ -57,7 +62,7 @@ make build
 npm run test:browser
 ```
 
-Browser tests start their own server on 3010. Tests use isolated PostgreSQL schemas and mocked broker transports, never the local application schema or a real broker account. On macOS they use installed Chrome; elsewhere install Playwright Chromium. Passing tests does not prove real broker connectivity or deployment readiness.
+`make check` runs lint, backend compilation/tests, frontend type-check/tests (both TS and MJS), and architecture checks. CI additionally runs the production build, dependency audits, browser smoke test and disposable container/backup checks. Browser tests start their own server on 3010. Tests use isolated PostgreSQL schemas and mocked broker transports, never the local application schema or a real broker account. On macOS they use installed Chrome; elsewhere install Playwright Chromium. Passing tests does not prove real broker connectivity or deployment readiness. Tests and documentation remain in Git but are excluded from production Docker images.
 
 Current limitations: no automatic strategy execution; no futures paper execution; no naked paper option sales; no automatic expired-option settlement; no expired-contract history support. Kotak positions may omit untraded carry-forward exposure. Quote snapshots are not atomic multi-leg prices. Research polling stops on navigation, hidden tabs, edits or errors. Streaming is indicative and requires a login-provided approved `feedUrl`; its opaque exchange timestamps are not used for paper fill freshness. Stream reconnect is explicit; abandoned viewers expire after 45 seconds.
 

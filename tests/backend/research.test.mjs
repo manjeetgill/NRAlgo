@@ -198,7 +198,7 @@ test("research source graph cannot import live execution or submit orders", () =
     "backend/historical-strategy-simulator.ts",
     "backend/strategy-research-routes.ts",
     "frontend/src/components/option-chain-picker.tsx",
-    "frontend/src/components/strategy-lab-panel.tsx",
+    "frontend/src/features/strategy-lab/strategy-lab-screen.tsx",
   ]) {
     const text = readFileSync(
       new URL(`../../${path}`, import.meta.url),
