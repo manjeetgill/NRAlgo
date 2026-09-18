@@ -7,6 +7,7 @@ import { createHash } from "node:crypto";
 import type { BreezeCredentials } from "../breeze.js";
 import {
   brokerSnapshotSchema,
+  DefinitiveOrderRejection,
   type BrokerOrder,
   type BrokerSnapshot,
   type ExecutionBrokerAdapter,
@@ -106,15 +107,33 @@ export class IciciExecutionConnection implements IciciRpc {
   }
 }
 
-/** Require a documented success envelope; missing/failed responses are never empty books. */
-export function breezeSuccess(response: unknown): unknown {
-  const value = response as Row;
+/** Recognize only explicit request/auth/endpoint rejection codes from Breeze's Errors table:
+ * https://api.icicidirect.com/breezeapi/documents/index.html#errors
+ * Opt-in is restricted to placement. Timeout 408, throttling, server/SDK 500 errors and
+ * malformed/contradictory envelopes remain ambiguous. Free-form Error text is neither
+ * evidence of non-acceptance nor safe to expose in logs/UI. HTTP exceptions remain generic.
+ * This classification does not override the OMS's separate halt-on-rejection policy.
+ */
+export function breezeSuccess(response: unknown, definitive = false): unknown {
+  const value =
+    response && typeof response === "object" && !Array.isArray(response)
+      ? (response as Row)
+      : undefined;
+  const status =
+    typeof value?.Status === "number" ||
+    (typeof value?.Status === "string" && /^\d{3}$/.test(value.Status))
+      ? Number(value.Status)
+      : NaN;
+  const emptySuccess = value?.Success === null || value?.Success === "";
   if (
-    !value ||
-    Number(value.Status) !== 200 ||
-    value.Error ||
-    value.Success == null
+    definitive &&
+    [400, 401, 403, 404].includes(status) &&
+    emptySuccess &&
+    typeof value?.Error === "string" &&
+    value.Error.trim() !== ""
   )
+    throw new DefinitiveOrderRejection("ICICI rejected the order request.");
+  if (!value || status !== 200 || value.Error || value.Success == null)
     throw new Error("ICICI did not return a verified successful response");
   return value.Success;
 }
@@ -363,7 +382,7 @@ export class IciciCashAdapter implements ExecutionBrokerAdapter {
   private known = new Map<string, string>();
   private connected = false;
   constructor(
-    private readonly credentials: BreezeCredentials,
+    credentials: BreezeCredentials,
     private readonly charge: (cancel: boolean) => Promise<void>,
     factory: IciciRpcFactory = (creds) => new IciciExecutionConnection(creds),
   ) {
@@ -390,12 +409,16 @@ export class IciciCashAdapter implements ExecutionBrokerAdapter {
     params?: unknown,
     signal?: AbortSignal,
     cancellationRecovery = false,
+    definitive = false,
   ) {
     if (!this.connected) throw new Error("Connect ICICI live first");
     if (signal?.aborted) throw new Error("Request aborted");
     await this.charge(cancellationRecovery || method === "cancelOrder");
     if (signal?.aborted) throw new Error("Request aborted");
-    return breezeSuccess(await this.connection.call(method, params, signal));
+    return breezeSuccess(
+      await this.connection.call(method, params, signal),
+      definitive,
+    );
   }
   /** Read all account evidence serially to avoid the SDK's shared mutable request variables. */
   async getSnapshot(signal: AbortSignal) {
@@ -472,8 +495,16 @@ export class IciciCashAdapter implements ExecutionBrokerAdapter {
         userRemark: iciciOrderTag(intent.key),
       },
       signal,
+      false,
+      // Only verified request rejection envelopes opt into REJECTED. Never retry an
+      // ambiguous submission; transport errors and missing acknowledgements remain UNKNOWN.
+      true,
     )) as Row;
-    if (typeof result.order_id !== "string" || !result.order_id)
+    if (
+      !result ||
+      typeof result.order_id !== "string" ||
+      !result.order_id.trim()
+    )
       throw new Error("ICICI acknowledgement lacks an order ID");
     return {
       brokerOrderId: result.order_id.trim(),

@@ -219,9 +219,10 @@ class ThreadConnection implements BrokerConnection {
 export class BrokerManager {
   private connections = new Map<
     string,
-    { connection: BrokerConnection; touched: number; expires: number }
+    { connection: BrokerConnection; touched: number; expires: number; ready: boolean }
   >();
   private busy = new Set<string>();
+  private closed = false;
   private cleanup: NodeJS.Timeout;
   /** Inject a fake connection in tests; expire inactive connections and expired app sessions. */
   constructor(
@@ -248,15 +249,22 @@ export class BrokerManager {
   }
   /** Replace only this user's SDK instance; reserve capacity before the slow broker handshake. */
   async connect(userId: string, creds: BreezeCredentials, expires: number) {
+    if (this.closed) fail(503, "Broker manager is shutting down.");
+    if (expires <= Date.now()) fail(401, "Please sign in again.");
     this.disconnect(userId);
     if (this.connections.size >= this.capacity)
       fail(503, "Broker connection capacity reached. Try again later.");
     const connection = this.factory(creds);
-    this.connections.set(userId, { connection, touched: Date.now(), expires });
+    const pending = { connection, touched: Date.now(), expires, ready: false };
+    this.connections.set(userId, pending);
     try {
       await connection.call("connect");
+      if (this.closed || this.connections.get(userId) !== pending || expires <= Date.now())
+        throw new Error("Broker authentication was revoked.");
+      pending.ready = true;
     } catch {
-      this.disconnect(userId);
+      if (this.connections.get(userId) === pending) this.disconnect(userId);
+      else connection.close();
       fail(
         502,
         "ICICI connection failed. Check credentials/session, registered IP and broker availability.",
@@ -266,7 +274,7 @@ export class BrokerManager {
   /** Touch a live account connection without ever returning another user's connection. */
   get(userId: string) {
     const item = this.connections.get(userId);
-    if (!item) return null;
+    if (!item || !item.ready) return null;
     if (Date.now() > item.expires) {
       this.disconnect(userId);
       return null;
@@ -281,6 +289,7 @@ export class BrokerManager {
   }
   /** Release every SDK and timer during API shutdown or test teardown. */
   close() {
+    this.closed = true;
     clearInterval(this.cleanup);
     for (const id of this.connections.keys()) this.disconnect(id);
   }
@@ -342,6 +351,19 @@ export function registerBrokerRoutes(
     );
     return row;
   }
+  /** Recheck after slow I/O under the same account lock as session revocation. */
+  async function requireCurrentSession(query: import("./database.js").Query, session: import("./types.js").LoginSession) {
+    await lockWorkspaceSettings(query, store, session.user_id);
+    const [current] = await query(
+      "SELECT token_hash FROM sessions WHERE token_hash=$1 AND user_id=$2 AND expires>$3",
+      [session.token_hash, session.user_id, Date.now() / 1000],
+    );
+    if (!current) fail(401, "Please sign in again.");
+    if (requireMfa) {
+      const [security] = await query<{ enabled: boolean }>("SELECT enabled FROM user_security WHERE user_id=$1", [session.user_id]);
+      if (!security?.enabled) fail(403, "Enable MFA before connecting a broker.");
+    }
+  }
   app.get("/api/brokers/icici", async (req, res) => {
     const userId = authenticatedUserId(req),
       row = await loadEncryptedBrokerCredentials(userId),
@@ -357,9 +379,11 @@ export function registerBrokerRoutes(
     const input = credentials.parse(req.body),
       userId = authenticatedUserId(req);
     await manager.exclusive(userId, async () => {
+      await store.transaction(query => requireCurrentSession(query, res.locals.session));
       await manager.connect(userId, input, res.locals.session.expires * 1000);
       try {
         await store.transaction(async (query) => {
+          await requireCurrentSession(query, res.locals.session);
           await query(
             "INSERT INTO broker_credentials VALUES ($1,$2,$3) ON CONFLICT(user_id) DO UPDATE SET ciphertext=$2,updated_at=$3",
             [userId, vault.seal(userId, input), now()],
@@ -380,6 +404,7 @@ export function registerBrokerRoutes(
   app.post("/api/brokers/icici/reconnect", brokerLimit, async (req, res) => {
     const userId = authenticatedUserId(req);
     await manager.exclusive(userId, async () => {
+      await store.transaction(query => requireCurrentSession(query, res.locals.session));
       const row = await loadEncryptedBrokerCredentials(userId);
       if (!row) fail(409, "Add your ICICI credentials first.");
       let saved: BreezeCredentials;
@@ -389,6 +414,12 @@ export function registerBrokerRoutes(
         return fail(409, "Saved credentials unavailable. Enter them again.");
       }
       await manager.connect(userId, saved, res.locals.session.expires * 1000);
+      try {
+        await store.transaction(query => requireCurrentSession(query, res.locals.session));
+      } catch (error) {
+        manager.disconnect(userId);
+        throw error;
+      }
     });
     res.json({ connected: true });
   });

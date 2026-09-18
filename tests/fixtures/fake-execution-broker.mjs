@@ -1,7 +1,7 @@
 /** Offline execution adapter: in-memory books and deterministic failures, with NO SDK,
  * HTTP client, socket, credentials or network calls. Used only by live-foundation tests.
  */
-import { DefinitiveOrderRejection } from "../dist/backend/live/contracts.js";
+import { DefinitiveOrderRejection } from "../../dist/backend/live/contracts.js";
 
 export class FakeExecutionBroker {
   constructor(binding = "fake-broker-account") {

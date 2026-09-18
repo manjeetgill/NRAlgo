@@ -19,3 +19,5 @@ Makefile
 frontend/AGENTS.md
 frontend/CLAUDE.md
 **/.DS_Store
+
+docs

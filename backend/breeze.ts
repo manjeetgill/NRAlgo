@@ -2,6 +2,7 @@
 // module disables TLS verification at import time. Restore it synchronously.
 import { createRequire } from "node:module";
 import { decodeResearchTick, type ResearchQuote } from "./research-stream.js";
+import { normalizePortfolioRows } from "./portfolio-model.js";
 const require = createRequire(import.meta.url);
 export interface BreezeCredentials {
   apiKey: string;
@@ -39,6 +40,16 @@ interface Socket {
   removeAllListeners?(event?: string): void;
 }
 interface BreezeClient {
+  getPortfolioPositions(): Promise<{
+    Status?: number | string;
+    Error?: unknown;
+    Success?: unknown;
+  }>;
+  getDematHoldings(): Promise<{
+    Status?: number | string;
+    Error?: unknown;
+    Success?: unknown;
+  }>;
   generateHeaders(body: Record<string, string>): unknown;
   makeRequest(
     method: string,
@@ -143,6 +154,22 @@ export function createBreezeData(
   };
   return {
     stopStreaming,
+    /** Fetch unfiltered broker positions or demat holdings without exposing execution methods. */
+    async portfolio(kind: "positions" | "holdings") {
+      if (!connected) throw new Error("Connect to Breeze first.");
+      try {
+        const result =
+          kind === "positions"
+            ? await sdk.getPortfolioPositions()
+            : await sdk.getDematHoldings();
+        if (Number(result?.Status) !== 200 || result?.Error) throw new Error();
+        return normalizePortfolioRows("icici", kind, result.Success);
+      } catch {
+        throw new Error(
+          "ICICI portfolio unavailable. Verify the connected account.",
+        );
+      }
+    },
     /** Fetch one call/put chain through the data-only SDK surface; redact all broker errors. */
     async optionChain(params: FeedParams) {
       if (!connected) throw new Error("Connect to Breeze first.");

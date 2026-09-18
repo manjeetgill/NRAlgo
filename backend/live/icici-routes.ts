@@ -85,6 +85,7 @@ export class IciciLiveManager {
     private readonly vault: Vault,
     private readonly factory?: IciciRpcFactory,
     private readonly tradingWindow: () => boolean = isCashSubmissionWindow,
+    private readonly enabled = false,
   ) {
     this.ready = store.transaction(async (query) => {
       await query("UPDATE live_permissions SET armed_until=0");
@@ -93,10 +94,9 @@ export class IciciLiveManager {
       );
     });
     this.ready.catch(() => {});
-    this.timer = setInterval(
-      () => void this.poll().catch(() => {}),
-      45000,
-    ).unref();
+    this.timer = setInterval(() => {
+      if (this.enabled) void this.poll().catch(() => {});
+    }, 45000).unref();
   }
   /** Prevent simultaneous reconnect/order/cancel flows within the single-host deployment. */
   async exclusive<T>(userId: string, action: () => Promise<T>): Promise<T> {
@@ -165,6 +165,8 @@ export class IciciLiveManager {
     accountId: string,
     sessionHash?: string,
   ) {
+    if (!this.enabled)
+      fail(403, "Real order submission is disabled on this paper-only server.");
     if (this.stopped) fail(503, "Live service is shutting down.");
     if (!this.tradingWindow())
       fail(
@@ -428,6 +430,17 @@ export class IciciLiveManager {
 
   /** Install separate live endpoints after session/CSRF middleware. No paper order is forwarded. */
   register(app: Express) {
+    // Fail closed independently of UI state. Keep status and emergency halt available.
+    app.use("/api/live", (req, res, next) => {
+      if (!this.enabled && req.method !== "GET" && !req.path.endsWith("/halt"))
+        return res
+          .status(403)
+          .json({
+            detail:
+              "Real order submission is disabled on this paper-only server.",
+          });
+      next();
+    });
     const liveLimit = rateLimit(
       60,
       60000,

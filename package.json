@@ -6,13 +6,13 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "test:browser": "node tests/browser.mjs",
-    "format": "prettier --write 'backend/**/*.ts' run.ts 'tests/*.mjs' 'frontend/src/**/*.{ts,tsx,css}' frontend/next.config.ts frontend/postcss.config.mjs",
+    "test:browser": "node tests/e2e/browser.mjs",
+    "format": "prettier --write 'backend/**/*.ts' run.ts 'tests/**/*.mjs' 'frontend/src/**/*.{ts,tsx,css}' frontend/next.config.ts frontend/postcss.config.mjs",
     "dev": "npm run build:backend && node --env-file-if-exists=.env --import tsx run.ts",
     "start": "node --env-file-if-exists=.env dist/backend/main.js",
     "worker": "node --env-file-if-exists=.env dist/backend/worker.js",
     "migrate": "node --env-file-if-exists=.env --import tsx backend/database.ts",
-    "test": "npm run build:backend && node --test tests/*.test.mjs",
+    "test": "npm run build:backend && node --test tests/backend/*.test.mjs",
     "typecheck": "tsc --noEmit",
     "build:backend": "tsc",
     "check": "npm test && npm --prefix frontend run typecheck",

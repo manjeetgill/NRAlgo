@@ -5,6 +5,7 @@
  * Credentials stay in the existing Brokers form; passwords/MFA never enter localStorage.
  */
 import { useEffect, useState, type FormEvent } from "react";
+import { requestApiJson } from "@/lib/api";
 import { Button } from "./ui/button";
 
 type Intent = {
@@ -50,22 +51,8 @@ const inr = (paise: number) =>
     paise / 100,
   );
 /** Same-origin session/CSRF wrapper. An ambiguous timeout is shown; never retry an order POST. */
-async function liveRequest(path: string, csrf: string, body?: unknown) {
-  const response = await fetch(`/api/live/icici${path}`, {
-    method: body === undefined ? "GET" : "POST",
-    credentials: "same-origin",
-    cache: "no-store",
-    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
-    signal: AbortSignal.timeout(100000),
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
-  const result = await response.json();
-  if (!response.ok)
-    throw new Error(
-      result.detail ||
-        "Live request failed. Verify broker state before retrying.",
-    );
-  return result;
+function liveRequest(path: string, csrf: string, body?: unknown) {
+  return requestApiJson(`/live/icici${path}`, body === undefined ? "GET" : "POST", body, csrf, 100000);
 }
 
 /** Render connection, short-lived activation, order review, broker-confirmed history and kill. */

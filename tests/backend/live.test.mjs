@@ -4,14 +4,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { runDatabaseMigrations } from "../dist/backend/database.js";
+import { runDatabaseMigrations } from "../../dist/backend/database.js";
 import {
   createLiveAccount,
   LiveExecutionService,
-} from "../dist/backend/live/execution.js";
-import { planShadowOrder } from "../dist/backend/live/shadow.js";
-import { createPostgresTestStore } from "./postgres-fixture.mjs";
-import { FakeExecutionBroker } from "./fake-execution-broker.mjs";
+} from "../../dist/backend/live/execution.js";
+import { planShadowOrder } from "../../dist/backend/live/shadow.js";
+import { createPostgresTestStore } from "../helpers/postgres.mjs";
+import { FakeExecutionBroker } from "../fixtures/fake-execution-broker.mjs";
 
 const limits = {
   maxReservedPaise: 100000,
@@ -71,7 +71,7 @@ test("paper and shadow dependency paths cannot select real execution with a flag
     "backend/simulator.ts",
     "backend/live/shadow.ts",
   ]) {
-    const source = readFileSync(new URL(`../${file}`, import.meta.url), "utf8");
+    const source = readFileSync(new URL(`../../${file}`, import.meta.url), "utf8");
     assert.doesNotMatch(
       source,
       /from ["'][^"']*(execution|breeze|broker-thread)[^"']*["']/,

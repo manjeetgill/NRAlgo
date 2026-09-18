@@ -82,7 +82,7 @@ export function rateLimit(
 export function credentialVault(env: NodeJS.ProcessEnv) {
   let hex = env.BROKER_ENCRYPTION_KEY;
   if (!hex) {
-    if (env.APP_ENV === "production")
+    if (env.APP_ENV === "production" || env.NODE_ENV === "production")
       throw new Error(
         "BROKER_ENCRYPTION_KEY must be 64 random hex characters.",
       );

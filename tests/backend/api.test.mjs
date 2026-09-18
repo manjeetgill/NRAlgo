@@ -8,29 +8,27 @@ import {
   openDatabaseStore,
   runDatabaseMigrations,
   root,
-} from "../dist/backend/database.js";
+} from "../../dist/backend/database.js";
 import { fileURLToPath } from "node:url";
-import {
-  createApiApplication,
-  hashPasswordForLegacyCompatibility,
-} from "../dist/backend/main.js";
+import { createApiApplication } from "../../dist/backend/main.js";
+import { hashPasswordForLegacyCompatibility } from "../fixtures/legacy-password.mjs";
 import {
   processNextPaperJob,
   recoverInterruptedPaperJobs,
   refreshWorkerLease,
-} from "../dist/backend/worker.js";
-import { BrokerManager } from "../dist/backend/brokers.js";
-import { credentialVault } from "../dist/backend/security.js";
-import { simulateSyntheticStrategy } from "../dist/backend/simulator.js";
-import { createBreezeData, loadBreeze } from "../dist/backend/breeze.js";
+} from "../../dist/backend/worker.js";
+import { BrokerManager } from "../../dist/backend/brokers.js";
+import { credentialVault } from "../../dist/backend/security.js";
+import { simulateSyntheticStrategy } from "../../dist/backend/simulator.js";
+import { createBreezeData, loadBreeze } from "../../dist/backend/breeze.js";
 import { createRequire } from "node:module";
 import { TOTP } from "otpauth";
 import { createHash } from "node:crypto";
-import { createPostgresTestStore } from "./postgres-fixture.mjs";
+import { createPostgresTestStore } from "../helpers/postgres.mjs";
 
 const creds = { username: "testowner", password: "test-password-long" };
 test("compiled backend retains the original workspace path", () => {
-  assert.equal(root, fileURLToPath(new URL("../", import.meta.url)));
+  assert.equal(root, fileURLToPath(new URL("../../", import.meta.url)));
 });
 test("production cannot fall back to a local database", () => {
   const previous = process.env.APP_ENV;
@@ -82,7 +80,7 @@ async function fixture(t, env = {}, options = {}) {
   };
   const request = client();
   t.after(async () => {
-    app.locals.shutdown();
+    await app.locals.shutdown();
     await new Promise((resolve) => server.close(resolve));
     await store.close();
   });
@@ -754,4 +752,56 @@ test("real SDK keeps TLS enabled and patched HTTP/CSV/ZIP dependencies load", as
   } finally {
     axios.defaults.adapter = previous;
   }
+});
+
+test("NODE_ENV production enforces HTTPS, setup proof, MFA policy and secure cookies", async (t) => {
+  assert.throws(() => createApiApplication({}, {
+    NODE_ENV: "production", APP_ENV: "development", BROKER_ENCRYPTION_KEY: "ab".repeat(32),
+  }), /HTTPS origin/);
+  assert.throws(() => credentialVault({ NODE_ENV: "production", APP_ENV: "development" }), /BROKER_ENCRYPTION_KEY/);
+  const setupToken = "n".repeat(40);
+  const { request } = await fixture(t, {
+    NODE_ENV: "production", APP_ORIGIN: "https://example.com", SETUP_TOKEN: setupToken,
+  });
+  const created = await request("/api/auth/setup", "POST", { ...creds, setup_token: setupToken });
+  assert.equal(created.status, 200);
+  assert.match(created.headers.get("set-cookie"), /Secure/);
+  assert.equal((await request("/api/auth/status")).data.registration_enabled, false);
+  assert.equal((await request("/api/brokers/icici/connect", "POST", {
+    apiKey: "fake-key", apiSecret: "fake-secret", sessionToken: "fake-token",
+  })).status, 403);
+});
+
+test("logout during delayed broker authentication cannot persist revoked credentials", async (t) => {
+  let release, started;
+  const waiting = new Promise(resolve => { release = resolve; });
+  const connecting = new Promise(resolve => { started = resolve; });
+  let closed = false;
+  const brokers = new BrokerManager(() => ({
+    async call() { started(); await waiting; return { ok: true }; },
+    snapshot() { return { state: closed ? "disconnected" : "connected" }; },
+    close() { closed = true; },
+  }));
+  const { owner, request, store } = await fixture(t, {}, { brokers });
+  await owner();
+  const pending = request("/api/brokers/icici/connect", "POST", {
+    apiKey: "fake-key", apiSecret: "fake-secret", sessionToken: "fake-token",
+  });
+  try {
+    await connecting;
+    assert.equal((await request("/api/auth/logout", "POST", {})).status, 200);
+  } finally {
+    release();
+  }
+  assert.notEqual((await pending).status, 200);
+  assert.equal(closed, true);
+  assert.deepEqual(await store.transaction(query => query("SELECT user_id FROM broker_credentials")), []);
+});
+
+test("concurrent fresh migrations retain exactly one complete schema version history", async (t) => {
+  const store = await createPostgresTestStore();
+  t.after(() => store.close());
+  await Promise.all(Array.from({ length: 4 }, () => runDatabaseMigrations(store, {})));
+  assert.deepEqual((await store.transaction(query => query("SELECT version FROM schema_migrations ORDER BY version"))).map(row => row.version), [1, 2, 3, 4, 5, 6, 7]);
+  assert.deepEqual(await store.transaction(query => query("SELECT * FROM paper_accounts")), []);
 });

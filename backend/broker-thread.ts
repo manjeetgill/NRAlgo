@@ -33,9 +33,12 @@ setInterval(() => {
 const require = createRequire(import.meta.url);
 const axios = require("axios");
 axios.defaults.timeout = 15000;
+// Custom API/session headers must never follow a redirect to another host.
+axios.defaults.maxRedirects = 0;
 axios.defaults.maxContentLength = 64 * 1024 * 1024;
 axios.defaults.maxBodyLength = 1024 * 1024;
-// Only public market fields may leave this thread; never forward SDK errors or account data.
+// Market feeds expose only public fields. Dedicated portfolio RPCs separately normalize
+// owner-only account rows; never forward raw SDK objects or errors into either channel.
 const allowed = new Set([
   "datetime",
   "date",
@@ -94,6 +97,11 @@ port.on(
       try {
         let result: unknown = { ok: true };
         if (message.method === "connect") await adapter.connect();
+        else if (
+          message.method === "positions" ||
+          message.method === "holdings"
+        )
+          result = await adapter.portfolio(message.method);
         else if (message.method === "optionChain")
           result = sanitizeMarketData(
             await adapter.optionChain(message.params as FeedParams),

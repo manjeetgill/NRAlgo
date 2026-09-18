@@ -1604,3 +1604,43 @@ input::placeholder {
     grid-template-columns: 1fr;
   }
 }
+.paper-wallet {
+  display: grid;
+  gap: 18px;
+  margin-top: 20px;
+  min-width: 0;
+}
+.paper-wallet form {
+  min-width: 0; /* Nested contract tables scroll inside the ticket, not the mobile page. */
+  padding: 20px;
+  border: 1px solid #dce3ed;
+  border-radius: 12px;
+}
+.paper-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+  margin: 12px 0;
+}
+.paper-grid label,
+.paper-grid strong {
+  display: block;
+}
+.paper-wallet input,
+.paper-wallet select {
+  max-width: 100%;
+}
+.paper-table {
+  overflow-x: auto;
+  min-width: 0;
+}
+.paper-table table {
+  width: 100%;
+  text-align: left;
+  border-collapse: collapse;
+}
+.paper-table td,
+.paper-table th {
+  padding: 10px;
+  border-bottom: 1px solid #dce3ed;
+}

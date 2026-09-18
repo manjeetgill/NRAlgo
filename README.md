@@ -188,6 +188,59 @@ replays, never live orders. Migration 6 adds only the two research tables and ow
 The original paper worker/simulator and live order execution remain separate and unchanged by
 this research workflow. Tests mock all broker traffic; real ICICI data still needs verification.
 
+## Broker-connected paper trading
+
+Open **Broker paper**. ICICI and Kotak each have an independent ₹1,00,000 virtual wallet
+in PostgreSQL; no broker order API is used. Existing sample-price replay and historical
+Strategy lab remain separate and unchanged.
+
+1. ICICI: connect in **Brokers**, then use its NSE cash stock code in **Broker paper**.
+2. Kotak: select Kotak, enter your dashboard API access token, +91 mobile, UCC, current
+   TOTP and MPIN. Tokens stay only in server memory, bound to the application login;
+   MPIN/TOTP are never persisted. Reconnect after logout or restart. The current adapter
+   accepts the documented `https://cis.kotaksecurities.com` base origin only; another
+   broker-returned host fails closed pending verification. No unofficial JS package is used.
+3. Choose NSE cash or options, then **Search broker instruments**. Search a symbol/company (at least two characters); narrow options by underlying, expiry and call/put, then search again to apply filters. Select a row to fill and lock the broker code/token, expiry, strike and lot size. Quantity is set to one lot, in units. Review side and limit before placing a paper order. NSE EQ cash and OPTIDX/OPTSTK contracts with lots up to the simulator's 10,000-unit cap are supported; futures, indices as cash tickets and larger lots are excluded.
+   **Use manual research entry** is an explicit unverified fallback. The historical Strategy lab picker remains separate; today's master must not be used as a historical lot-size reference.
+4. Place a paper limit order, then **Refresh paper quotes**, or start 10-second matching.
+   Matching stops on page navigation, a hidden tab or a request failure. It is not an
+   unattended worker/strategy scheduler. Open orders remain until filled, cancelled or
+   DAY expiry and may match on a later explicit refresh. No missed prices are backfilled.
+5. Modify/cancel open orders; sell only units held in that broker's virtual wallet. Buy
+   orders reserve notional+fees; sell orders reserve units. Maximum four active instruments,
+   1000 orders per wallet. All order IDs are local paper IDs, never broker order IDs.
+
+Model: NSE cash and long options, weekday 09:15–15:30 IST. Full fills at executable bid/ask plus
+5bps adverse slippage, capped by the limit; ₹5 per fill. No queue/partial-fill modeling,
+exchange taxes, exchange tick validation, margin or naked option/stock selling. Expiry settlement is not simulated; expired held contracts are flagged with unavailable valuation. Exchange quotes older
+than 60 seconds, received quotes older than 15 seconds, empty/crossed quotes and disconnected
+feeds never produce fills. Unrealized P&L is unavailable when held-position marks are stale.
+Weekday checks are not a holiday calendar; missing/stale market data remains a blocker.
+
+Instrument search is `POST /api/paper/:broker/instruments` with `{market, query, underlying?, expiryDate?, right?, offset?}`. It returns 50-row pages, expiry/underlying filters and a fetch timestamp. The server caches public metadata for 15 minutes, invalidates it across IST day boundaries, and checks picker-selected contract fields and lot multiples on order creation/modification and matching. Search again if the cache expired (including after restart); cancellation remains available. A current master is not proof of current quotes or trading permission. Downloads use fixed broker hosts, bounded sizes/timeouts, no redirects and no authorization headers; Kotak's *discovery* request uses its server-held dashboard token. Unknown schemas fail closed, with no synthetic contracts or raw broker errors.
+
+Sources: [ICICI security master](https://directlink.icicidirect.com/MotherAppMaster/SecurityMaster.zip) used by the pinned Breeze SDK, and [Kotak instrument documentation](https://github.com/Kotak-Neo/Kotak-Neo/blob/main/docs/market-data-apis/instruments.md). Kotak NSE option expiries use the documented epoch offset; two-decimal strike values are converted from paise. Public-file parsing has been exercised without account credentials. Authenticated discovery, live quotes and portfolio access still need verification with your connected account; no real order is placed by the picker.
+
+**View broker portfolio** is a separate owner-scoped, read-only account snapshot. It fetches ICICI Portfolio Positions and Demat Holdings, or Kotak Positions and Holdings, without importing anything into the paper ledger. Errors show unavailable, never an assumed empty account. Kotak's positions API covers current-day traded positions and may omit untraded carry-forward positions. All returned rows are retained; missing prices remain unavailable. This is not a complete reconciliation or funds/margin view. Kotak session Auth/Sid tokens remain server-memory-only for these authenticated reads. Neither portfolio nor paper endpoints can place real orders.
+
+The default server configuration is **`ENABLE_LIVE_TRADING=false`**, including when omitted.
+It blocks live connect/arm/preview/order mutations and disables automatic live recovery polling;
+paper code has no live-order capability. Status and emergency halt remain available. If you
+already used real trading, verify/cancel real resting orders directly at the broker before
+deploying this paper-only release: it does not promise to flatten or recover real positions.
+Do not enable real execution until the outstanding live release gates below are resolved.
+
+Kotak documentation: [authentication](https://github.com/Kotak-Neo/Kotak-Neo/blob/main/docs/authentication.md),
+[quotes](https://github.com/Kotak-Neo/Kotak-Neo/blob/main/docs/market-data-apis/quotes.md),
+[static IP](https://github.com/Kotak-Neo/Kotak-Neo/blob/main/docs/static-ip-whitelisting.md).
+Broker transport tests use fake responses; neither real account has been verified by these tests.
+
+### Multi-session historical batches
+
+In **Strategy lab → Historical simulator**, enter up to 20 comma-separated completed session dates and choose **Run batch backtest**. The authenticated, CSRF-protected endpoint is `POST /api/research/backtest/batch` with `{strategyId, interval, days}`. ICICI history is fetched sequentially per day and per leg using the shared market-data budget. Duplicate/future/post-expiry dates are rejected. Missing/invalid history skips a session; budget exhaustion or the 60-second scheduling cutoff records every remaining date as unprocessed. An in-flight broker call still uses its normal timeout. Authorization failures are not treated as missing history.
+
+Results retain independent daily replays, fees, net P&L, wins/losses/break-even counts and worst **single-session** drawdown. `trades` counts execution fills, not round trips. Capital is reset each day: no compounding, overnight exposure, or continuous multi-day drawdown is modeled. Skipped days can bias results; this is not evidence of live readiness. Batches share the owner-only saved-run library and 30-run retention; select a batch session to replay its candles. No schema changes or new dependencies are needed.
+
 ## ICICI live trading — separate from paper
 
 Paper remains on the existing `backend/simulator.ts` and `backend/worker.ts` path. Neither
@@ -259,7 +312,7 @@ brokers remain unresolved. Calls already in flight cannot be unsent. Positions a
 liquidated: the supported orphan policy records known fills and requires a human-approved unwind.
 The UI/operator workflow to resolve that state still needs implementation.
 
-Kotak is not implemented. ICICI execution is wired but has only mocked integration coverage;
+Kotak market-data paper integration is implemented; Kotak real execution is not. ICICI execution is wired but disabled by default and has only mocked integration coverage;
 no real-account verification was performed by the coding agent. Modify-order support is absent;
 cancel-confirm-replace requires fresh risk approval. Broker details remain inside its adapter.
 

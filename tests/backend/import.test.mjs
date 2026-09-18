@@ -7,9 +7,9 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createPostgresTestStore } from "./postgres-fixture.mjs";
-import { runDatabaseMigrations } from "../dist/backend/database.js";
-import { importLegacySqlite } from "../dist/backend/import-legacy-sqlite.js";
+import { createPostgresTestStore } from "../helpers/postgres.mjs";
+import { runDatabaseMigrations } from "../../dist/backend/database.js";
+import { importLegacySqlite } from "../../dist/backend/import-legacy-sqlite.js";
 
 test("legacy import preserves hashes/data, invalidates sessions and refuses reimport", async (t) => {
   const database = await createPostgresTestStore();

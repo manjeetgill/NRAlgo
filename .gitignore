@@ -13,3 +13,6 @@ frontend/.next/
 frontend/out/
 *.tsbuildinfo
 backups/
+
+# Generated test evidence is separate from application runtime data.
+tests/artifacts/

@@ -298,6 +298,60 @@ export function simulateHistoricalBasket(
   };
 }
 
+export type BacktestResult = ReturnType<typeof simulateHistoricalBasket>;
+export interface BacktestBatchDay {
+  day: string;
+  pnl: number;
+  drawdown: number;
+  totalFees: number;
+  /** Execution fills, not completed round trips (entry and exit count separately). */
+  trades: number;
+}
+export interface BacktestBatchSummary {
+  sessions: BacktestBatchDay[];
+  sessionsRun: number;
+  winningSessions: number;
+  losingSessions: number;
+  breakEvenSessions: number;
+  totalPnl: number;
+  totalFees: number;
+  worstSessionDrawdown: number;
+  averagePnlPerSession: number;
+}
+/** Summarize isolated daily round trips: no compounding, overnight exposure or continuous
+ * multi-day drawdown. Zero-P&L sessions are explicitly separate from winning/losing days.
+ */
+export function summarizeBacktestBatch(
+  results: BacktestResult[],
+): BacktestBatchSummary {
+  if (!results.length) throw new Error("No completed sessions to summarize.");
+  const sessions = results.map((result) => ({
+    day: result.day,
+    pnl: result.pnl,
+    drawdown: result.drawdown,
+    totalFees: result.totalFees,
+    trades: result.fills.length,
+  }));
+  const totalPnl = roundMoney(
+    sessions.reduce((sum, session) => sum + session.pnl, 0),
+  );
+  return {
+    sessions,
+    sessionsRun: sessions.length,
+    winningSessions: sessions.filter((session) => session.pnl > 0).length,
+    losingSessions: sessions.filter((session) => session.pnl < 0).length,
+    breakEvenSessions: sessions.filter((session) => session.pnl === 0).length,
+    totalPnl,
+    totalFees: roundMoney(
+      sessions.reduce((sum, session) => sum + session.totalFees, 0),
+    ),
+    worstSessionDrawdown: Math.max(
+      ...sessions.map((session) => session.drawdown),
+    ),
+    averagePnlPerSession: roundMoney(totalPnl / sessions.length),
+  };
+}
+
 /** Build only documented market-data arguments. No order payload or execution capability. */
 export function marketDataParameters(
   strategy: ResearchStrategy,

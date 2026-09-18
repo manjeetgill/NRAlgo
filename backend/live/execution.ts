@@ -1,5 +1,5 @@
-/** Durable LIVE order boundary and broker reconciliation. No HTTP route, SDK or production
- * adapter constructs this class yet. Fake tests exercise the real DB transitions.
+/** Durable LIVE order boundary and broker reconciliation for the ICICI control plane.
+ * Offline broker fixtures exercise the same database transitions as production.
  * A submission is persisted BEFORE network I/O; uncertain outcomes never return to a queue.
  * Account locks serialize reservations/submissions/halts. Network operations have short deadlines.
  */

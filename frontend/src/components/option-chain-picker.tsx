@@ -4,6 +4,7 @@
  * It adds/replaces a research leg only; the parent must save before quoting or simulating.
  */
 import { useState, type FormEvent } from "react";
+import { requestApiJson } from "@/lib/api";
 import { Button } from "./ui/button";
 type Contract = {
   stockCode: string;
@@ -54,17 +55,7 @@ export function OptionChainPicker({
     setContracts([]);
     setPage(0);
     try {
-      const response = await fetch("/api/research/option-chain", {
-        method: "POST",
-        credentials: "same-origin",
-        cache: "no-store",
-        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
-        body: JSON.stringify({ stockCode, expiryDate }),
-        signal: AbortSignal.timeout(95000),
-      });
-      const result = await response.json();
-      if (!response.ok)
-        throw new Error(result.detail || "Option chain unavailable.");
+      const result = await requestApiJson("/research/option-chain", "POST", { stockCode, expiryDate }, csrf, 95000);
       setContracts(result.contracts);
     } catch (failure) {
       setError((failure as Error).message);

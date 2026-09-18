@@ -12,6 +12,9 @@ import {
   researchStrategySchema,
   normalizeHistoricalCandles,
   simulateHistoricalBasket,
+  summarizeBacktestBatch,
+  type BacktestResult,
+  type HistoricalCandle,
   marketDataParameters,
   normalizeResearchQuote,
   normalizeOptionChain,
@@ -21,7 +24,7 @@ import {
 /** Reserve shared daily/minute budget before each RPC, leaving live cancellation headroom.
  * A short option basket consumes one request per leg; no implicit refresh loops or retries.
  */
-async function reserveResearchRequest(
+export async function reserveResearchRequest(
   store: Store,
   userId: string,
   requireMfa: boolean,
@@ -378,6 +381,146 @@ export function registerResearchRoutes(
         );
       });
       res.json({ id, ...result });
+    });
+  });
+  /** Independent daily replays, sequential and budgeted per leg. All requested dates are
+   * accounted for, including unattempted dates after a budget/time stop. Not live validation.
+   * Missing history skips one session; authorization/database failures remain fatal.
+   */
+  app.post("/api/research/backtest/batch", async (req, res) => {
+    const input = z
+      .object({
+        strategyId: identity,
+        interval: z.enum(["1minute", "5minute"]),
+        days: z.array(z.iso.date()).min(1).max(20),
+      })
+      .strict()
+      .parse(req.body);
+    const days = [...new Set(input.days)].sort();
+    if (days.length !== input.days.length)
+      fail(422, "Duplicate dates in batch request.");
+    const userId = res.locals.session.user_id,
+      strategy = await loadStrategy(userId, input.strategyId);
+    for (const day of days) {
+      if (Date.parse(`${day}T15:30:00+05:30`) > Date.now())
+        fail(422, `${day} is not a completed historical trading session.`);
+      if (strategy.legs.some((leg) => leg.expiryDate && leg.expiryDate < day))
+        fail(422, `Session ${day} is after a contract expiry.`);
+    }
+    await manager.exclusive(userId, async () => {
+      const connection =
+        manager.get(userId) ||
+        fail(409, "Connect or reconnect ICICI under Brokers first.");
+      const completed: BacktestResult[] = [],
+        skipped: { day: string; reason: string }[] = [];
+      const deadline = Date.now() + 60000;
+      let stoppedReason: string | null = null,
+        budgetStopped = false;
+      for (const day of days) {
+        if (!stoppedReason && (Date.now() >= deadline || res.destroyed))
+          stoppedReason =
+            "Batch time limit or client disconnect; remaining sessions not attempted.";
+        if (stoppedReason) {
+          skipped.push({ day, reason: stoppedReason });
+          continue;
+        }
+        const histories: HistoricalCandle[][] = [];
+        let sessionIssue: string | null = null;
+        for (const leg of strategy.legs) {
+          if (Date.now() >= deadline || res.destroyed) {
+            stoppedReason =
+              "Batch time limit or client disconnect; remaining sessions not attempted.";
+            break;
+          }
+          try {
+            await reserveResearchRequest(store, userId, requireMfa);
+          } catch (error) {
+            if ((error as { status?: number }).status !== 429) throw error;
+            budgetStopped = true;
+            stoppedReason = "Market-data budget reached; batch stopped early.";
+            break;
+          }
+          let raw: unknown;
+          try {
+            raw = await connection.call("historical", {
+              ...marketDataParameters(strategy, leg),
+              interval: input.interval,
+              fromDate: `${day} 09:15:00`,
+              toDate: `${day} 15:29:59`,
+            });
+          } catch {
+            sessionIssue =
+              "ICICI historical data unavailable. Verify session, contract and historical coverage.";
+            if (connection.snapshot().state === "disconnected")
+              stoppedReason =
+                "Broker disconnected; remaining sessions not attempted. Reconnect before retrying.";
+            break;
+          }
+          try {
+            histories.push(
+              normalizeHistoricalCandles(
+                raw,
+                day,
+                input.interval === "1minute" ? 1 : 5,
+              ),
+            );
+          } catch {
+            sessionIssue =
+              "Missing or invalid historical candles for this session.";
+            break;
+          }
+        }
+        if (stoppedReason || sessionIssue) {
+          skipped.push({ day, reason: stoppedReason || sessionIssue! });
+          continue;
+        }
+        try {
+          completed.push(simulateHistoricalBasket(strategy, histories, day));
+        } catch {
+          skipped.push({
+            day,
+            reason:
+              "The strategy could not complete a funded entry and exit with this session's history.",
+          });
+        }
+      }
+      if (!completed.length)
+        fail(
+          budgetStopped ? 429 : 422,
+          `No requested session could be completed. First issue: ${skipped[0]?.reason || "unknown"}`,
+        );
+      const summary = summarizeBacktestBatch(completed),
+        id = randomUUID();
+      const result = {
+        mode: "batch" as const,
+        interval: input.interval,
+        requestedDays: days,
+        summary,
+        skipped,
+        sessions: completed,
+        stoppedReason,
+      };
+      await store.transaction(async (query) => {
+        await lockWorkspaceSettings(query, store, userId);
+        const owner = await query(
+          "SELECT id FROM research_strategies WHERE id=$1 AND user_id=$2 FOR UPDATE",
+          [input.strategyId, userId],
+        );
+        if (!owner.length)
+          fail(409, "Strategy was removed during the request.");
+        await query("INSERT INTO research_runs VALUES($1,$2,$3,$4,$5)", [
+          id,
+          userId,
+          input.strategyId,
+          JSON.stringify(result),
+          now(),
+        ]);
+        await query(
+          "DELETE FROM research_runs WHERE user_id=$1 AND id NOT IN (SELECT id FROM research_runs WHERE user_id=$1 ORDER BY created_at DESC LIMIT 30)",
+          [userId],
+        );
+      });
+      if (!res.destroyed) res.json({ id, ...result });
     });
   });
   app.post("/api/research/quotes", async (req, res) => {

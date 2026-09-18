@@ -4,7 +4,7 @@
  */
 import express, { type ErrorRequestHandler, type Response } from "express";
 import { z } from "zod";
-import { randomBytes, randomUUID, scryptSync } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import {
   openDatabaseStore,
   isEntryPoint,
@@ -24,6 +24,9 @@ import {
 } from "./security.js";
 import { registerBrokerRoutes, BrokerManager } from "./brokers.js";
 import { registerResearchRoutes } from "./research-routes.js";
+import { registerPaperRoutes } from "./paper-routes.js";
+import { InstrumentCatalog } from "./instrument-master.js";
+import { KotakDataManager } from "./kotak-data.js";
 import { registerMfaRoutes, verifySecondFactor } from "./mfa.js";
 import { IciciLiveManager } from "./live/icici-routes.js";
 import type { IciciRpcFactory } from "./live/icici-adapter.js";
@@ -37,13 +40,6 @@ declare global {
   }
 }
 const seconds = () => Date.now() / 1000;
-// Kept for migration compatibility tests only; HTTP handlers use asynchronous scrypt.
-export function hashPasswordForLegacyCompatibility(
-  password: string,
-  salt = randomBytes(16).toString("hex"),
-) {
-  return `${salt}:${scryptSync(password, Buffer.from(salt, "hex"), 64, { N: 16384, r: 8, p: 1 }).toString("hex")}`;
-}
 const credentials = z.object({
   username: z
     .string()
@@ -75,8 +71,10 @@ export function createApiApplication(
   brokers?: BrokerManager,
   liveRpcFactory?: IciciRpcFactory,
   liveTradingWindow?: () => boolean,
+  kotakData?: KotakDataManager,
+  instrumentCatalog?: InstrumentCatalog,
 ) {
-  const production = env.APP_ENV === "production";
+  const production = env.APP_ENV === "production" || env.NODE_ENV === "production";
   const origin = env.APP_ORIGIN || "http://localhost:3000",
     setupToken = env.SETUP_TOKEN || "";
   let validOrigin = false;
@@ -92,11 +90,13 @@ export function createApiApplication(
     throw new Error("REGISTRATION_TOKEN must contain at least 32 characters.");
   const vault = credentialVault(env);
   const brokerManager = brokers || new BrokerManager();
+  const kotakManager = kotakData || new KotakDataManager();
   const liveManager = new IciciLiveManager(
     store,
     vault,
     liveRpcFactory,
     liveTradingWindow,
+    env.ENABLE_LIVE_TRADING === "true",
   );
   const openRegistration =
     env.ALLOW_PUBLIC_REGISTRATION === "true" ||
@@ -106,6 +106,7 @@ export function createApiApplication(
   const app = express();
   app.locals.shutdown = async () => {
     brokerManager.close();
+    kotakManager.close();
     await liveManager.haltAll();
   };
   app.disable("x-powered-by");
@@ -193,7 +194,10 @@ export function createApiApplication(
         status: "ok",
         service: "nexus-node",
         live_enabled: false,
-        live_capability: "icici-cash-confirmed-orders",
+        live_capability:
+          env.ENABLE_LIVE_TRADING === "true"
+            ? "icici-cash-confirmed-orders"
+            : "disabled-paper-only",
         worker: worker ? "healthy" : "unavailable",
       });
     } catch {
@@ -354,12 +358,12 @@ export function createApiApplication(
       res.locals.session.user_id,
       "Signed out; live permission revoked",
     );
-    await store.transaction((query) =>
-      query("DELETE FROM sessions WHERE token_hash=$1", [
-        res.locals.session.token_hash,
-      ]),
-    );
+    await store.transaction(async (query) => {
+      await lockWorkspaceSettings(query, store, res.locals.session.user_id);
+      await query("DELETE FROM sessions WHERE token_hash=$1", [res.locals.session.token_hash]);
+    });
     brokerManager.disconnect(res.locals.session.user_id);
+    kotakManager.disconnect(res.locals.session.user_id);
     res
       .clearCookie("nexus_session", {
         path: "/",
@@ -372,13 +376,12 @@ export function createApiApplication(
   app.post("/api/auth/revoke-sessions", async (req, res) => {
     const { user_id, token_hash } = res.locals.session;
     await liveManager.halt(user_id, "Sessions revoked");
-    await store.transaction((query) =>
-      query("DELETE FROM sessions WHERE user_id=$1 AND token_hash<>$2", [
-        user_id,
-        token_hash,
-      ]),
-    );
+    await store.transaction(async (query) => {
+      await lockWorkspaceSettings(query, store, user_id);
+      await query("DELETE FROM sessions WHERE user_id=$1 AND token_hash<>$2", [user_id, token_hash]);
+    });
     brokerManager.disconnect(user_id);
+    kotakManager.disconnect(user_id);
     res.json({ ok: true });
   });
   // Password changes require current-password/MFA proof and replace all existing sessions.
@@ -427,6 +430,7 @@ export function createApiApplication(
       return issueSession(query, res, userId);
     });
     brokerManager.disconnect(userId);
+    kotakManager.disconnect(userId);
     await liveManager.halt(userId, "Password changed");
     res.json(result);
   });
@@ -435,6 +439,7 @@ export function createApiApplication(
     const userId = res.locals.session.user_id;
     res.json(
       await store.transaction(async (query) => ({
+        live_submission_enabled: env.ENABLE_LIVE_TRADING === "true",
         live_configured: Boolean(
           (
             await query(
@@ -576,9 +581,10 @@ export function createApiApplication(
       await liveManager.halt(res.locals.session.user_id, "MFA disabled");
     next();
   });
-  registerMfaRoutes(app, store, vault, (userId) =>
-    brokerManager.disconnect(userId),
-  );
+  registerMfaRoutes(app, store, vault, (userId) => {
+    brokerManager.disconnect(userId);
+    kotakManager.disconnect(userId);
+  });
   // Replacing/removing saved broker credentials must first revoke live authorization.
   app.use("/api/brokers/icici", async (req, res, next) => {
     if (
@@ -593,6 +599,14 @@ export function createApiApplication(
   });
   registerBrokerRoutes(app, store, vault, brokerManager, production);
   registerResearchRoutes(app, store, brokerManager, production);
+  registerPaperRoutes(
+    app,
+    store,
+    brokerManager,
+    kotakManager,
+    production,
+    instrumentCatalog,
+  );
   liveManager.register(app);
   app.use((req, res) => res.status(404).json({ detail: "Not found" }));
   const errorHandler: ErrorRequestHandler = (err: unknown, req, res, next) => {

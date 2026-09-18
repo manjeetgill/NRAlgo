@@ -17,7 +17,6 @@ import {
   ArrowDownLeft,
   ArrowRight,
   ArrowUpRight,
-  BarChart3,
   Blocks,
   Check,
   ChevronRight,
@@ -40,6 +39,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
+import { requestApiJson } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { BrokerPanel, AccountPanel } from "@/components/broker-panel";
 import {
@@ -47,6 +47,7 @@ import {
   type LiveOrderDraft,
 } from "@/components/live-trading-panel";
 import { StrategyLabPanel } from "@/components/strategy-lab-panel";
+import { PaperTradingPanel } from "@/components/paper-trading-panel";
 
 type Strategy = {
   id: string;
@@ -80,6 +81,7 @@ type Job = {
   result: Result;
 };
 type Workspace = {
+  live_submission_enabled?: boolean;
   live_configured?: boolean;
   username: string;
   csrf: string;
@@ -89,6 +91,7 @@ type Workspace = {
   events: { id: number; message: string; created_at: string }[];
 };
 type Page =
+  | "Broker paper"
   | "Strategy lab"
   | "Live trading"
   | "Overview"
@@ -104,38 +107,6 @@ const money = (n: number) =>
     currency: "INR",
     maximumFractionDigits: 2,
   }).format(n);
-
-/** Fetch a same-origin API response with cookies, optional CSRF and a bounded network deadline. */
-async function requestApiJson(
-  path: string,
-  method = "GET",
-  data?: unknown,
-  csrf?: string,
-) {
-  const response = await fetch(`/api${path}`, {
-    method,
-    credentials: "same-origin",
-    cache: "no-store",
-    signal: AbortSignal.timeout(15000),
-    headers: {
-      "Content-Type": "application/json",
-      ...(csrf ? { "X-CSRF-Token": csrf } : {}),
-    },
-    ...(data !== undefined ? { body: JSON.stringify(data) } : {}),
-  });
-  const result = await response.json().catch(() => ({
-    detail: "API unavailable. Check that the Node.js server is running.",
-  }));
-  if (!response.ok) {
-    const message = Array.isArray(result.detail)
-      ? result.detail.map((x: { msg: string }) => x.msg).join(". ")
-      : result.detail;
-    throw Object.assign(new Error(message || "Request failed"), {
-      status: response.status,
-    });
-  }
-  return result;
-}
 
 /** Render an accessible SVG of the most recent synthetic replay, including its empty state. */
 function ReplayEquityChart({ values }: { values: number[] }) {
@@ -514,6 +485,7 @@ export default function TradingWorkspacePage() {
     { name: "Overview" as Page, icon: LayoutDashboard },
     { name: "Strategies" as Page, icon: Blocks },
     { name: "Strategy lab" as Page, icon: FlaskConical },
+    { name: "Broker paper" as Page, icon: Radio },
     { name: "Orders & trades" as Page, icon: ArrowDownLeft },
     { name: "Brokers" as Page, icon: Wallet },
     { name: "Live trading" as Page, icon: ShieldCheck },
@@ -763,6 +735,10 @@ export default function TradingWorkspacePage() {
                   setPage("Brokers");
                   return;
                 }
+                if (page === "Broker paper") {
+                  setPage("Brokers");
+                  return;
+                }
                 setFormError("");
                 setModal(true);
               }}
@@ -770,7 +746,7 @@ export default function TradingWorkspacePage() {
               <Plus size={17} />{" "}
               {page === "Live trading"
                 ? "Paper strategies"
-                : page === "Strategy lab"
+                : page === "Strategy lab" || page === "Broker paper"
                   ? "Connect market data"
                   : "New strategy"}
             </Button>
@@ -780,36 +756,57 @@ export default function TradingWorkspacePage() {
               {error}
             </div>
           )}
-          {page !== "Live trading" && page !== "Strategy lab" && (
-            <section
-              className={`environment ${workspace.halted ? "is-paused" : ""}`}
-            >
-              <span className="environment-icon">
-                <FlaskConical size={18} />
-              </span>
-              <div>
-                <strong>
-                  {workspace.halted
-                    ? "Paper workspace paused"
-                    : "Your paper workspace"}
-                </strong>
-                <span>Sample price data · Simulated fills · No real money</span>
-              </div>
-              <Button
-                variant="secondary"
-                onClick={() => setPage("Live trading")}
+          {page !== "Live trading" &&
+            page !== "Strategy lab" &&
+            page !== "Broker paper" && (
+              <section
+                className={`environment ${workspace.halted ? "is-paused" : ""}`}
               >
-                Switch to live controls
-              </Button>
-            </section>
+                <span className="environment-icon">
+                  <FlaskConical size={18} />
+                </span>
+                <div>
+                  <strong>
+                    {workspace.halted
+                      ? "Paper workspace paused"
+                      : "Your paper workspace"}
+                  </strong>
+                  <span>
+                    Sample price data · Simulated fills · No real money
+                  </span>
+                </div>
+                <Button
+                  variant="secondary"
+                  onClick={() => setPage("Live trading")}
+                >
+                  Switch to live controls
+                </Button>
+              </section>
+            )}
+          {page === "Broker paper" && (
+            <PaperTradingPanel csrf={workspace.csrf} />
           )}
-          {page === "Live trading" && (
-            <LiveTradingPanel
-              csrf={workspace.csrf}
-              draft={researchDraft}
-              onPaper={() => setPage("Overview")}
-            />
-          )}
+          {page === "Live trading" &&
+            (!workspace.live_submission_enabled ? (
+              <section className="environment">
+                <div>
+                  <strong>
+                    Real-order submission is disabled on this server.
+                  </strong>
+                  <p>
+                    Use Broker paper for market-fed simulated orders. Existing
+                    real positions or orders, if any, must be checked directly
+                    at your broker.
+                  </p>
+                </div>
+              </section>
+            ) : (
+              <LiveTradingPanel
+                csrf={workspace.csrf}
+                draft={researchDraft}
+                onPaper={() => setPage("Overview")}
+              />
+            ))}
           {page === "Strategy lab" && (
             <StrategyLabPanel
               csrf={workspace.csrf}

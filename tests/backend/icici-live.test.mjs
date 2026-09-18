@@ -4,30 +4,129 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { TOTP } from "otpauth";
-import { createApiApplication } from "../dist/backend/main.js";
-import { credentialVault } from "../dist/backend/security.js";
-import { runDatabaseMigrations } from "../dist/backend/database.js";
-import { loadBreeze } from "../dist/backend/breeze.js";
-import { configureExecutionTransport } from "../dist/backend/live/icici-thread.js";
-import { isCashSubmissionWindow } from "../dist/backend/live/icici-routes.js";
+import { createApiApplication } from "../../dist/backend/main.js";
+import { credentialVault } from "../../dist/backend/security.js";
+import { runDatabaseMigrations } from "../../dist/backend/database.js";
+import { loadBreeze } from "../../dist/backend/breeze.js";
+import { configureExecutionTransport } from "../../dist/backend/live/icici-thread.js";
+import { isCashSubmissionWindow } from "../../dist/backend/live/icici-routes.js";
 import {
   normalizeIciciSnapshot,
   iciciOrderTag,
   IciciCashAdapter,
-} from "../dist/backend/live/icici-adapter.js";
-import { createPostgresTestStore } from "./postgres-fixture.mjs";
-import { FakeIciciRpc } from "./fake-icici-rpc.mjs";
+  breezeSuccess,
+} from "../../dist/backend/live/icici-adapter.js";
+import { DefinitiveOrderRejection } from "../../dist/backend/live/contracts.js";
+import { createPostgresTestStore } from "../helpers/postgres.mjs";
+import { FakeIciciRpc } from "../fixtures/fake-icici-rpc.mjs";
 
 const creds = {
   username: "live-http-user",
   password: "live-test-password-long",
 };
+
+test("only explicit placement rejection envelopes are definitive and broker error text is redacted", () => {
+  for (const Status of [400, "400", 401, 403, 404]) {
+    const response = {
+      Status,
+      Success: null,
+      Error: "sensitive-broker-detail",
+    };
+    assert.throws(
+      () => breezeSuccess(response, true),
+      (error) =>
+        error instanceof DefinitiveOrderRejection &&
+        !error.message.includes(response.Error),
+    );
+    assert.throws(
+      () => breezeSuccess(response),
+      (error) => !(error instanceof DefinitiveOrderRejection),
+    );
+  }
+  for (const response of [
+    undefined,
+    null,
+    [],
+    {},
+    { Status: null, Success: null, Error: "bad" },
+    { Status: "", Success: null, Error: "bad" },
+    { Status: 408, Success: null, Error: "Request Timeout" },
+    { Status: 429, Success: null, Error: "Rate limited" },
+    { Status: 500, Success: null, Error: "Internal error" },
+    { Status: 502, Success: null, Error: "Gateway error" },
+    { Status: 400, Error: "Missing success field" },
+    {
+      Status: 400,
+      Success: { order_id: "possibly-accepted" },
+      Error: "Contradictory",
+    },
+    { Status: 400, Success: null, Error: " " },
+    { Status: 400, Success: null, Error: { message: "bad" } },
+    { Status: 200, Success: null, Error: "bad" },
+  ]) {
+    assert.throws(
+      () => breezeSuccess(response, true),
+      (error) => !(error instanceof DefinitiveOrderRejection),
+    );
+  }
+  assert.deepEqual(
+    breezeSuccess(
+      { Status: "200", Success: { order_id: "ok" }, Error: null },
+      true,
+    ),
+    { order_id: "ok" },
+  );
+});
+
+test("ICICI placement maps rejection versus ambiguity without duplicate submission", async (t) => {
+  for (const code of [400, 408, 500])
+    await t.test(String(code), async (t) => {
+      const { request, rpc, enableMfa, arm } = await fixture(t);
+      await arm((await enableMfa())[0]);
+      const preview = await request("/live/icici/preview", {
+        stockCode: "TEST",
+        side: "buy",
+        quantity: 1,
+        limitPaise: 1000,
+      });
+      assert.equal(preview.status, 200);
+      const original = rpc.call.bind(rpc);
+      rpc.call = async (method, params) => {
+        if (method === "placeOrder") {
+          rpc.placementCalls++;
+          return {
+            Status: code,
+            Success: null,
+            Error: "private-broker-message",
+          };
+        }
+        return original(method, params);
+      };
+      const body = {
+        previewId: preview.data.previewId,
+        confirmation: "PLACE LIVE ORDER",
+      };
+      const result = await request("/live/icici/orders", body);
+      assert.equal(result.status, 200);
+      assert.equal(result.data.state, code === 400 ? "rejected" : "unknown");
+      await request("/live/icici/orders", body);
+      assert.equal(rpc.placementCalls, 1);
+      const status = await request("/live/icici");
+      assert.equal(status.data.halted, true);
+      assert.ok(
+        !JSON.stringify(status.data).includes("private-broker-message"),
+      );
+    });
+});
 /** Allocate a disposable schema and cookie jar; install mocked RPC before any connection. */
 async function fixture(t) {
   const store = await createPostgresTestStore();
   await runDatabaseMigrations(store, {});
   const rpc = new FakeIciciRpc(),
-    env = { BROKER_ENCRYPTION_KEY: "ab".repeat(32) };
+    env = {
+      BROKER_ENCRYPTION_KEY: "ab".repeat(32),
+      ENABLE_LIVE_TRADING: "true",
+    };
   const app = createApiApplication(
       store,
       env,

@@ -5,6 +5,7 @@
  * guarded Live trading ticket, where MFA, fresh risk checks and explicit confirmation still apply.
  */
 import { useEffect, useState } from "react";
+import { requestApiJson } from "@/lib/api";
 import { Button } from "./ui/button";
 import { OptionChainPicker } from "./option-chain-picker";
 import type { LiveOrderDraft } from "./live-trading-panel";
@@ -84,24 +85,8 @@ const initial: Definition = {
 };
 
 /** Requests are manual, bounded and same-origin. No credentials or draft orders go to storage. */
-async function researchRequest(
-  path: string,
-  csrf: string,
-  method = "GET",
-  body?: unknown,
-) {
-  const response = await fetch(`/api/research${path}`, {
-    method,
-    credentials: "same-origin",
-    cache: "no-store",
-    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
-    signal: AbortSignal.timeout(95000),
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
-  const result = await response.json();
-  if (!response.ok)
-    throw new Error(result.detail || "Research request failed.");
-  return result;
+function researchRequest(path: string, csrf: string, method = "GET", body?: unknown) {
+  return requestApiJson(`/research${path}`, method, body, csrf, 95000);
 }
 
 /** Lightweight repo-native SVG; no charting service, paid library or external market-data feed. */
@@ -159,11 +144,26 @@ export function StrategyLabPanel({
     >([]),
     [run, setRun] = useState<Run | null>(null),
     [quotes, setQuotes] = useState<Quote[]>([]);
+  // Batch persistence shares the run library, but each session retains its own replay timeline.
+  const [batch, setBatch] = useState<{
+    sessions: Run[];
+    summary: {
+      sessionsRun: number;
+      totalPnl: number;
+      totalFees: number;
+      worstSessionDrawdown: number;
+      winningSessions: number;
+      losingSessions: number;
+      breakEvenSessions: number;
+    };
+    skipped: { day: string; reason: string }[];
+  } | null>(null);
   const [day, setDay] = useState(
       new Date(Date.now() - 86400000).toISOString().slice(0, 10),
     ),
     [interval, setIntervalValue] = useState("5minute"),
     [tab, setTab] = useState("builder");
+  const [batchDays, setBatchDays] = useState("");
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
@@ -481,6 +481,7 @@ export function StrategyLabPanel({
               );
               setStrategyId("");
               setRun(null);
+              setBatch(null);
               setQuotes([]);
               await reloadLibrary();
             });
@@ -843,6 +844,7 @@ export function StrategyLabPanel({
                     { strategyId, day, interval },
                   );
                   setRun(result);
+                  setBatch(null);
                   setCursor(0);
                   setPlaying(false);
                   await reloadLibrary();
@@ -854,9 +856,50 @@ export function StrategyLabPanel({
             >
               {busy ? "Loading broker history…" : "Run historical simulation"}
             </Button>
+            <label>
+              Batch session dates (YYYY-MM-DD, comma separated)
+              <input
+                value={batchDays}
+                onChange={(event) => setBatchDays(event.target.value)}
+                placeholder="2025-01-02, 2025-01-03"
+              />
+            </label>
+            <p>
+              Up to 20 completed dates. Each day starts with the same capital;
+              no compounding or overnight exposure. Missing history is skipped.
+              Shared API budgets or the time limit can stop a batch early.
+            </p>
+            <Button
+              disabled={busy || !strategyId || !batchDays.trim()}
+              onClick={() =>
+                void act(async () => {
+                  const result = await researchRequest(
+                    "/backtest/batch",
+                    csrf,
+                    "POST",
+                    {
+                      strategyId,
+                      interval,
+                      days: batchDays.split(",").map((value) => value.trim()),
+                    },
+                  );
+                  setBatch(result);
+                  setRun(result.sessions[0]);
+                  setCursor(0);
+                  setPlaying(false);
+                  await reloadLibrary();
+                  setNotice(
+                    `Batch saved: ${result.summary.sessionsRun} completed, ${result.skipped.length} skipped or not attempted.`,
+                  );
+                })
+              }
+            >
+              Run batch backtest
+            </Button>
             <label className="research-run-select">
               Saved replay
               <select
+                aria-label="Saved replay"
                 value=""
                 disabled={busy}
                 onChange={(event) => {
@@ -866,7 +909,10 @@ export function StrategyLabPanel({
                         `/runs/${event.target.value}`,
                         csrf,
                       );
-                      setRun(result);
+                      setBatch(result.mode === "batch" ? result : null);
+                      setRun(
+                        result.mode === "batch" ? result.sessions[0] : result,
+                      );
                       setCursor(0);
                       setPlaying(false);
                     });
@@ -883,6 +929,54 @@ export function StrategyLabPanel({
               </select>
             </label>
           </section>
+          {batch && (
+            <section className="panel research-results">
+              <h2>
+                Independent daily batch · {batch.summary.sessionsRun} sessions
+              </h2>
+              <p>
+                No compounding or overnight positions. Worst session drawdown is
+                not continuous multi-day drawdown. Trade counts mean fills, not
+                round trips.
+              </p>
+              <p>
+                Net P&amp;L {currency(batch.summary.totalPnl)} · Fees{" "}
+                {currency(batch.summary.totalFees)} · Worst session drawdown{" "}
+                {currency(batch.summary.worstSessionDrawdown)}
+              </p>
+              <p>
+                {batch.summary.winningSessions} winning ·{" "}
+                {batch.summary.losingSessions} losing ·{" "}
+                {batch.summary.breakEvenSessions} break-even sessions
+              </p>
+              <label>
+                Batch replay session
+                <select
+                  value={run?.day || ""}
+                  onChange={(event) => {
+                    setRun(
+                      batch.sessions.find(
+                        (session) => session.day === event.target.value,
+                      ) || null,
+                    );
+                    setCursor(0);
+                    setPlaying(false);
+                  }}
+                >
+                  {batch.sessions.map((session) => (
+                    <option key={session.day} value={session.day}>
+                      {session.day}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {batch.skipped.map((session) => (
+                <p key={session.day}>
+                  {session.day}: {session.reason}
+                </p>
+              ))}
+            </section>
+          )}
           {run && point && (
             <section className="panel research-results">
               <span className="eyebrow">

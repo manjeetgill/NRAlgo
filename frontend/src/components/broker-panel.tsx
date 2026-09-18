@@ -6,26 +6,12 @@
  */
 
 import { useEffect, useState, type FormEvent } from "react";
+import { requestApiJson } from "@/lib/api";
 import { Button } from "./ui/button";
 
 /** Send same-origin authenticated JSON, with CSRF and a deadline longer than SDK authentication. */
-async function requestAuthenticatedJson(
-  path: string,
-  csrf: string,
-  method = "GET",
-  body?: unknown,
-) {
-  const response = await fetch(`/api${path}`, {
-    method,
-    credentials: "same-origin",
-    cache: "no-store",
-    signal: AbortSignal.timeout(100000),
-    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.detail || "Request failed.");
-  return data;
+function requestAuthenticatedJson(path: string, csrf: string, method = "GET", body?: unknown) {
+  return requestApiJson(path, method, body, csrf, 100000);
 }
 type BrokerStatus = {
   saved: boolean;

@@ -4,8 +4,8 @@
  */
 import pg from "pg";
 import { randomUUID } from "node:crypto";
-import { ensureLocalPostgres } from "../dist/backend/local-database.js";
-import { openDatabaseStore } from "../dist/backend/database.js";
+import { ensureLocalPostgres } from "../../dist/backend/local-database.js";
+import { openDatabaseStore } from "../../dist/backend/database.js";
 
 let localConfiguration;
 /** Create and later destroy one schema with its own pool/search_path, preserving all real user data. */

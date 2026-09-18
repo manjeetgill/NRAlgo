@@ -7,13 +7,13 @@ import { EventEmitter } from "node:events";
 import {
   decodeResearchTick,
   ResearchStreamCache,
-} from "../dist/backend/research-stream.js";
+} from "../../dist/backend/research-stream.js";
 import {
   createBreezeData,
   loadBreeze,
   requestNfoOptionChain,
-} from "../dist/backend/breeze.js";
-import { normalizeOptionChain } from "../dist/backend/strategy-lab.js";
+} from "../../dist/backend/breeze.js";
+import { normalizeOptionChain } from "../../dist/backend/strategy-lab.js";
 
 /** Build the pinned SDK's NSE quote packet; field 19/21 is an epoch, not a local date string. */
 function packet(token = "4.1!101", market = "cash", time = Date.now()) {

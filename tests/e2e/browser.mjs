@@ -9,19 +9,35 @@ import { mkdir } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import { TOTP } from "otpauth";
 import {
-  openDatabaseStore,
   runDatabaseMigrations,
-} from "../dist/backend/database.js";
-import { createApiApplication } from "../dist/backend/main.js";
-import { BrokerManager } from "../dist/backend/brokers.js";
-import { createPostgresTestStore } from "./postgres-fixture.mjs";
-import { FakeIciciRpc } from "./fake-icici-rpc.mjs";
+} from "../../dist/backend/database.js";
+import { createApiApplication } from "../../dist/backend/main.js";
+import { BrokerManager } from "../../dist/backend/brokers.js";
+import { createPostgresTestStore } from "../helpers/postgres.mjs";
+import { FakeIciciRpc } from "../fixtures/fake-icici-rpc.mjs";
+import { KotakDataManager } from "../../dist/backend/kotak-data.js";
+import { fakeInstrumentCatalog } from "../fixtures/instruments.mjs";
 
 const frontendUrl = process.env.FRONTEND_TEST_URL || "http://127.0.0.1:3010";
 const store = await createPostgresTestStore();
 await runDatabaseMigrations(store, {});
 const brokers = new BrokerManager(() => ({
   async call(method, params) {
+    if (method === "positions" || method === "holdings")
+      return [
+        {
+          symbol: "REAL-ICICI",
+          exchange: "NSE",
+          product: "cash",
+          quantity: 7,
+          averagePrice: 100,
+          markPrice: null,
+          pnl: null,
+          expiry: "",
+          right: "",
+          strike: "",
+        },
+      ];
     if (method === "subscribeBasket") {
       this.stream = {
         ...params,
@@ -111,12 +127,71 @@ const brokers = new BrokerManager(() => ({
   },
 }));
 const liveRpc = new FakeIciciRpc();
+const kotakData = new KotakDataManager(async (url, init) => {
+  if (url.endsWith("/tradeApiLogin"))
+    return {
+      data: {
+        status: "success",
+        kType: "View",
+        token: "fake-view",
+        sid: "fake-sid",
+      },
+    };
+  if (url.endsWith("/tradeApiValidate"))
+    return {
+      data: {
+        status: "success",
+        kType: "Trade",
+        token: "fake-trade",
+        sid: "fake-sid",
+        baseUrl: "https://cis.kotaksecurities.com",
+      },
+    };
+  assert.equal(init.method, "GET");
+  if (url.endsWith("/masterscrip/file-paths"))
+    return {
+      data: {
+        filesPaths: [
+          "https://lapi.kotaksecurities.com/wso2-scripmaster/v1/prod/2026-09-18/transformed/nse_fo.csv",
+        ],
+      },
+    };
+  if (url.endsWith("/quick/user/positions"))
+    return {
+      stat: "Ok",
+      data: [
+        { trdSym: "REAL-KOTAK", exSeg: "nse_fo", prod: "NRML", qty: "-25" },
+      ],
+    };
+  if (url.endsWith("/portfolio/v1/holdings"))
+    return {
+      data: [{ displaySymbol: "REAL-HOLDING", quantity: 7, averagePrice: 100 }],
+    };
+  assert.match(
+    url,
+    /\/script-details\/1.0\/quotes\/neosymbol\/nse_(cm|fo)%7C123\/all$/,
+  );
+  return [
+    {
+      exchange: url.includes("nse_fo") ? "nse_fo" : "nse_cm",
+      exchange_token: "123",
+      lstup_time: String(Date.now() / 1000),
+      depth: { buy: [{ price: "99" }], sell: [{ price: "101" }] },
+    },
+  ];
+});
 const app = createApiApplication(
   store,
-  { APP_ORIGIN: frontendUrl, BROKER_ENCRYPTION_KEY: "ab".repeat(32) },
+  {
+    APP_ORIGIN: frontendUrl,
+    BROKER_ENCRYPTION_KEY: "ab".repeat(32),
+    ENABLE_LIVE_TRADING: "true",
+  },
   brokers,
   () => liveRpc,
   () => true,
+  kotakData,
+  fakeInstrumentCatalog(),
 );
 const apiServer = app.listen(0, "127.0.0.1");
 await new Promise((resolve) => apiServer.once("listening", resolve));
@@ -167,7 +242,37 @@ try {
   const page = await createIsolatedPage(),
     errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto(frontendUrl);
+  await page.addInitScript(() => {
+    window.securityProbe = { executed: false, blocked: false };
+    document.addEventListener("securitypolicyviolation", event => {
+      if (event.violatedDirective.startsWith("script-src")) window.securityProbe.blocked = true;
+    });
+  });
+  // Inject into the HTTP document before parsing. DevTools evaluation itself is trusted
+  // and is not a valid simulation of an attacker-controlled HTML script element.
+  await page.route(url => url.origin === new URL(frontendUrl).origin && url.pathname === "/", async route => {
+    if (route.request().resourceType() !== "document") return route.continue();
+    const response = await route.fetch();
+    const html = await response.text();
+    await route.fulfill({ response, body: html.replace("</head>", "<script>window.securityProbe.executed = true</script></head>") });
+  });
+  const documentResponse = await page.goto(frontendUrl);
+  const policy = documentResponse.headers()["content-security-policy"];
+  assert.ok(policy, "HTML must carry a Content Security Policy");
+  const nonce = /'nonce-([^']+)'/.exec(policy)?.[1];
+  assert.ok(nonce, "CSP must carry a per-response nonce");
+  const scriptPolicy = policy.split(";").find(value => value.trim().startsWith("script-src"));
+  assert.ok(!scriptPolicy.includes("'unsafe-inline'"));
+  assert.ok(!scriptPolicy.includes("'unsafe-eval'"));
+  const anotherDocument = await fetch(frontendUrl, {
+    headers: { "Content-Security-Policy": "script-src * 'unsafe-inline'", "x-nonce": "attacker-chosen" },
+  });
+  const anotherPolicy = anotherDocument.headers.get("content-security-policy");
+  assert.notEqual(/'nonce-([^']+)'/.exec(anotherPolicy)?.[1], nonce);
+  assert.ok(!anotherPolicy.includes("attacker-chosen"));
+  await anotherDocument.text();
+  await page.waitForFunction(() => window.securityProbe.blocked);
+  assert.equal(await page.evaluate(() => window.securityProbe.executed), false);
   await page.getByLabel("Username", { exact: true }).fill("browser-owner");
   await page
     .getByLabel("Password", { exact: true })
@@ -197,8 +302,160 @@ try {
   await page.getByLabel("To (your local time)").fill("2025-01-01T10:15");
   await page.getByRole("button", { name: "Load historical candles" }).click();
   await page.getByRole("cell", { name: "103", exact: true }).waitFor();
-  await mkdir(".runtime", { recursive: true });
-  await page.screenshot({ path: ".runtime/browser-smoke.png", fullPage: true });
+  await mkdir("tests/artifacts", { recursive: true });
+  await page.screenshot({ path: "tests/artifacts/browser-smoke.png", fullPage: true });
+  // Fix only the offline fixture clock during paper checks so the suite also runs outside market hours.
+  const realPaperClock = Date.now;
+  try {
+    Date.now = () => Date.parse("2026-09-18T05:00:00Z");
+    await page
+      .getByRole("button", { name: "Broker paper", exact: true })
+      .click();
+    await page.getByLabel("Breeze paper stock code").fill("TEST");
+    await page.getByLabel("Instrument search", { exact: true }).fill("TEST");
+    await page
+      .getByRole("button", { name: "Search broker instruments", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Select TEST cash", exact: true })
+      .click();
+    assert.equal(
+      await page.getByLabel("Breeze paper stock code").isDisabled(),
+      true,
+    );
+    await page.getByLabel("Paper limit (₹)", { exact: true }).fill("120");
+    await page
+      .getByRole("button", { name: "Place paper order", exact: true })
+      .click();
+    await page.getByRole("cell", { name: "open", exact: true }).waitFor();
+    await page
+      .getByRole("button", { name: "Refresh paper quotes", exact: true })
+      .click();
+    await page.getByRole("cell", { name: "filled", exact: true }).waitFor();
+    await page.getByLabel("Paper data broker").selectOption("kotak");
+    await page.getByLabel("Kotak API access token").fill("fake-browser-token");
+    await page.getByLabel("Mobile (+91…)").fill("+919999999999");
+    await page.getByLabel("Kotak client code (UCC)").fill("FAKE");
+    await page.getByLabel("Kotak TOTP").fill("123456");
+    await page.getByLabel("Kotak MPIN").fill("123456");
+    await page
+      .getByRole("button", { name: "Connect Kotak data", exact: true })
+      .click();
+    await page.getByText("Kotak connected for market data only.").waitFor();
+    assert.equal(await page.getByLabel("Kotak MPIN").inputValue(), "");
+    await page.getByLabel("Kotak NSE cash token (pSymbol)").fill("123");
+    await page.getByLabel("Paper limit (₹)", { exact: true }).fill("120");
+    await page
+      .getByRole("button", { name: "Place paper order", exact: true })
+      .click();
+    await page.getByRole("cell", { name: "open", exact: true }).waitFor();
+    await page
+      .getByRole("button", { name: "Refresh paper quotes", exact: true })
+      .click();
+    await page.getByRole("cell", { name: "filled", exact: true }).waitFor();
+    await page.getByLabel("Paper limit (₹)", { exact: true }).fill("50");
+    await page
+      .getByRole("button", { name: "Place paper order", exact: true })
+      .click();
+    await page.getByRole("button", { name: "Modify", exact: true }).click();
+    await page.getByLabel("Modified limit (₹)").fill("40");
+    await page
+      .getByRole("button", { name: "Save paper modification", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Cancel paper order", exact: true })
+      .click();
+    await page.getByRole("cell", { name: "cancelled", exact: true }).waitFor();
+    await page.getByLabel("Paper market").selectOption("options");
+    await page.getByLabel("Instrument search", { exact: true }).fill("TEST");
+    await page
+      .getByRole("button", { name: "Search broker instruments", exact: true })
+      .click();
+    await page.getByLabel("Picker underlying").selectOption("TEST");
+    await page.getByLabel("Picker expiry").selectOption("2026-09-24");
+    await page.getByLabel("Picker option type").selectOption("call");
+    await page
+      .getByRole("button", { name: "Search broker instruments", exact: true })
+      .click();
+    await page
+      .getByRole("button", {
+        name: "Select TEST 2026-09-24 25000 call",
+        exact: true,
+      })
+      .click();
+    assert.equal(
+      await page.getByLabel("Paper quantity", { exact: true }).inputValue(),
+      "25",
+    );
+    assert.equal(await page.getByLabel("Option expiry").isDisabled(), true);
+    assert.equal(await page.getByLabel("Declared lot size").inputValue(), "25");
+    await page.getByLabel("Paper limit (₹)", { exact: true }).fill("120");
+    await page
+      .getByRole("button", { name: "Place paper order", exact: true })
+      .click();
+    await page.getByRole("cell", { name: "open", exact: true }).waitFor();
+    await page
+      .getByRole("button", { name: "Refresh paper quotes", exact: true })
+      .click();
+    await page
+      .getByRole("cell", {
+        name: "OPTION:123:2026-09-24:call:25000",
+        exact: true,
+      })
+      .waitFor();
+    assert.equal(liveRpc.placementCalls, 0);
+    await page.screenshot({
+      path: "tests/artifacts/broker-paper-smoke.png",
+      fullPage: true,
+    });
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert.equal(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      ),
+      true,
+    );
+    await page.screenshot({
+      path: "tests/artifacts/broker-paper-mobile.png",
+      fullPage: true,
+    });
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page
+      .getByRole("button", { name: "View broker portfolio", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Refresh broker portfolio", exact: true })
+      .click();
+    await page.getByRole("cell", { name: "REAL-KOTAK", exact: true }).waitFor();
+    await page
+      .getByRole("cell", { name: "REAL-HOLDING", exact: true })
+      .waitFor();
+    assert.equal(
+      await page
+        .getByRole("heading", { name: "Paper positions", exact: true })
+        .count(),
+      0,
+    );
+    await page.screenshot({
+      path: "tests/artifacts/broker-portfolio-smoke.png",
+      fullPage: true,
+    });
+    await page.getByLabel("Paper data broker").selectOption("icici");
+    assert.equal(
+      await page.getByRole("cell", { name: "REAL-KOTAK", exact: true }).count(),
+      0,
+    );
+    await page
+      .getByRole("button", { name: "Refresh broker portfolio", exact: true })
+      .click();
+    await page
+      .getByRole("cell", { name: "REAL-ICICI", exact: true })
+      .first()
+      .waitFor();
+    assert.equal(liveRpc.placementCalls, 0);
+  } finally {
+    Date.now = realPaperClock;
+  }
   // Research never calls the execution double, even when preparing a cash ticket.
   await page.getByRole("button", { name: "Strategy lab", exact: true }).click();
   await page
@@ -235,9 +492,39 @@ try {
     .getByRole("cell", { name: "scheduled exit", exact: true })
     .waitFor();
   await page.screenshot({
-    path: ".runtime/research-cash-smoke.png",
+    path: "tests/artifacts/research-cash-smoke.png",
     fullPage: true,
   });
+  await page
+    .getByLabel("Batch session dates (YYYY-MM-DD, comma separated)")
+    .fill("2025-01-02, 2025-01-03");
+  await page
+    .getByRole("button", { name: "Run batch backtest", exact: true })
+    .click();
+  await page
+    .getByText("Batch saved: 2 completed, 0 skipped or not attempted.", {
+      exact: true,
+    })
+    .waitFor();
+  await page.getByLabel("Batch replay session").selectOption("2025-01-03");
+  assert.equal(
+    await page.getByLabel("Batch replay session").inputValue(),
+    "2025-01-03",
+  );
+  const savedBatch = await page
+    .getByLabel("Saved replay", { exact: true })
+    .locator("option")
+    .nth(1)
+    .getAttribute("value");
+  await page
+    .getByLabel("Saved replay", { exact: true })
+    .selectOption(savedBatch);
+  await page.getByLabel("Batch replay session").selectOption("2025-01-02");
+  await page.screenshot({
+    path: "tests/artifacts/research-batch-smoke.png",
+    fullPage: true,
+  });
+  assert.equal(liveRpc.placementCalls, 0);
   await page
     .getByRole("button", { name: "Live data preview", exact: true })
     .click();
@@ -273,7 +560,7 @@ try {
     "24000",
   );
   await page.screenshot({
-    path: ".runtime/option-chain-smoke.png",
+    path: "tests/artifacts/option-chain-smoke.png",
     fullPage: true,
   });
   await page
@@ -286,7 +573,7 @@ try {
     )
     .waitFor();
   await page.screenshot({
-    path: ".runtime/research-builder-smoke.png",
+    path: "tests/artifacts/research-builder-smoke.png",
     fullPage: true,
   });
   await page
@@ -324,7 +611,7 @@ try {
     .click();
   await page.getByText("Feed: streaming", { exact: true }).waitFor();
   await page.screenshot({
-    path: ".runtime/basket-stream-smoke.png",
+    path: "tests/artifacts/basket-stream-smoke.png",
     fullPage: true,
   });
   assert.equal(liveRpc.placementCalls, 0);
@@ -348,12 +635,12 @@ try {
   );
   assert.equal(liveRpc.placementCalls, 0);
   await page.screenshot({
-    path: ".runtime/research-options-smoke.png",
+    path: "tests/artifacts/research-options-smoke.png",
     fullPage: true,
   });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({
-    path: ".runtime/research-mobile-smoke.png",
+    path: "tests/artifacts/research-mobile-smoke.png",
     fullPage: true,
   });
   assert.equal(
@@ -426,7 +713,7 @@ try {
   await page.getByText("acknowledged", { exact: true }).waitFor();
   assert.equal(liveRpc.placementCalls, 1);
   await page.screenshot({
-    path: ".runtime/live-browser-smoke.png",
+    path: "tests/artifacts/live-browser-smoke.png",
     fullPage: true,
   });
   await page
@@ -457,7 +744,7 @@ try {
   );
   assert.deepEqual(errors, []);
   console.log(
-    "Browser smoke passed: option-chain selection, multi-leg stream start/stop, cash/options history, quote/payoff previews, safe cash draft handoff, MFA, confirmed fake order, and paper-return cancellation.",
+    "Browser smoke passed: ICICI/Kotak paper fills, modification/cancellation, mobile layout, option-chain selection, multi-leg streams, history, MFA, guarded fake live order and paper-return cancellation.",
   );
 } finally {
   await browser?.close();

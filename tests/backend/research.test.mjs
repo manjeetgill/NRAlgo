@@ -8,14 +8,15 @@ import {
   researchStrategySchema,
   normalizeHistoricalCandles,
   simulateHistoricalBasket,
+  summarizeBacktestBatch,
   normalizeResearchQuote,
   sessionTimestamp,
-} from "../dist/backend/strategy-lab.js";
-import { createBreezeData } from "../dist/backend/breeze.js";
-import { BrokerManager } from "../dist/backend/brokers.js";
-import { createApiApplication } from "../dist/backend/main.js";
-import { runDatabaseMigrations } from "../dist/backend/database.js";
-import { createPostgresTestStore } from "./postgres-fixture.mjs";
+} from "../../dist/backend/strategy-lab.js";
+import { createBreezeData } from "../../dist/backend/breeze.js";
+import { BrokerManager } from "../../dist/backend/brokers.js";
+import { createApiApplication } from "../../dist/backend/main.js";
+import { runDatabaseMigrations } from "../../dist/backend/database.js";
+import { createPostgresTestStore } from "../helpers/postgres.mjs";
 
 const day = "2025-01-02";
 const cash = {
@@ -259,7 +260,7 @@ test("research source graph cannot import live execution or submit orders", () =
     "frontend/src/components/option-chain-picker.tsx",
     "frontend/src/components/strategy-lab-panel.tsx",
   ]) {
-    const text = readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+    const text = readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
     assert.doesNotMatch(
       text,
       /placeOrder\(|\/live\/icici\/orders|from ["']\.\/live\//,
@@ -305,7 +306,15 @@ async function fixture(t) {
             total_quantity_traded: 200,
           },
         ];
-      if (method === "historical") return missing ? [] : rawBars();
+      if (method === "historical") {
+        if (missing === "secret") throw new Error("fake-broker-secret");
+        return missing === true || params.fromDate.startsWith("2025-01-04")
+          ? []
+          : rawBars().map((row) => ({
+              ...row,
+              datetime: row.datetime.replace(day, params.fromDate.slice(0, 10)),
+            }));
+      }
       if (method === "quotes")
         return [
           {
@@ -388,11 +397,119 @@ async function fixture(t) {
     second,
     calls,
     store,
-    setMissing: () => {
-      missing = true;
+    setMissing: (value = true) => {
+      missing = value;
     },
   };
 }
+test("batch summary separates break-even days and reports per-session drawdown/fills", () => {
+  const base = simulateHistoricalBasket(
+    cash,
+    [normalizeHistoricalCandles(rawBars(), day, 5)],
+    day,
+  );
+  const summary = summarizeBacktestBatch([
+    { ...base, pnl: 10.11, drawdown: 2 },
+    { ...base, day: "2025-01-03", pnl: -3.01, drawdown: 5 },
+    { ...base, day: "2025-01-06", pnl: 0, drawdown: 1 },
+  ]);
+  assert.equal(summary.totalPnl, 7.1);
+  assert.equal(summary.averagePnlPerSession, 2.37);
+  assert.equal(summary.winningSessions, 1);
+  assert.equal(summary.losingSessions, 1);
+  assert.equal(summary.breakEvenSessions, 1);
+  assert.equal(summary.worstSessionDrawdown, 5);
+  assert.equal(summary.sessions[0].trades, base.fills.length);
+  assert.throws(() => summarizeBacktestBatch([]), /No completed/);
+});
+test("batch API persists independent sessions, skips missing history, scopes owners and validates dates", async (t) => {
+  const { first, second, calls, setMissing } = await fixture(t);
+  const saved = await first("/research/strategies", "POST", cash);
+  const body = {
+    strategyId: saved.data.id,
+    interval: "5minute",
+    days: ["2025-01-04", "2025-01-03", day],
+  };
+  assert.equal(
+    (
+      await first("/research/backtest/batch", "POST", body, {
+        "X-CSRF-Token": "",
+      })
+    ).status,
+    403,
+  );
+  assert.equal(
+    (await second("/research/backtest/batch", "POST", body)).status,
+    404,
+  );
+  assert.equal(
+    (
+      await first("/research/backtest/batch", "POST", {
+        ...body,
+        days: [day, day],
+      })
+    ).status,
+    422,
+  );
+  assert.equal(
+    (
+      await first("/research/backtest/batch", "POST", {
+        ...body,
+        days: ["2099-01-01"],
+      })
+    ).status,
+    422,
+  );
+  const result = await first("/research/backtest/batch", "POST", body);
+  assert.equal(result.status, 200);
+  assert.equal(result.data.summary.sessionsRun, 2);
+  assert.equal(result.data.skipped.length, 1);
+  assert.deepEqual(result.data.requestedDays, [
+    day,
+    "2025-01-03",
+    "2025-01-04",
+  ]);
+  assert.deepEqual(
+    (await first(`/research/runs/${result.data.id}`)).data.sessions,
+    result.data.sessions,
+  );
+  assert.equal((await second(`/research/runs/${result.data.id}`)).status, 404);
+  assert.ok(
+    calls.every((call) => ["connect", "historical"].includes(call.method)),
+  );
+  setMissing("secret");
+  const failed = await first("/research/backtest/batch", "POST", body);
+  assert.equal(failed.status, 422);
+  assert.ok(!JSON.stringify(failed).includes("fake-broker-secret"));
+});
+test("batch budget stop records every remaining date and returns 429 if nothing completed", async (t) => {
+  const { first, store } = await fixture(t);
+  const saved = await first("/research/strategies", "POST", cash);
+  await store.transaction(async (query) => {
+    const [user] = await query("SELECT id FROM users WHERE username=$1", [
+      "research-owner",
+    ]);
+    const today = new Date(Date.now() + 19800000).toISOString().slice(0, 10);
+    await query(
+      "INSERT INTO broker_usage VALUES($1,$2,3999) ON CONFLICT(user_id) DO UPDATE SET usage_day=$2,request_count=3999",
+      [user.id, today],
+    );
+  });
+  const body = {
+    strategyId: saved.data.id,
+    interval: "5minute",
+    days: [day, "2025-01-03", "2025-01-06"],
+  };
+  const result = await first("/research/backtest/batch", "POST", body);
+  assert.equal(result.status, 200);
+  assert.equal(result.data.sessions.length, 1);
+  assert.equal(result.data.skipped.length, 2);
+  assert.match(result.data.stoppedReason, /budget/);
+  assert.equal(
+    (await first("/research/backtest/batch", "POST", body)).status,
+    429,
+  );
+});
 test("research API persists immutable results, scopes every ID by owner, and enforces CSRF", async (t) => {
   const { first, second, calls } = await fixture(t);
   assert.equal(

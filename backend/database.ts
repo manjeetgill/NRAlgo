@@ -32,7 +32,7 @@ export const isEntryPoint = (url: string) =>
  */
 export function openDatabaseStore(
   url = process.env.DATABASE_URL ||
-    (process.env.APP_ENV !== "production"
+    (process.env.APP_ENV !== "production" && process.env.NODE_ENV !== "production"
       ? readLocalPostgresConfiguration()?.applicationUrl
       : undefined),
 ): Store {
@@ -239,6 +239,15 @@ export async function runDatabaseMigrations(
       );
       await query("INSERT INTO schema_migrations VALUES (6)");
     }
+    if (
+      !(await query("SELECT version FROM schema_migrations WHERE version=7"))
+        .length
+    ) {
+      await query(
+        "CREATE TABLE paper_accounts (user_id VARCHAR(36) NOT NULL REFERENCES users(id), broker VARCHAR(10) NOT NULL CHECK (broker IN ('icici','kotak')), ledger TEXT NOT NULL, PRIMARY KEY(user_id,broker))",
+      );
+      await query("INSERT INTO schema_migrations VALUES(7)");
+    }
   });
   // The migration container owns DDL; API/worker use a separate non-superuser role.
   if (options.runtimePassword) {
@@ -260,7 +269,7 @@ export async function runDatabaseMigrations(
       await query(`ALTER ROLE nexus_app PASSWORD '${password}'`);
       await query("GRANT USAGE ON SCHEMA public TO nexus_app");
       await query(
-        "GRANT SELECT,INSERT,UPDATE,DELETE ON users,user_settings,user_security,broker_usage,sessions,strategies,jobs,events,broker_credentials,worker_health,settings,live_accounts,live_orders,live_spreads,live_events,live_permissions,live_previews,broker_rpc_windows,research_strategies,research_runs TO nexus_app",
+        "GRANT SELECT,INSERT,UPDATE,DELETE ON users,user_settings,user_security,broker_usage,sessions,strategies,jobs,events,broker_credentials,worker_health,settings,live_accounts,live_orders,live_spreads,live_events,live_permissions,live_previews,broker_rpc_windows,research_strategies,research_runs,paper_accounts TO nexus_app",
       );
       await query(
         "GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO nexus_app",
@@ -298,7 +307,7 @@ export const lockWorkspaceSettings = async (
 
 if (isEntryPoint(import.meta.url)) {
   const local =
-    process.env.APP_ENV === "production"
+    (process.env.APP_ENV === "production" || process.env.NODE_ENV === "production")
       ? null
       : readLocalPostgresConfiguration();
   const store = openDatabaseStore(

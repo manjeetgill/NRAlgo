@@ -1,5 +1,5 @@
 /** Broker-neutral contracts for the isolated LIVE execution subsystem.
- * No paper/live boolean exists here. Real broker adapters are intentionally not installed.
+ * Only the separately authorized live control plane can construct a real execution adapter.
  * Prices and money are integer paise, quantities are exchange units, timestamps are Unix ms.
  */
 import { z } from "zod";
