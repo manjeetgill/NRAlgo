@@ -68,6 +68,7 @@ Screens call feature hooks/adapters → same-origin API → authenticated applic
 | [backend/main.ts](../backend/main.ts) | Composition root, authentication/CSRF, request admission and HTTP route registration; only explicit commands enable execution. |
 | [backend/types.ts](../backend/types.ts) | Workspace strategy/job schemas retained for current records and legacy migration compatibility. |
 | [backend/database.ts](../backend/database.ts) | PostgreSQL transactions, migrations, roles and durable ledgers; application data must not be reset during refactors. |
+| [backend/database-browser-routes.ts](../backend/database-browser-routes.ts) | Authenticated, owner-scoped, read-only allowlisted record browser; never exposes raw SQL, credentials or session tables. |
 | [backend/local-database.ts](../backend/local-database.ts) | Project-local PostgreSQL cluster discovery/start/stop; not a production orchestrator. |
 | [backend/security.ts](../backend/security.ts) | Password hashing, session hashing, secret encryption, request limits and safe error primitives. |
 | [backend/mfa.ts](../backend/mfa.ts) | Encrypted TOTP enrollment, verification/replay rejection, recovery codes and revocation. |
@@ -151,6 +152,8 @@ Screens call feature hooks/adapters → same-origin API → authenticated applic
 | [frontend/src/features/workspace/workspace-api.ts](../frontend/src/features/workspace/workspace-api.ts) | Runtime validation of workspace and public authentication-policy JSON. |
 | [frontend/src/features/workspace/use-workspace-session.ts](../frontend/src/features/workspace/use-workspace-session.ts) | Abortable/fenced session reads, explicit auth/logout and sequential active-job polling. |
 | [frontend/src/features/workspace/screen-error-boundary.tsx](../frontend/src/features/workspace/screen-error-boundary.tsx) | Screen-local render failure containment; never automatically repeats a mutation. |
+| [frontend/src/features/database/database-app.tsx](../frontend/src/features/database/database-app.tsx) | Separate authenticated local database-viewer composition selected only by its dedicated frontend process. |
+| [frontend/src/features/database/database-screen.tsx](../frontend/src/features/database/database-screen.tsx) | Read-only owner-scoped allowlisted record table with explicit and bounded periodic refresh. |
 | [frontend/src/features/auth/auth-screen.tsx](../frontend/src/features/auth/auth-screen.tsx) | Sign-in/setup/registration form presentation; clears submitted credentials and delegates auth lifecycle. |
 | [frontend/src/features/overview/overview-screen.tsx](../frontend/src/features/overview/overview-screen.tsx) | Overview presentation and shared-data actions, not broker protocol parsing. |
 | [frontend/src/features/overview/overview-screen.module.css](../frontend/src/features/overview/overview-screen.module.css) | Scoped Overview visual layout and responsive styles. |

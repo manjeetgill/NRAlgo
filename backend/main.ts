@@ -37,6 +37,7 @@ import { KotakMarketDataClient } from "./kotak-market-data-client.js";
 import { registerMfaRoutes, verifySecondFactor } from "./mfa.js";
 import { KotakLiveManager } from "./live/kotak-live-manager.js";
 import { registerKotakLiveRoutes } from "./live/kotak-live-routes.js";
+import { registerDatabaseBrowserRoutes } from "./database-browser-routes.js";
 import type { User, LoginSession, Job, Settings } from "./types.js";
 
 declare global {
@@ -146,9 +147,16 @@ export function createApiApplication(
     if (
       !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
       req.headers.origin &&
-      !(production ? [origin] : [origin, "http://127.0.0.1:3000"]).includes(
-        req.headers.origin,
-      )
+      !(
+        production
+          ? [origin]
+          : [
+              origin,
+              "http://127.0.0.1:3000",
+              "http://localhost:3002",
+              "http://127.0.0.1:3002",
+            ]
+      ).includes(req.headers.origin)
     ) {
       return res.status(403).json({ detail: "Origin not allowed" });
     }
@@ -674,6 +682,7 @@ export function createApiApplication(
     production,
     marketData,
   );
+  registerDatabaseBrowserRoutes(app, store);
   app.use((req, res) => res.status(404).json({ detail: "Not found" }));
   const errorHandler: ErrorRequestHandler = (err: unknown, req, res, next) => {
     const error = err as {

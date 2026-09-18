@@ -60,12 +60,23 @@ function stop(code = 0) {
     }
   }, 30000).unref();
 }
-const commands: [string, string[], string][] = [
+const commands: [string, string[], string, NodeJS.ProcessEnv?][] = [
   [process.execPath, ["--import", "tsx", "backend/main.ts"], root],
   ["npm", ["run", "dev"], `${root}frontend`],
+  [
+    "npm",
+    ["run", "dev", "--", "--port", "3002"],
+    `${root}frontend`,
+    { ...process.env, DATABASE_UI: "1" },
+  ],
 ];
-for (const [command, args, cwd] of commands) {
-  const child = spawn(command, args, { cwd, stdio: "inherit", detached: true });
+for (const [command, args, cwd, env] of commands) {
+  const child = spawn(command, args, {
+    cwd,
+    env,
+    stdio: "inherit",
+    detached: true,
+  });
   children.push(child);
   child.on("error", (error) => {
     console.error(error.message);
@@ -82,6 +93,7 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, () => stop());
 }
 console.debug("NRAlgo: http://localhost:3000");
+console.debug("Database UI: http://localhost:3002");
 if (process.env.NEXUS_NO_BROWSER !== "1") {
   for (let i = 0; i < 90 && !stopping; i++) {
     try {
