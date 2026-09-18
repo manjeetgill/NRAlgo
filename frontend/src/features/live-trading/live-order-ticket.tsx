@@ -122,6 +122,19 @@ export function LiveOrderTicket({ csrf }: { csrf: string }) {
     setPreview(null);
     setProof("");
   }
+  /** Halt account dispatch before requesting cancellation and then refresh broker-backed control state. */
+  async function requestLiveTradingDisable() {
+    await post("halt");
+    invalidate();
+    await refresh();
+    setMessage(
+      "Live trading disabled. Cancellation was requested but is not guaranteed; verify broker orders and positions.",
+    );
+  }
+  /** Serialize the explicit disable action through the shared pending-action guard. */
+  function handleLiveTradingDisable() {
+    void action(requestLiveTradingDisable);
+  }
   return (
     <section
       className="research-panel live-execution-panel"
@@ -129,16 +142,27 @@ export function LiveOrderTicket({ csrf }: { csrf: string }) {
     >
       <div className="panel-heading">
         <div>
-          <h2>Kotak live execution</h2>
-          <p>Real money · LIMIT / DAY · NSE cash and long options</p>
+          <h2>Live execution</h2>
+          <p>Connected broker · LIMIT / DAY · NSE cash and long options</p>
         </div>
       </div>
-      <p role="status">
-        {status?.armed
-          ? "Armed for live orders"
-          : "Live submission is not armed"}
-        . {status?.reason}
-      </p>
+      <fieldset disabled={busy}>
+        <legend>Live trading control</legend>
+        <p role="status">
+          Server capability: {status?.enabled ? "Available" : "Locked"} · Live
+          trading: {status?.armed ? "Enabled" : "Disabled"}. {status?.reason}
+        </p>
+        <p>
+          Enabling is temporary and requires reconciliation, an authenticator
+          code and explicit confirmation. Disabling blocks new submissions
+          first, then requests cancellation of non-terminal broker orders.
+        </p>
+        {configured && status?.enabled && (
+          <Button variant="secondary" onClick={handleLiveTradingDisable}>
+            Disable live trading + cancel pending orders
+          </Button>
+        )}
+      </fieldset>
       <p>
         Use a dedicated, initially flat trading account with an empty order
         book. Manual orders, carried positions or unknown outcomes halt
@@ -224,7 +248,7 @@ export function LiveOrderTicket({ csrf }: { csrf: string }) {
           {configured && (
             <>
               <fieldset disabled={busy}>
-                <legend>2. Reconcile and arm for five minutes</legend>
+                <legend>2. Enable live trading for five minutes</legend>
                 <label>
                   Fresh app authenticator code
                   <input
@@ -243,7 +267,9 @@ export function LiveOrderTicket({ csrf }: { csrf: string }) {
                   />
                 </label>
                 <Button
-                  disabled={armProof !== "ENABLE REAL MONEY" || !token}
+                  disabled={
+                    status?.armed || armProof !== "ENABLE REAL MONEY" || !token
+                  }
                   onClick={() =>
                     void action(async () => {
                       try {
@@ -256,7 +282,7 @@ export function LiveOrderTicket({ csrf }: { csrf: string }) {
                     })
                   }
                 >
-                  Arm live trading
+                  Enable live trading
                 </Button>
                 <Button
                   variant="secondary"
@@ -452,21 +478,6 @@ export function LiveOrderTicket({ csrf }: { csrf: string }) {
                   recreate this order.
                 </p>
               )}
-              <Button
-                variant="secondary"
-                onClick={() =>
-                  void action(async () => {
-                    await post("halt");
-                    invalidate();
-                    await refresh();
-                    setMessage(
-                      "Live halted. Cancellation requested—not guaranteed. Check broker orders and remaining positions.",
-                    );
-                  })
-                }
-              >
-                HALT LIVE + request cancellation
-              </Button>
               <table>
                 <thead>
                   <tr>
