@@ -5,6 +5,9 @@ Updated 18 September 2026. Paths are relative to the repository root. This cover
 ## Dependency direction
 
 New screen infrastructure:
+- [frontend/src/features/spread-builder/spread-payoff.ts](../frontend/src/features/spread-builder/spread-payoff.ts): exact expiry extrema and breakevens with unbounded tail handling.
+- [frontend/src/features/research/research-workbench.tsx](../frontend/src/features/research/research-workbench.tsx): shared saved definitions, actual historical runs and quote-derived payoff for Algo lab and Spread builder.
+- [frontend/src/features/spread-builder/spread-builder-screen.tsx](../frontend/src/features/spread-builder/spread-builder-screen.tsx): dedicated options research entry point; starts with no fabricated contracts.
 - [frontend/src/features/strategies/use-strategy-library.ts](../frontend/src/features/strategies/use-strategy-library.ts): abortable, validated real research library reads.
 - [frontend/src/features/workspace/workspace-responsive.css](../frontend/src/features/workspace/workspace-responsive.css): shared responsive screen layout and mobile navigation.
 

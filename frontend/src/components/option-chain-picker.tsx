@@ -68,7 +68,7 @@ export function OptionChainPicker({
       />
       <p>
         Selection starts at one lot. Review side and quantity in the builder.
-        Paper orders use virtual funds only.
+        This selection creates research inputs only; it cannot submit an order.
       </p>
     </section>
   );

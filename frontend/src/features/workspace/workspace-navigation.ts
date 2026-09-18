@@ -18,6 +18,7 @@ export const workspaceNavigation: ReadonlyArray<{
   { name: "Overview", icon: LayoutDashboard },
   { name: "Strategies", icon: Blocks },
   { name: "Strategy lab", icon: FlaskConical },
+  { name: "Spread builder", icon: Blocks },
   { name: "Broker paper", icon: Radio },
   { name: "Market data", icon: Database },
   { name: "Orders & trades", icon: ArrowDownLeft },

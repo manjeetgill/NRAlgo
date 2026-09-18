@@ -87,9 +87,9 @@ export function WorkspaceShell({
   }, [onNavigate]);
   /** Pass a saved identity in memory; research data remains owner-checked by the API. */
   const onOpenStrategy = useCallback(
-    (id: string) => {
+    (id: string, market: "cash" | "options") => {
       setResearchStrategyId(id);
-      onNavigate("Strategy lab");
+      onNavigate(market === "options" ? "Spread builder" : "Strategy lab");
     },
     [onNavigate],
   );

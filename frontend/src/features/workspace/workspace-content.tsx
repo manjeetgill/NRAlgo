@@ -29,6 +29,14 @@ const PaperTradingScreen = dynamic(
     ),
   { loading: ScreenLoading },
 );
+/** Load the dedicated spread screen only when selected. */
+const SpreadBuilderScreen = dynamic(
+  () =>
+    import("@/features/spread-builder/spread-builder-screen").then(
+      (module) => module.SpreadBuilderScreen,
+    ),
+  { loading: ScreenLoading },
+);
 const MarketDataScreen = dynamic(
   () =>
     import("@/features/market-data/market-data-screen").then(
@@ -123,6 +131,13 @@ export function WorkspaceContent({
       );
     case "Broker paper":
       return <PaperTradingScreen csrf={workspace.csrf} />;
+    case "Spread builder":
+      return (
+        <SpreadBuilderScreen
+          csrf={workspace.csrf}
+          initialStrategyId={researchStrategyId}
+        />
+      );
     case "Market data":
       return (
         <MarketDataScreen

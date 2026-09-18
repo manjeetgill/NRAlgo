@@ -1,6 +1,6 @@
 # Screen implementation
 
-Reference: the supplied NRIAlgo PDF (pages 1–34), presentation guide and clickable HTML. Reference values are not application data. Each numbered screen is a separate commit; related dialogs belong to their screen.
+Source of truth: **NRIAlgo_Latest_App_Screens.pdf**, 93 pages, supplied 18 September 2026. It supersedes the earlier PDF and HTML layouts. Reference values are not application data. Each screen has a separate commit; related dialogs belong to their screen. The main-screen sequence now additionally includes Strategy library and Backtest studio between Strategies and Algo lab.
 
 ## Delivery sequence
 
