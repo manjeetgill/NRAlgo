@@ -14,7 +14,6 @@ import {
 } from "react";
 import { requestApiJson } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { BrokerPortfolioPanel } from "@/components/broker-portfolio-panel";
 import { KotakOptionChain } from "@/components/kotak-option-chain";
 import {
   InstrumentPicker,
@@ -76,21 +75,13 @@ function request(path: string, csrf: string, body?: unknown, method?: string) {
 }
 /** Mount one virtual wallet; no control here can call live execution. */
 export function PaperTradingScreen({ csrf }: { csrf: string }) {
-  const broker: Broker = "kotak";
-  const [portfolio, setPortfolio] = useState(false);
   return (
-    <section className="research-panel" aria-label="Broker paper trading">
-      <h2>Broker-connected paper trading</h2>
-      <p>Real broker quotes · Virtual ₹1,00,000 per broker · No real orders</p>
-      <p>Market-data broker: Kotak Neo</p>
-      <Button variant="secondary" onClick={() => setPortfolio(!portfolio)}>
-        {portfolio ? "Back to paper trading" : "View broker portfolio"}
-      </Button>
-      {portfolio ? (
-        <BrokerPortfolioPanel key={broker} broker={broker} csrf={csrf} />
-      ) : (
-        <PaperWallet key={broker} broker={broker} csrf={csrf} />
-      )}
+    <section className="screen-stack" aria-label="Broker paper trading">
+      <p>
+        Practice with a separate virtual ledger using actual broker quotes. No
+        real orders are submitted.
+      </p>
+      <PaperWallet broker="kotak" csrf={csrf} />
     </section>
   );
 }
@@ -106,7 +97,7 @@ function PaperWallet({ broker, csrf }: { broker: Broker; csrf: string }) {
   const [instrument, setInstrument] = useState(""),
     [side, setSide] = useState("buy");
   const [quantity, setQuantity] = useState(1),
-    [limit, setLimit] = useState("100");
+    [limit, setLimit] = useState("");
   const [market, setMarket] = useState("cash");
   const [option, setOption] = useState({
     expiryDate: "",
@@ -128,13 +119,20 @@ function PaperWallet({ broker, csrf }: { broker: Broker; csrf: string }) {
   const [editing, setEditing] = useState<Order | null>(null),
     [editQuantity, setEditQuantity] = useState(1),
     [editLimit, setEditLimit] = useState("");
-  const [login, setLogin] = useState({
-    accessToken: "",
-    mobileNumber: "",
-    ucc: "",
-    totp: "",
-    mpin: "",
-  });
+  const orderDialog = useRef<HTMLDialogElement>(null);
+  const reviewDialog = useRef<HTMLDialogElement>(null);
+  const detailDialog = useRef<HTMLDialogElement>(null);
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [reviewed, setReviewed] = useState(false);
+  const [review, setReview] = useState<{
+    expiresAt: number;
+    instrument: string;
+    side: string;
+    quantity: number;
+    limitPaise: number;
+    option?: typeof option;
+    masterToken?: string;
+  } | null>(null);
   const [, tick] = useState(0);
   /** Load the virtual wallet once; the local clock only ages quote labels, and both lifecycles stop on unmount. */
   useEffect(() => {
@@ -220,18 +218,38 @@ function PaperWallet({ broker, csrf }: { broker: Broker; csrf: string }) {
   /** Retrying identical content reuses the same key. Editing fields explicitly starts a new intent. */
   function submit(event: FormEvent) {
     event.preventDefault();
+    setReview({
+      instrument,
+      ...contractFields,
+      side,
+      quantity,
+      limitPaise: Math.round(Number(limit) * 100),
+      expiresAt: Date.now() + 30000,
+    });
+    setReviewed(false);
+    orderDialog.current?.close();
+    reviewDialog.current?.showModal();
+  }
+  /** Confirm the exact reviewed intent once; preserve its idempotency key if the response is uncertain. */
+  function confirmPaperOrder() {
+    if (!review || !reviewed || Date.now() > review.expiresAt) {
+      return;
+    }
     void act(async () => {
       orderKey.current ||= crypto.randomUUID();
       const result = await request(`${broker}/orders`, csrf, {
         key: orderKey.current,
-        instrument,
-        ...contractFields,
-        side,
-        quantity,
-        limitPaise: Math.round(Number(limit) * 100),
+        instrument: review.instrument,
+        ...(review.option ? { option: review.option } : {}),
+        ...(review.masterToken ? { masterToken: review.masterToken } : {}),
+        side: review.side,
+        quantity: review.quantity,
+        limitPaise: review.limitPaise,
       });
       setWallet((previous) => ({ ...previous, ...result }));
       orderKey.current = "";
+      reviewDialog.current?.close();
+      setReview(null);
       setNotice(
         "Paper order accepted locally. Refresh quotes to evaluate a fill.",
       );
@@ -259,85 +277,25 @@ function PaperWallet({ broker, csrf }: { broker: Broker; csrf: string }) {
           ? "Quote matching every 10 seconds"
           : "Automatic matching stopped"}
       </p>
-      {
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            void act(async () => {
-              try {
-                await request("kotak/connect", csrf, login);
-                setWallet(await request(broker, csrf));
-                setNotice("Kotak connected for market data only.");
-              } finally {
-                setLogin({
-                  accessToken: "",
-                  mobileNumber: "",
-                  ucc: "",
-                  totp: "",
-                  mpin: "",
-                });
-              }
-            });
-          }}
-          autoComplete="off"
+      <div className="screen-toolbar">
+        <span className="badge">Kotak · paper ledger</span>
+        <Button
+          disabled={!wallet?.connected || busy}
+          onClick={() => orderDialog.current?.showModal()}
         >
-          <h3>Kotak data connection</h3>
-          <p>
-            API dashboard token, registered TOTP and MPIN. Used only by your
-            server; not saved. Reconnect after logout or server restart.
-          </p>
-          <div className="paper-grid">
-            {(
-              [
-                ["accessToken", "Kotak API access token", "password"],
-                ["mobileNumber", "Mobile (+91…)", "text"],
-                ["ucc", "Kotak client code (UCC)", "text"],
-                ["totp", "Kotak TOTP", "password"],
-                ["mpin", "Kotak MPIN", "password"],
-              ] as const
-            ).map(([key, label, type]) => (
-              <label key={key}>
-                {label}
-                <input
-                  required
-                  type={type}
-                  value={login[key]}
-                  onChange={(e) =>
-                    setLogin({ ...login, [key]: e.target.value })
-                  }
-                  autoComplete="off"
-                />
-              </label>
-            ))}
-          </div>
-          <Button disabled={busy} type="submit">
-            Connect Kotak data
-          </Button>
-          {wallet?.connected && (
-            <Button
-              type="button"
-              variant="secondary"
-              disabled={busy}
-              onClick={() =>
-                void act(async () => {
-                  setAutomatic(false);
-                  await request("kotak/connect", csrf, undefined, "DELETE");
-                  setWallet(await request(broker, csrf));
-                })
-              }
-            >
-              Disconnect Kotak
-            </Button>
-          )}
-        </form>
-      }
+          New order
+        </Button>
+      </div>
+      {!wallet?.connected && (
+        <p>Connect Kotak in Broker connections to obtain market quotes.</p>
+      )}
       {error && (
         <p role="alert" className="form-error">
           {error}
         </p>
       )}
       {notice && <p role="status">{notice}</p>}
-      <h3>Paper portfolio · virtual funds only</h3>
+      <h3>Paper account · virtual funds only</h3>
       {!!wallet?.settlementRequired?.length && (
         <p role="alert">
           Expired contracts need settlement, which is not simulated. Their value
@@ -349,7 +307,12 @@ function PaperWallet({ broker, csrf }: { broker: Broker; csrf: string }) {
           Virtual cash<strong>{money(wallet?.cashPaise)}</strong>
         </div>
         <div>
-          Reserved cash<strong>{money(wallet?.reservedPaise)}</strong>
+          Open orders
+          <strong>
+            {wallet
+              ? wallet.orders.filter((order) => order.state === "open").length
+              : "—"}
+          </strong>
         </div>
         <div>
           Realized P&amp;L<strong>{money(wallet?.realizedPaise)}</strong>
@@ -359,235 +322,308 @@ function PaperWallet({ broker, csrf }: { broker: Broker; csrf: string }) {
           <strong>{money(staleMarks ? null : wallet?.unrealizedPaise)}</strong>
         </div>
       </div>
-      <form
-        onSubmit={submit}
-        onChange={() => {
-          orderKey.current = "";
-        }}
+      <dialog
+        ref={orderDialog}
+        className="workspace-dialog"
+        aria-labelledby="paper-ticket-title"
       >
-        <h3>NSE cash / options · Paper limit order</h3>
-        <label>
-          Paper market
-          <select
-            value={market}
-            onChange={(e) => {
-              setMarket(e.target.value);
-              setSelectedInstrument(null);
-            }}
+        <div className="screen-toolbar">
+          <h2 id="paper-ticket-title">New paper order</h2>
+          <Button
+            variant="secondary"
+            onClick={() => orderDialog.current?.close()}
           >
-            <option value="cash">NSE cash</option>
-            <option value="options">NSE options (NFO)</option>
-          </select>
-        </label>
-        {broker === "kotak" && market === "options" && (
-          <KotakOptionChain
-            csrf={csrf}
-            disabled={busy || !wallet?.connected}
-            onSelect={(item) => {
-              setSelectedInstrument(item);
-              setInstrument(item.instrument);
-              if (item.option) {
-                setOption(item.option);
-              }
-              setQuantity(item.lotSize);
-              orderKey.current = "";
-              setNotice(
-                "Kotak contract selected. Review the paper limit; a fresh quote is required for matching.",
-              );
-            }}
-          />
-        )}
-        {!(broker === "kotak" && market === "cash") && (
-          <InstrumentPicker
-            key={`${broker}:${market}`}
-            broker={broker}
-            market={market as "cash" | "options"}
-            csrf={csrf}
-            disabled={busy || !wallet?.connected}
-            onSelect={(item) => {
-              setSelectedInstrument(item);
-              setInstrument(item.instrument);
-              if (item.option) {
-                setOption(item.option);
-              }
-              setQuantity(item.lotSize);
-              orderKey.current = "";
-              setNotice(
-                "Contract selected from broker master. Quantity set to one lot; review side and limit before placing a paper order.",
-              );
-            }}
-          />
-        )}
-        {selectedInstrument ? (
-          <p>
-            Broker-master contract selected; identity and lot size are locked.{" "}
-            {!(broker === "kotak" && market === "cash") && (
-              <Button
-                type="button"
-                variant="secondary"
+            Close order form
+          </Button>
+        </div>
+        <form
+          onSubmit={submit}
+          onChange={() => {
+            orderKey.current = "";
+          }}
+        >
+          <h3>NSE cash / options · Paper limit order</h3>
+          <label>
+            Paper market
+            <select
+              value={market}
+              onChange={(e) => {
+                setMarket(e.target.value);
+                setSelectedInstrument(null);
+              }}
+            >
+              <option value="cash">NSE cash</option>
+              <option value="options">NSE options (NFO)</option>
+            </select>
+          </label>
+          {broker === "kotak" && market === "options" && (
+            <KotakOptionChain
+              csrf={csrf}
+              disabled={busy || !wallet?.connected}
+              onSelect={(item) => {
+                setSelectedInstrument(item);
+                setInstrument(item.instrument);
+                if (item.option) {
+                  setOption(item.option);
+                }
+                setQuantity(item.lotSize);
+                orderKey.current = "";
+                setNotice(
+                  "Kotak contract selected. Review the paper limit; a fresh quote is required for matching.",
+                );
+              }}
+            />
+          )}
+          {!(broker === "kotak" && market === "cash") && (
+            <InstrumentPicker
+              key={`${broker}:${market}`}
+              broker={broker}
+              market={market as "cash" | "options"}
+              csrf={csrf}
+              disabled={busy || !wallet?.connected}
+              onSelect={(item) => {
+                setSelectedInstrument(item);
+                setInstrument(item.instrument);
+                if (item.option) {
+                  setOption(item.option);
+                }
+                setQuantity(item.lotSize);
+                orderKey.current = "";
+                setNotice(
+                  "Contract selected from broker master. Quantity set to one lot; review side and limit before placing a paper order.",
+                );
+              }}
+            />
+          )}
+          {selectedInstrument ? (
+            <p>
+              Broker-master contract selected; identity and lot size are locked.{" "}
+              {!(broker === "kotak" && market === "cash") && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={busy}
+                  onClick={() => {
+                    setSelectedInstrument(null);
+                    orderKey.current = "";
+                  }}
+                >
+                  Use manual research entry
+                </Button>
+              )}
+            </p>
+          ) : (
+            <p>
+              {broker === "kotak" && market === "cash"
+                ? "Select a supported symbol from the Kotak dropdown below. Its broker token is filled automatically."
+                : "Manual research entry: contract details and lot sizes are unverified. Prefer selecting a broker-master contract above."}
+            </p>
+          )}
+          {market === "options" && (
+            <div className="paper-grid">
+              <label>
+                Option expiry
+                <input
+                  required
+                  type="date"
+                  disabled={Boolean(selectedInstrument)}
+                  value={option.expiryDate}
+                  onChange={(e) =>
+                    setOption({ ...option, expiryDate: e.target.value })
+                  }
+                />
+              </label>
+              <label>
+                Option type
+                <select
+                  value={option.right}
+                  disabled={Boolean(selectedInstrument)}
+                  onChange={(e) =>
+                    setOption({ ...option, right: e.target.value })
+                  }
+                >
+                  <option value="call">Call</option>
+                  <option value="put">Put</option>
+                </select>
+              </label>
+              <label>
+                Strike (₹)
+                <input
+                  required
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={option.strikePrice || ""}
+                  disabled={Boolean(selectedInstrument)}
+                  onChange={(e) =>
+                    setOption({
+                      ...option,
+                      strikePrice: Number(e.target.value),
+                    })
+                  }
+                />
+              </label>
+              <label>
+                Declared lot size
+                <input
+                  required
+                  type="number"
+                  min="1"
+                  max="10000"
+                  value={option.lotSize}
+                  disabled={Boolean(selectedInstrument)}
+                  onChange={(e) =>
+                    setOption({ ...option, lotSize: Number(e.target.value) })
+                  }
+                />
+              </label>
+            </div>
+          )}
+          <div className="paper-grid">
+            {broker === "kotak" && market === "cash" ? (
+              <CashSymbolSelect
+                csrf={csrf}
+                connected={Boolean(wallet?.connected)}
                 disabled={busy}
-                onClick={() => {
+                selected={selectedInstrument}
+                onSelect={(item) => {
+                  setSelectedInstrument(item);
+                  setInstrument(item.instrument);
+                  setQuantity(item.lotSize);
+                  orderKey.current = "";
+                  setNotice(
+                    "Kotak symbol selected. Review quantity and limit, then refresh paper quotes.",
+                  );
+                }}
+                onClear={() => {
                   setSelectedInstrument(null);
+                  setInstrument("");
                   orderKey.current = "";
                 }}
-              >
-                Use manual research entry
-              </Button>
-            )}
-          </p>
-        ) : (
-          <p>
-            {broker === "kotak" && market === "cash"
-              ? "Select a supported symbol from the Kotak dropdown below. Its broker token is filled automatically."
-              : "Manual research entry: contract details and lot sizes are unverified. Prefer selecting a broker-master contract above."}
-          </p>
-        )}
-        {market === "options" && (
-          <div className="paper-grid">
-            <label>
-              Option expiry
-              <input
-                required
-                type="date"
-                disabled={Boolean(selectedInstrument)}
-                value={option.expiryDate}
-                onChange={(e) =>
-                  setOption({ ...option, expiryDate: e.target.value })
-                }
               />
-            </label>
+            ) : (
+              <label>
+                Kotak NFO option token (pSymbol)
+                <input
+                  required
+                  value={instrument}
+                  disabled={Boolean(selectedInstrument)}
+                  onChange={(e) => setInstrument(e.target.value.toUpperCase())}
+                />
+              </label>
+            )}
             <label>
-              Option type
-              <select
-                value={option.right}
-                disabled={Boolean(selectedInstrument)}
-                onChange={(e) =>
-                  setOption({ ...option, right: e.target.value })
-                }
-              >
-                <option value="call">Call</option>
-                <option value="put">Put</option>
+              Paper side
+              <select value={side} onChange={(e) => setSide(e.target.value)}>
+                <option value="buy">Buy</option>
+                <option value="sell">Sell held units</option>
               </select>
             </label>
             <label>
-              Strike (₹)
-              <input
-                required
-                type="number"
-                min="0.01"
-                step="0.01"
-                value={option.strikePrice || ""}
-                disabled={Boolean(selectedInstrument)}
-                onChange={(e) =>
-                  setOption({ ...option, strikePrice: Number(e.target.value) })
-                }
-              />
-            </label>
-            <label>
-              Declared lot size
+              Paper quantity
               <input
                 required
                 type="number"
                 min="1"
                 max="10000"
-                value={option.lotSize}
-                disabled={Boolean(selectedInstrument)}
-                onChange={(e) =>
-                  setOption({ ...option, lotSize: Number(e.target.value) })
-                }
+                value={quantity}
+                onChange={(e) => setQuantity(Number(e.target.value))}
+              />
+            </label>
+            <label>
+              Paper limit (₹)
+              <input
+                required
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={limit}
+                onChange={(e) => setLimit(e.target.value)}
               />
             </label>
           </div>
+          <Button
+            disabled={
+              busy ||
+              !wallet?.connected ||
+              (broker === "kotak" && market === "cash" && !selectedInstrument)
+            }
+          >
+            Review paper order
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={busy || !wallet?.connected || !instrument}
+            onClick={() => void act(() => refresh(true))}
+          >
+            Refresh paper quotes
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={!wallet?.connected}
+            onClick={() => setAutomatic((value) => !value)}
+          >
+            {automatic ? "Stop paper matching" : "Start paper matching"}
+          </Button>
+        </form>
+      </dialog>
+      <dialog
+        ref={reviewDialog}
+        className="workspace-dialog"
+        aria-labelledby="paper-review-title"
+      >
+        <h2 id="paper-review-title">Review paper order</h2>
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
         )}
-        <div className="paper-grid">
-          {broker === "kotak" && market === "cash" ? (
-            <CashSymbolSelect
-              csrf={csrf}
-              connected={Boolean(wallet?.connected)}
-              disabled={busy}
-              selected={selectedInstrument}
-              onSelect={(item) => {
-                setSelectedInstrument(item);
-                setInstrument(item.instrument);
-                setQuantity(item.lotSize);
-                orderKey.current = "";
-                setNotice(
-                  "Kotak symbol selected. Review quantity and limit, then refresh paper quotes.",
-                );
-              }}
-              onClear={() => {
-                setSelectedInstrument(null);
-                setInstrument("");
-                orderKey.current = "";
-              }}
-            />
-          ) : (
+        {review && (
+          <>
+            <p>Kotak · Virtual funds only</p>
+            <p>
+              {review.side.toUpperCase()} {review.quantity} units of{" "}
+              {review.instrument} at limit {money(review.limitPaise)}
+            </p>
+            <p>
+              Maximum limit notional:{" "}
+              {money(review.limitPaise * review.quantity)} before modeled fees.
+              Acceptance does not guarantee a fill.
+            </p>
             <label>
-              Kotak NFO option token (pSymbol)
               <input
-                required
-                value={instrument}
-                disabled={Boolean(selectedInstrument)}
-                onChange={(e) => setInstrument(e.target.value.toUpperCase())}
+                type="checkbox"
+                checked={reviewed}
+                onChange={(event) => setReviewed(event.target.checked)}
               />
+              I have reviewed the contract, units and limit.
             </label>
-          )}
-          <label>
-            Paper side
-            <select value={side} onChange={(e) => setSide(e.target.value)}>
-              <option value="buy">Buy</option>
-              <option value="sell">Sell held units</option>
-            </select>
-          </label>
-          <label>
-            Paper quantity
-            <input
-              required
-              type="number"
-              min="1"
-              max="10000"
-              value={quantity}
-              onChange={(e) => setQuantity(Number(e.target.value))}
-            />
-          </label>
-          <label>
-            Paper limit (₹)
-            <input
-              required
-              type="number"
-              min="0.01"
-              step="0.01"
-              value={limit}
-              onChange={(e) => setLimit(e.target.value)}
-            />
-          </label>
-        </div>
+            {Date.now() > review.expiresAt && (
+              <p role="alert">
+                Review expired. Reopen the order form to review again.
+              </p>
+            )}
+            <Button
+              disabled={busy || !reviewed || Date.now() > review.expiresAt}
+              onClick={confirmPaperOrder}
+            >
+              Confirm paper order
+            </Button>
+          </>
+        )}
         <Button
-          disabled={
-            busy ||
-            !wallet?.connected ||
-            (broker === "kotak" && market === "cash" && !selectedInstrument)
-          }
-        >
-          Place paper order
-        </Button>
-        <Button
-          type="button"
           variant="secondary"
-          disabled={busy || !wallet?.connected || !instrument}
-          onClick={() => void act(() => refresh(true))}
+          disabled={busy}
+          onClick={() => {
+            reviewDialog.current?.close();
+            orderDialog.current?.showModal();
+          }}
         >
-          Refresh paper quotes
+          Back to order
         </Button>
-        <Button
-          type="button"
-          variant="secondary"
-          disabled={!wallet?.connected}
-          onClick={() => setAutomatic((value) => !value)}
-        >
-          {automatic ? "Stop paper matching" : "Start paper matching"}
-        </Button>
-      </form>
+      </dialog>
       <p>
         Weekdays 09:15–15:30 IST; DAY orders expire. Up to four active
         instruments. Matching runs only while this page is active. A
@@ -684,7 +720,44 @@ function PaperWallet({ broker, csrf }: { broker: Broker; csrf: string }) {
           </tbody>
         </table>
       </div>
-      <h3>Paper orders</h3>
+      <h3>Orders and fills</h3>
+      <dialog
+        ref={detailDialog}
+        className="workspace-dialog"
+        aria-labelledby="paper-order-details"
+      >
+        <div className="screen-toolbar">
+          <h2 id="paper-order-details">Paper order details</h2>
+          <Button
+            variant="secondary"
+            onClick={() => detailDialog.current?.close()}
+          >
+            Close details
+          </Button>
+        </div>
+        {selectedOrder && (
+          <dl>
+            <dt>Order ID</dt>
+            <dd>{selectedOrder.key}</dd>
+            <dt>Instrument</dt>
+            <dd>{selectedOrder.instrument}</dd>
+            <dt>Side / units</dt>
+            <dd>
+              {selectedOrder.side} / {selectedOrder.quantity}
+            </dd>
+            <dt>Status</dt>
+            <dd>{selectedOrder.state}</dd>
+            <dt>Limit</dt>
+            <dd>{money(selectedOrder.limitPaise)}</dd>
+            <dt>Fill price</dt>
+            <dd>
+              {selectedOrder.fillPaise
+                ? money(selectedOrder.fillPaise)
+                : "Not filled"}
+            </dd>
+          </dl>
+        )}
+      </dialog>
       <div className="paper-table">
         <table>
           <thead>
@@ -712,6 +785,15 @@ function PaperWallet({ broker, csrf }: { broker: Broker; csrf: string }) {
                 <td>{order.state}</td>
                 <td>{order.fillPaise ? money(order.fillPaise) : "—"}</td>
                 <td>
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      setSelectedOrder(order);
+                      detailDialog.current?.showModal();
+                    }}
+                  >
+                    Details
+                  </Button>
                   {order.state === "open" && (
                     <>
                       <Button
@@ -730,6 +812,13 @@ function PaperWallet({ broker, csrf }: { broker: Broker; csrf: string }) {
                         disabled={busy}
                         onClick={() =>
                           void act(async () => {
+                            if (
+                              !window.confirm(
+                                "Cancel the remaining open quantity of this paper order?",
+                              )
+                            ) {
+                              return;
+                            }
                             const result = await request(
                               `${broker}/orders/${order.key}/cancel`,
                               csrf,
