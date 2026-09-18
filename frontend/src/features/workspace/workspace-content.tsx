@@ -177,6 +177,7 @@ export function WorkspaceContent({
           initialStrategyId={researchStrategyId}
           draft={spreadDraft}
           onDraftChange={onDraftChange}
+          onExploreOptionChain={onExploreOptionChain}
         />
       );
     case "Option chain":

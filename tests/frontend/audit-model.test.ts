@@ -26,6 +26,8 @@ test("13-T03 IST date boundary renders the exchange date, independent of browser
 });
 
 test("audit categories prefer security/execution over incidental broker names", () => {
+  assert.equal(categorizeAuditEvent("Signed in."), "Security");
+  assert.equal(categorizeAuditEvent("Signed out."), "Security");
   assert.equal(categorizeAuditEvent("Kotak order rejected"), "Trading");
   assert.equal(
     categorizeAuditEvent("MFA enabled; broker disconnected"),

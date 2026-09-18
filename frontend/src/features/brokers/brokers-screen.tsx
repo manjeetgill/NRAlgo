@@ -39,90 +39,95 @@ export function BrokersScreen({ csrf }: { csrf: string }) {
 
   return (
     <section className="screen-stack" aria-label="Broker connection">
-      <article className="panel screen-card">
-        <div className="screen-toolbar">
-          <h2>{adapter.name}</h2>
-          <span className="badge">
+      <div className="screen-two-columns broker-cards">
+        <article className="panel screen-card">
+          <div className="screen-toolbar">
+            <h2 className="broker-card-title">
+              <span className="connection-logo">K</span>
+              {adapter.name}
+            </h2>
+            <span className="badge">
+              {connection.connected === null
+                ? "Unknown"
+                : connection.connected
+                  ? "Connected"
+                  : "Not connected"}
+            </span>
+          </div>
+          <p>
+            {adapter.name} · Connect your account for market data and account
+            access.
+          </p>
+          <p>
+            Connecting does not enable order submission. Live authorization
+            remains a separate step.
+          </p>
+          <p role="status">
             {connection.connected === null
-              ? "Unknown"
+              ? "Connection status unknown"
               : connection.connected
                 ? "Connected"
                 : "Not connected"}
-          </span>
-        </div>
-        <p>
-          {adapter.name} · Connect your account for market data and account
-          access.
-        </p>
-        <p>
-          Connecting does not enable order submission. Live authorization
-          remains a separate step.
-        </p>
-        <p role="status">
-          {connection.connected === null
-            ? "Connection status unknown"
-            : connection.connected
-              ? "Connected"
-              : "Not connected"}
-        </p>
-        {connection.error && <p role="alert">{connection.error}</p>}
-        <dl className="broker-connection-facts">
-          <dt>Account</dt>
-          <dd>
-            {connection.connected
-              ? "Authenticated server session · identifier not exposed"
-              : "No verified session"}
-          </dd>
-          <dt>Capabilities</dt>
-          <dd>
-            Market quotes, historical candles and account reads. Execution
-            requires separate live authorization.
-          </dd>
-          <dt>Last checked (IST)</dt>
-          <dd>
-            {connection.checkedAt
-              ? new Date(connection.checkedAt).toLocaleString("en-IN", {
-                  timeZone: "Asia/Kolkata",
-                })
-              : "—"}
-          </dd>
-        </dl>
-        <div className="screen-toolbar">
-          <Button
-            variant="secondary"
-            disabled={connection.busy}
-            onClick={() => void connection.refreshStatus()}
-          >
-            Check session
-          </Button>
-          <Button
-            disabled={connection.busy}
-            onClick={() => connectDialog.current?.showModal()}
-          >
-            {connection.connected ? "Reconnect" : "Connect broker"}
-          </Button>
-          {connection.connected && (
+          </p>
+          {connection.error && <p role="alert">{connection.error}</p>}
+          <dl className="broker-connection-facts">
+            <dt>Account</dt>
+            <dd>
+              {connection.connected
+                ? "Authenticated server session · identifier not exposed"
+                : "No verified session"}
+            </dd>
+            <dt>Capabilities</dt>
+            <dd>
+              Market quotes, historical candles and account reads. Execution
+              requires separate live authorization.
+            </dd>
+            <dt>Last checked (IST)</dt>
+            <dd>
+              {connection.checkedAt
+                ? new Date(connection.checkedAt).toLocaleString("en-IN", {
+                    timeZone: "Asia/Kolkata",
+                  })
+                : "—"}
+            </dd>
+          </dl>
+          <div className="screen-toolbar">
             <Button
               variant="secondary"
               disabled={connection.busy}
-              onClick={onDisconnect}
+              onClick={() => void connection.refreshStatus()}
             >
-              Disconnect
+              Verify session
             </Button>
-          )}
-        </div>
-        <p>
-          Session checks report server connection state; they do not place an
-          order or verify every market-data permission.
-        </p>
-        <Button
-          variant="secondary"
-          disabled={!connection.connected}
-          onClick={() => setShowPortfolio(!showPortfolio)}
-        >
-          {showPortfolio ? "Hide broker portfolio" : "View broker portfolio"}
-        </Button>
-      </article>
+            <Button
+              disabled={connection.busy}
+              onClick={() => connectDialog.current?.showModal()}
+            >
+              {connection.connected ? "Reconnect" : "Connect broker"}
+            </Button>
+            {connection.connected && (
+              <Button
+                variant="secondary"
+                disabled={connection.busy}
+                onClick={onDisconnect}
+              >
+                Disconnect
+              </Button>
+            )}
+          </div>
+          <p>
+            Session checks report server connection state; they do not place an
+            order or verify every market-data permission.
+          </p>
+          <Button
+            variant="secondary"
+            disabled={!connection.connected}
+            onClick={() => setShowPortfolio(!showPortfolio)}
+          >
+            {showPortfolio ? "Hide broker portfolio" : "View broker portfolio"}
+          </Button>
+        </article>
+      </div>
       {showPortfolio && connection.connected && (
         <BrokerPortfolioPanel broker="kotak" csrf={csrf} />
       )}

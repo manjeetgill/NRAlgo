@@ -2,6 +2,7 @@
 /** Saved research definitions are independent of paper wallets and live execution permission. */
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { PageActions } from "@/features/workspace/page-actions";
 import { useStrategyLibrary } from "./use-strategy-library";
 
 /** Search persisted owner-scoped definitions; opening a row never starts an order or replay. */
@@ -15,26 +16,43 @@ export function StrategiesScreen({
   const library = useStrategyLibrary(csrf);
   const [search, setSearch] = useState("");
   const [market, setMarket] = useState("all");
+  const [status, setStatus] = useState("All");
   /** Recompute displayed rows only when the library or filters change. */
   const filtered = useMemo(
     () =>
       library.strategies.filter(
         (strategy) =>
+          (status === "All" || status === "Saved") &&
           (market === "all" || strategy.definition.market === market) &&
           `${strategy.definition.name} ${strategy.definition.legs.map((leg) => leg.stockCode).join(" ")}`
             .toLowerCase()
             .includes(search.trim().toLowerCase()),
       ),
-    [library.strategies, search, market],
+    [library.strategies, search, market, status],
   );
   return (
     <section aria-label="Saved strategies" className="screen-stack">
-      <div className="screen-toolbar">
-        <p>Build, test and manage your trading ideas.</p>
+      <PageActions>
         <Button onClick={() => onOpenStrategy("", "cash")}>New strategy</Button>
-      </div>
+      </PageActions>
       <div className="panel screen-card">
-        <div className="screen-toolbar">
+        <div className="screen-toolbar strategy-toolbar">
+          <div
+            className="screen-filters"
+            role="group"
+            aria-label="Strategy status filter"
+          >
+            {["All", "Running", "Stopped", "Draft", "Saved"].map((value) => (
+              <Button
+                key={value}
+                variant={status === value ? "primary" : "secondary"}
+                aria-pressed={status === value}
+                onClick={() => setStatus(value)}
+              >
+                {value}
+              </Button>
+            ))}
+          </div>
           <label>
             Search strategies
             <input
@@ -43,27 +61,22 @@ export function StrategiesScreen({
               placeholder="Name or underlying"
             />
           </label>
-          <div
-            className="screen-filters"
-            role="group"
-            aria-label="Strategy market filter"
-          >
-            {[
-              ["all", "All"],
-              ["cash", "Cash"],
-              ["options", "Spreads"],
-            ].map(([value, label]) => (
-              <Button
-                key={value}
-                variant={market === value ? "primary" : "secondary"}
-                aria-pressed={market === value}
-                onClick={() => setMarket(value)}
-              >
-                {label}
-              </Button>
-            ))}
-          </div>
         </div>
+        <details className="strategy-refine">
+          <summary>Market filter</summary>
+          <label>
+            Market
+            <select
+              aria-label="Strategy market filter"
+              value={market}
+              onChange={(event) => setMarket(event.target.value)}
+            >
+              <option value="all">All</option>
+              <option value="cash">Cash</option>
+              <option value="options">Spreads</option>
+            </select>
+          </label>
+        </details>
         {library.error && (
           <div className="error" role="alert">
             <p>{library.error}</p>
@@ -85,8 +98,9 @@ export function StrategiesScreen({
                 <tr>
                   <th>Name</th>
                   <th>Underlying</th>
-                  <th>Type</th>
+                  <th>Mode</th>
                   <th>Status</th>
+                  <th>P&amp;L</th>
                   <th>Action</th>
                 </tr>
               </thead>
@@ -111,6 +125,7 @@ export function StrategiesScreen({
                     <td>
                       <span className="badge">Saved</span>
                     </td>
+                    <td title="Available only in a completed backtest">—</td>
                     <td>
                       <Button
                         variant="ghost"
@@ -121,19 +136,21 @@ export function StrategiesScreen({
                           )
                         }
                       >
-                        Open
+                        Open →
                       </Button>
                     </td>
                   </tr>
                 ))}
                 {!filtered.length && (
                   <tr>
-                    <td colSpan={5}>
+                    <td colSpan={6}>
                       {library.error
                         ? "Saved strategies could not be loaded. This is not a confirmed empty library; retry the request."
-                        : search || market !== "all"
-                          ? "No strategies match these filters."
-                          : "No saved strategies yet. Create a strategy to begin."}
+                        : status !== "All" && status !== "Saved"
+                          ? `${status} strategies are unavailable: this workspace stores research definitions, not deployed strategies. Unsaved drafts remain in their editor.`
+                          : search || market !== "all"
+                            ? "No strategies match these filters."
+                            : "No saved strategies yet. Create a strategy to begin."}
                     </td>
                   </tr>
                 )}

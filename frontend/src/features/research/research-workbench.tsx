@@ -4,6 +4,7 @@
  * This component has no order-submission endpoint. Quotes and history are read-only.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Trash2 } from "lucide-react";
 import { requestApiJson } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { OptionChainPicker } from "@/components/option-chain-picker";
@@ -109,12 +110,14 @@ export function ResearchWorkbench({
   initialMarket = "cash",
   draft,
   onDraftChange,
+  onExploreOptionChain,
 }: {
   csrf: string;
   initialStrategyId?: string;
   initialMarket?: "cash" | "options";
   draft?: ResearchDraft;
   onDraftChange?: (draft: ResearchDraft) => void;
+  onExploreOptionChain?: () => void;
 }) {
   const draftAtMount = useRef(draft);
   const [definition, setDefinition] = useState<Definition>(() =>
@@ -478,6 +481,9 @@ export function ResearchWorkbench({
                     <th>Contract</th>
                     <th>Units</th>
                     <th>Premium</th>
+                    <th>
+                      <span className="sr-only">Remove leg</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -489,7 +495,22 @@ export function ResearchWorkbench({
                         {leg.strikePrice || ""} {leg.right}{" "}
                         <small>{leg.expiryDate}</small>
                       </td>
-                      <td>{leg.quantity}</td>
+                      <td>
+                        <input
+                          className="spread-units"
+                          type="number"
+                          min="1"
+                          step="1"
+                          disabled={busy}
+                          aria-label={`Units for ${leg.side} ${leg.stockCode} ${leg.strikePrice ?? ""} ${leg.right ?? ""}`}
+                          value={leg.quantity}
+                          onChange={(event) =>
+                            editLeg(index, {
+                              quantity: Number(event.target.value),
+                            })
+                          }
+                        />
+                      </td>
                       <td>
                         {quotes[index] && allFresh
                           ? currency(
@@ -499,6 +520,24 @@ export function ResearchWorkbench({
                             )
                           : "—"}
                       </td>
+                      <td>
+                        <button
+                          type="button"
+                          className="workspace-icon-button"
+                          disabled={busy}
+                          aria-label={`Remove ${leg.side} ${leg.stockCode} ${leg.strikePrice ?? ""} ${leg.right ?? ""}`}
+                          onClick={() =>
+                            edit({
+                              ...definition,
+                              legs: definition.legs.filter(
+                                (_, itemIndex) => itemIndex !== index,
+                              ),
+                            })
+                          }
+                        >
+                          <Trash2 size={17} />
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -507,7 +546,10 @@ export function ResearchWorkbench({
             {!definition.legs.length && (
               <p>No legs selected. Choose listed contracts below to start.</p>
             )}
-            <Button variant="secondary" onClick={() => setTab("builder")}>
+            <Button
+              variant="secondary"
+              onClick={onExploreOptionChain ?? (() => setTab("builder"))}
+            >
               Add from option chain
             </Button>
           </article>

@@ -63,11 +63,13 @@ export function LiveOptionChain({
   ticks,
   positionStrikes = EMPTY_POSITION_STRIKES,
   onAddLeg,
+  compact = false,
 }: {
   csrf: string;
   ticks: LiveTick[];
   positionStrikes?: { symbol: string; strike: number }[];
   onAddLeg?: (contract: ChainContract, side: "buy" | "sell") => string;
+  compact?: boolean;
 }) {
   const detailDialog = useRef<HTMLDialogElement>(null);
   const [selectedToken, setSelectedToken] = useState("");
@@ -403,6 +405,26 @@ export function LiveOptionChain({
         )}
       </td>
     );
+    if (compact) {
+      const depth = (
+        <td>
+          {amount(item?.bid)} / {amount(item?.ask)}
+        </td>
+      );
+      return right === "call" ? (
+        <>
+          {oi}
+          {depth}
+          {mark}
+        </>
+      ) : (
+        <>
+          {mark}
+          {depth}
+          {oi}
+        </>
+      );
+    }
     return right === "call" ? (
       <>
         {oi}
@@ -447,7 +469,10 @@ export function LiveOptionChain({
     }
   }
   return (
-    <section className="live-option-chain" aria-label="Live option chain">
+    <section
+      className={`live-option-chain${compact ? " reference-chain" : ""}`}
+      aria-label="Live option chain"
+    >
       <dialog
         ref={detailDialog}
         className={`workspace-dialog contract-drawer${showChart ? " contract-drawer-chart" : ""}`}
@@ -576,7 +601,7 @@ export function LiveOptionChain({
       </header>
       <div className="chain-toolbar">
         <label>
-          Select index
+          {compact ? "Underlying" : "Select index"}
           <select
             aria-label="Option chain index"
             value={index}
@@ -657,29 +682,42 @@ export function LiveOptionChain({
         <table>
           <thead>
             <tr>
-              <th colSpan={6} className="chain-call-heading">
+              <th colSpan={compact ? 3 : 6} className="chain-call-heading">
                 CALLS
               </th>
               <th rowSpan={2} className="chain-strike">
                 Strike
               </th>
-              <th colSpan={6} className="chain-put-heading">
+              <th colSpan={compact ? 3 : 6} className="chain-put-heading">
                 PUTS
               </th>
             </tr>
             <tr>
-              <th>OI</th>
-              <th>Volume</th>
-              <th>Change ₹</th>
-              <th>Bid ₹</th>
-              <th>Ask ₹</th>
-              <th>LTP ₹</th>
-              <th>LTP ₹</th>
-              <th>Bid ₹</th>
-              <th>Ask ₹</th>
-              <th>Change ₹</th>
-              <th>Volume</th>
-              <th>OI</th>
+              {compact ? (
+                <>
+                  <th>OI</th>
+                  <th>Bid / Ask</th>
+                  <th>LTP</th>
+                  <th>LTP</th>
+                  <th>Bid / Ask</th>
+                  <th>OI</th>
+                </>
+              ) : (
+                <>
+                  <th>OI</th>
+                  <th>Volume</th>
+                  <th>Change ₹</th>
+                  <th>Bid ₹</th>
+                  <th>Ask ₹</th>
+                  <th>LTP ₹</th>
+                  <th>LTP ₹</th>
+                  <th>Bid ₹</th>
+                  <th>Ask ₹</th>
+                  <th>Change ₹</th>
+                  <th>Volume</th>
+                  <th>OI</th>
+                </>
+              )}
             </tr>
           </thead>
           <tbody>

@@ -73,7 +73,31 @@ export function getWorkspacePageLabel(page: WorkspacePage): string {
 
 /** Stable, readable fragment routes contain no account identifiers or credentials. */
 export function getWorkspacePageHash(page: WorkspacePage): string {
+  const referenceRoutes: Partial<Record<WorkspacePage, string>> = {
+    "Broker paper": "paper",
+    "Orders & trades": "orders",
+    Brokers: "brokers",
+    "Account & security": "security",
+    "Activity log": "audit",
+  };
+  if (referenceRoutes[page]) {
+    return `#/${referenceRoutes[page]}`;
+  }
   return `#/${getWorkspacePageLabel(page)
     .toLowerCase()
     .replaceAll(/[^a-z0-9]+/g, "-")}`;
+}
+
+/** Accept existing bookmarks while emitting the reference's canonical fragments. */
+export function resolveWorkspacePage(hash: string): WorkspacePage | undefined {
+  return [
+    ...workspaceNavigation.map((item) => item.name),
+    "Learn the stack" as const,
+  ].find(
+    (page) =>
+      getWorkspacePageHash(page) === hash ||
+      `#/${getWorkspacePageLabel(page)
+        .toLowerCase()
+        .replaceAll(/[^a-z0-9]+/g, "-")}` === hash,
+  );
 }

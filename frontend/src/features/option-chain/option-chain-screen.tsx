@@ -26,16 +26,24 @@ export function OptionChainScreen({
           Select a call or put price to inspect its contract and add a draft
           leg.
         </p>
-        <Button variant="secondary" onClick={onOpenBuilder}>
-          Open builder ({legCount})
-        </Button>
       </div>
       {feed.error && (
         <p role="alert" className="error">
           {feed.error}
         </p>
       )}
-      <LiveOptionChain csrf={csrf} ticks={feed.ticks} onAddLeg={onAddLeg} />
+      <LiveOptionChain
+        csrf={csrf}
+        ticks={feed.ticks}
+        onAddLeg={onAddLeg}
+        compact
+      />
+      <div className="screen-toolbar">
+        <p>Prices open contract details. The chain does not place orders.</p>
+        <Button variant="secondary" onClick={onOpenBuilder}>
+          Open builder ({legCount}) →
+        </Button>
+      </div>
     </section>
   );
 }

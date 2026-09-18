@@ -8,11 +8,13 @@ export function SpreadBuilderScreen({
   initialStrategyId = "",
   draft,
   onDraftChange,
+  onExploreOptionChain,
 }: {
   csrf: string;
   initialStrategyId?: string;
   draft?: ResearchDraft;
   onDraftChange?: (draft: ResearchDraft) => void;
+  onExploreOptionChain?: () => void;
 }) {
   return (
     <ResearchWorkbench
@@ -21,6 +23,7 @@ export function SpreadBuilderScreen({
       initialStrategyId={initialStrategyId}
       draft={draft}
       onDraftChange={onDraftChange}
+      onExploreOptionChain={onExploreOptionChain}
     />
   );
 }

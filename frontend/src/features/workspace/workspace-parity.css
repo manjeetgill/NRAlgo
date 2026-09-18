@@ -1,0 +1,622 @@
+/* Reference presentation tokens. Account state and execution permissions remain independent. */
+.app-shell {
+  --ink: #162237;
+  --muted: #57677d;
+  --border: #dee4ed;
+  --blue: #335cde;
+  --green: #117650;
+  --nav: #101827;
+  --rail: 236px;
+  color: var(--ink);
+  background: #f4f6fa;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  line-height: 1.5;
+  min-height: 100dvh;
+}
+.app-shell .sidebar {
+  width: var(--rail);
+  padding: 23px 14px 16px;
+  background: var(--nav);
+}
+.app-shell .main-shell {
+  margin-left: var(--rail);
+}
+.app-shell .brand {
+  font-size: 24px;
+  padding: 0 12px;
+  gap: 10px;
+}
+.brand-subtitle {
+  font-size: 9px;
+  letter-spacing: 1.75px;
+  padding: 8px 12px 20px;
+  color: #99aac2;
+  font-weight: 600;
+}
+.app-shell .workspace-selector {
+  margin: 0 4px 20px;
+  padding: 12px;
+  background: #1d2b43;
+  border: 1px solid #2b3b53;
+  border-radius: 9px;
+}
+.app-shell .sidebar nav {
+  gap: 3px;
+  margin-top: 0;
+}
+.app-shell .sidebar nav span,
+.app-shell .sidebar .learn-link,
+.app-shell .sidebar .profile > div,
+.app-shell .sidebar .profile > button {
+  display: block;
+}
+.app-shell .sidebar .workspace-selector,
+.app-shell .sidebar .nav-label {
+  display: flex;
+}
+.app-shell .sidebar .brand {
+  justify-content: flex-start;
+}
+.app-shell .sidebar nav button {
+  position: relative;
+  justify-content: flex-start;
+  min-height: 43px;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  gap: 11px;
+  border-radius: 7px;
+}
+.app-shell .sidebar nav button.active {
+  background: #253956;
+  color: #fff;
+}
+.app-shell .sidebar nav button.active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 11px;
+  bottom: 11px;
+  width: 3px;
+  border-radius: 3px;
+  background: #83a2ff;
+}
+.app-shell .topbar {
+  height: 72px;
+  padding: 0 32px;
+  gap: 18px;
+}
+.app-shell .breadcrumb {
+  font-size: 12px;
+  margin-right: auto;
+  gap: 9px;
+  color: var(--muted);
+}
+.app-shell .breadcrumb strong {
+  color: var(--ink);
+  font-weight: 550;
+}
+.header-tools {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.page-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.page-actions:empty {
+  display: none;
+}
+.app-shell .badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 30px;
+  padding: 4px 10px;
+  font-size: 10.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  background: #eef2ff;
+  color: var(--blue);
+  line-height: 1.6;
+  letter-spacing: normal;
+}
+.broker-cards {
+  align-items: start;
+}
+.broker-card-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.connection-logo {
+  display: inline-grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: #f7f9fc;
+  color: var(--blue);
+  font-size: 13px;
+}
+.workspace-icon-button {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  color: var(--muted);
+}
+.workspace-icon-button:hover {
+  background: #eef2ff;
+  color: var(--blue);
+}
+.workspace-avatar {
+  width: 32px;
+  height: 32px;
+  background: #1d2b43;
+  color: white;
+  border: 0;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 700;
+}
+.app-shell .content {
+  padding: 29px 32px 36px;
+  max-width: 1620px;
+}
+.app-shell .heading {
+  margin-bottom: 25px;
+  gap: 20px;
+}
+.app-shell .heading h1 {
+  font-size: 29px;
+  line-height: 1.2;
+  letter-spacing: -0.8px;
+  font-weight: 730;
+  margin-bottom: 7px;
+}
+.app-shell .heading > div > p:last-child {
+  font-size: 13px;
+  color: var(--muted);
+}
+.app-shell .panel {
+  border-color: var(--border);
+  border-radius: 12px;
+  box-shadow: none;
+}
+.app-shell .screen-card {
+  padding: 23px;
+}
+.app-shell .screen-card h2 {
+  font-size: 17px;
+  letter-spacing: -0.25px;
+  line-height: 1.4;
+}
+.app-shell .screen-stack,
+.app-shell .screen-two-columns {
+  gap: 23px;
+}
+.app-shell .button {
+  border-radius: 8px;
+  min-height: 41px;
+  padding: 10px 16px;
+  font-size: 12.5px;
+  font-weight: 650;
+  box-shadow: none;
+}
+.app-shell .button-primary {
+  background: #335cde;
+  border-color: #335cde;
+}
+.app-shell .button-primary:hover {
+  background: #254bc6;
+}
+.app-shell .button-secondary {
+  border-color: var(--border);
+  color: var(--ink);
+}
+.app-shell .button-danger {
+  color: #b42332;
+  border-color: #e4aeb4;
+  background: white;
+}
+.app-shell .button-danger:hover {
+  background: #fdedf0;
+}
+.app-shell input:not([type="checkbox"]),
+.app-shell select {
+  min-height: 43px;
+  border: 1px solid #c5cfdd;
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--ink);
+  background: white;
+}
+.app-shell label {
+  color: var(--muted);
+  font-size: 12px;
+}
+.app-shell th {
+  padding: 13px 14px;
+  background: #f7f9fc;
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.app-shell td {
+  padding: 17px 14px;
+  border-bottom-color: #e8edf4;
+  font-size: 12px;
+}
+.app-shell .tabs button,
+.app-shell .screen-filters .button {
+  border-radius: 25px;
+  min-height: 34px;
+  padding: 7px 15px;
+  font-size: 11.5px;
+  border: 1px solid var(--border);
+}
+.app-shell .tabs button.active,
+.app-shell .screen-filters [aria-pressed="true"] {
+  background: #1d2b43;
+  border-color: #1d2b43;
+  color: white;
+}
+.app-shell .workspace-dialog {
+  margin: auto;
+  width: min(620px, calc(100vw - 20px));
+  max-height: calc(100dvh - 40px);
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 16px 60px #10182726;
+  color: var(--ink);
+}
+.app-shell .workspace-dialog::backdrop {
+  background: #10182780;
+  backdrop-filter: blur(3px);
+}
+.app-shell .workspace-dialog > .panel-heading {
+  padding-bottom: 18px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+.app-shell .workspace-dialog .panel-heading h3 {
+  font-size: 23px;
+  line-height: 1.3;
+  letter-spacing: -0.5px;
+}
+.app-shell .workspace-dialog dl {
+  display: grid;
+  grid-template-columns: minmax(100px, 0.6fr) minmax(0, 1fr);
+  gap: 15px;
+  font-size: 12px;
+}
+.app-shell .workspace-dialog dt {
+  color: var(--muted);
+}
+.app-shell .workspace-dialog dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.app-shell .contract-drawer {
+  margin: 0 0 0 auto;
+  width: min(490px, 100vw);
+  height: 100dvh;
+  max-height: 100dvh;
+  border-radius: 12px 0 0 12px;
+}
+.app-shell .contract-drawer-chart {
+  width: min(960px, 100vw);
+}
+.app-shell .workspace-help {
+  padding: 0;
+}
+.dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 23px;
+  border-bottom: 1px solid var(--border);
+}
+.dialog-head h2 {
+  font-size: 23px;
+}
+.dialog-body {
+  padding: 23px;
+}
+.dialog-body > p {
+  margin-bottom: 20px;
+  color: var(--muted);
+}
+.dialog-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  padding: 18px 23px;
+  border-top: 1px solid var(--border);
+}
+.workspace-tour {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 32px;
+  background: #eef2ff;
+  border-bottom: 1px solid #d4defb;
+  font-size: 12px;
+}
+.workspace-tour > div {
+  flex: 1;
+}
+.workspace-tour p {
+  color: var(--muted);
+  font-size: 11px;
+}
+.workspace-skip {
+  position: fixed;
+  top: -80px;
+  left: 250px;
+  background: white;
+  padding: 12px;
+  z-index: 100;
+}
+.workspace-skip:focus {
+  top: 10px;
+}
+.fullscreen-error {
+  position: absolute;
+  top: 72px;
+  right: 16px;
+  padding: 10px;
+  z-index: 30;
+  background: white;
+  border: 1px solid var(--border);
+  color: var(--ink);
+}
+body:has(.workspace-dialog[open]) {
+  overflow: hidden;
+}
+.backtest-assumptions summary,
+.strategy-refine summary {
+  cursor: pointer;
+  font-weight: 650;
+}
+.backtest-assumptions[open] summary {
+  margin-bottom: 18px;
+}
+.strategy-refine {
+  margin-bottom: 18px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.strategy-refine label {
+  max-width: 240px;
+  margin-top: 12px;
+}
+.audit-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+}
+.audit-search {
+  flex: 1;
+  min-width: 170px;
+  max-width: 300px;
+}
+.audit-search input {
+  width: 100%;
+}
+.audit-timeline > div {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 17px 0;
+  border-bottom: 1px solid #edf0f5;
+}
+.audit-timeline > div:last-child {
+  border-bottom: 0;
+}
+.audit-timeline time {
+  font-size: 11px;
+  color: var(--muted);
+  width: 100px;
+  flex-shrink: 0;
+}
+.audit-timeline > div > div {
+  flex: 1;
+  min-width: 0;
+}
+.audit-timeline .timeline-dot {
+  color: var(--blue);
+}
+.audit-event-button {
+  text-align: left;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 550;
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.audit-event-button:hover {
+  color: var(--blue);
+}
+.audit-footnote {
+  margin-top: 22px;
+}
+.app-shell input.spread-units {
+  width: 88px;
+  min-height: 34px;
+  padding: 6px 8px;
+}
+.app-shell .reference-chain {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: white;
+}
+.app-shell .reference-chain table {
+  min-width: 640px;
+}
+.app-shell .reference-chain .chain-call-heading,
+.app-shell .reference-chain .chain-put-heading {
+  background: #f7f9fc;
+  color: var(--muted);
+}
+.app-shell .reference-chain .chain-strike {
+  background: #eef2ff;
+  color: var(--ink);
+}
+@media (max-width: 1200px) {
+  .app-shell {
+    --rail: 210px;
+  }
+  .app-shell .topbar {
+    padding: 0 24px;
+  }
+  .app-shell .content {
+    padding: 25px 24px;
+  }
+  .app-shell .screen-card {
+    padding: 20px;
+  }
+}
+@media (max-width: 1000px) {
+  .app-shell .screen-two-columns {
+    grid-template-columns: 1fr;
+  }
+  .app-shell .workspace-label {
+    display: none;
+  }
+}
+@media (max-width: 760px) {
+  .page-actions {
+    width: 100%;
+  }
+  .page-actions > .button {
+    flex: 1;
+  }
+  .dialog-actions {
+    flex-wrap: wrap;
+  }
+  .audit-search {
+    max-width: none;
+    flex-basis: 100%;
+  }
+  .audit-timeline .badge {
+    display: none;
+  }
+  .audit-timeline time {
+    width: 70px;
+  }
+  .app-shell {
+    --rail: 236px;
+  }
+  .app-shell .main-shell {
+    margin-left: 0;
+  }
+  .app-shell .navigation-close {
+    position: absolute;
+    right: 10px;
+    top: 20px;
+    border: 0;
+    padding: 8px;
+  }
+  .app-shell .navigation-toggle {
+    border: 0;
+    background: transparent;
+    padding: 7px;
+  }
+}
+@media (max-width: 760px) {
+  .app-shell .topbar {
+    height: 62px;
+    padding: 0 16px;
+    gap: 10px;
+  }
+  .app-shell .breadcrumb {
+    font-size: 11px;
+  }
+  .breadcrumb-root {
+    display: none;
+  }
+  .header-tools {
+    gap: 4px;
+  }
+  .app-shell .content {
+    padding: 23px 17px 28px;
+  }
+  .app-shell .heading {
+    flex-wrap: wrap;
+    gap: 15px;
+    margin-bottom: 21px;
+  }
+  .app-shell .heading h1 {
+    font-size: 26px;
+  }
+  .app-shell .heading > div > p:last-child {
+    font-size: 12px;
+  }
+  .app-shell .screen-card {
+    padding: 18px;
+  }
+  .app-shell .screen-stack {
+    gap: 18px;
+  }
+  .app-shell .button {
+    min-height: 44px;
+  }
+  .workspace-icon-button {
+    width: 40px;
+    height: 40px;
+  }
+  .workspace-avatar {
+    width: 30px;
+    height: 30px;
+  }
+  .workspace-tour {
+    flex-wrap: wrap;
+    padding: 12px 16px;
+    gap: 10px;
+  }
+  .workspace-tour > div {
+    flex-basis: 65%;
+  }
+  .app-shell .workspace-dialog {
+    max-height: calc(100dvh - 20px);
+    padding: 20px;
+  }
+  .app-shell .workspace-help {
+    padding: 0;
+  }
+  .app-shell .contract-drawer {
+    max-height: 100dvh;
+    border-radius: 0;
+    width: 100%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-shell *,
+  .app-shell *::before {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}

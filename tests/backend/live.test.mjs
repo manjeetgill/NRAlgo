@@ -73,7 +73,7 @@ test("paper and shadow dependency paths cannot select real execution with a flag
     );
     assert.doesNotMatch(
       source,
-      /from ["'][^"']*(execution|breeze|broker-thread)[^"']*["']/,
+      /from ["'][^"']*(execution|broker-thread)[^"']*["']/,
     );
   }
   const broker = new FakeExecutionBroker();

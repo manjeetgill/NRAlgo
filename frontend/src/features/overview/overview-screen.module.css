@@ -446,6 +446,7 @@
 }
 /* Native audit dialog retains browser focus management and modal backdrop. */
 .eventDialog {
+  margin: auto;
   padding: 25px;
   max-width: min(520px, 90vw);
   border: 1px solid var(--line);
@@ -454,6 +455,7 @@
 }
 .eventDialog::backdrop {
   background: #10182760;
+  backdrop-filter: blur(3px);
 }
 .eventDialog > div {
   display: flex;

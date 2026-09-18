@@ -1,4 +1,4 @@
-/** Offline Kotak-only integration: no ICICI connection, credentials or live execution. */
+/** Offline Kotak-only integration with no credentials or live execution. */
 import test from "node:test";
 import assert from "node:assert/strict";
 import { KotakMarketDataClient } from "../../dist/backend/kotak-market-data-client.js";

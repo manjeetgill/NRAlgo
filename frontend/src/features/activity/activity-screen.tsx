@@ -1,7 +1,9 @@
 "use client";
 /** Owner-scoped audit viewer. Filters and exports never mutate the durable server history. */
 import { useCallback, useMemo, useRef, useState } from "react";
+import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PageActions } from "@/features/workspace/page-actions";
 import { downloadText, encodeCsv } from "@/lib/download";
 import { isTradingEventVisible, type TradingMode } from "@/lib/trading-mode";
 import type { WorkspaceSnapshot } from "@/features/workspace/workspace-types";
@@ -73,62 +75,60 @@ export function ActivityScreen({
     );
   }, [events]);
   return (
-    <section className="screen-stack">
-      <div className="screen-toolbar">
-        <p>Latest 50 loaded account events. Times shown in IST.</p>
-        <div className="row-actions">
-          <Button
-            variant="secondary"
-            disabled={refreshing}
-            onClick={() => void refresh()}
-          >
-            {refreshing ? "Refreshing…" : "Refresh events"}
-          </Button>
-          <Button
-            variant="secondary"
-            disabled={!events.length}
-            onClick={exportEvents}
-          >
-            Export filtered events
-          </Button>
-        </div>
-      </div>
+    <section className="screen-stack audit-screen">
+      <PageActions>
+        <Button
+          variant="secondary"
+          disabled={refreshing}
+          onClick={() => void refresh()}
+        >
+          {refreshing ? "Refreshing…" : "Refresh events"}
+        </Button>
+        <Button
+          variant="secondary"
+          disabled={!events.length}
+          onClick={exportEvents}
+        >
+          Export history
+        </Button>
+      </PageActions>
       <section className="panel screen-card">
-        <div className="tabs" aria-label="Audit categories">
-          {AUDIT_CATEGORIES.map((item) => (
-            <button
-              key={item}
-              type="button"
-              aria-pressed={category === item}
-              className={category === item ? "active" : ""}
-              onClick={() => setCategory(item)}
-            >
-              {item}
-            </button>
-          ))}
+        <div className="audit-toolbar">
+          <div className="tabs" aria-label="Audit categories">
+            {AUDIT_CATEGORIES.map((item) => (
+              <button
+                key={item}
+                type="button"
+                aria-pressed={category === item}
+                className={category === item ? "active" : ""}
+                onClick={() => setCategory(item)}
+              >
+                {item}
+              </button>
+            ))}
+          </div>
+          <label className="audit-search">
+            <span className="sr-only">Search audit log</span>
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search event, instrument or ID"
+            />
+          </label>
         </div>
-        <label className="field">
-          Search event, instrument or ID
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search loaded events"
-          />
-        </label>
-        <p className="muted">
-          Categories are derived from event text. Filters do not remove stored
-          records.
-        </p>
-        <div className="timeline">
+        <div className="audit-timeline">
           {events.map((event) => (
             <div key={event.id}>
+              <time dateTime={event.created_at}>
+                {formatAuditTime(event.created_at)}
+              </time>
               <span className="timeline-dot" aria-hidden="true">
                 •
               </span>
               <div>
                 <button
                   type="button"
-                  className="chain-price-button"
+                  className="audit-event-button"
                   onClick={() => {
                     setSelected(event);
                     dialog.current?.showModal();
@@ -136,17 +136,21 @@ export function ActivityScreen({
                 >
                   {event.message}
                 </button>
-                <time>
-                  {formatAuditTime(event.created_at)} ·{" "}
-                  {categorizeAuditEvent(event.message)} · #{event.id}
-                </time>
+                <p className="muted">Workspace event #{event.id}</p>
               </div>
+              <span className="badge">
+                {categorizeAuditEvent(event.message)}
+              </span>
             </div>
           ))}
         </div>
         {!events.length && (
           <p role="status">No loaded events match these filters.</p>
         )}
+        <p className="muted audit-footnote">
+          Latest 50 loaded account events · times shown in IST. Categories are
+          derived from recorded event text.
+        </p>
       </section>
       <dialog
         ref={dialog}
@@ -155,10 +159,16 @@ export function ActivityScreen({
         onClose={() => setSelected(null)}
       >
         <div className="panel-heading">
-          <h3 id="audit-detail-title">Audit event details</h3>
-          <Button variant="secondary" onClick={() => dialog.current?.close()}>
-            Close
-          </Button>
+          <h3 id="audit-detail-title">
+            {selected?.message ?? "Audit event details"}
+          </h3>
+          <button
+            className="workspace-icon-button"
+            aria-label="Close dialog"
+            onClick={() => dialog.current?.close()}
+          >
+            <X size={20} />
+          </button>
         </div>
         {selected && (
           <dl>
@@ -174,6 +184,11 @@ export function ActivityScreen({
             <dd>Your account’s stored server audit</dd>
           </dl>
         )}
+        <div className="dialog-actions">
+          <Button variant="secondary" onClick={() => dialog.current?.close()}>
+            Close
+          </Button>
+        </div>
       </dialog>
     </section>
   );

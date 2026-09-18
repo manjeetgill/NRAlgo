@@ -2,6 +2,7 @@
 /** Broker historical workbench. No uploaded/generated prices or execution side effects. */
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { PageActions } from "@/features/workspace/page-actions";
 import {
   strategyTemplates,
   type TemplateId,
@@ -75,9 +76,11 @@ export function BacktestStudioScreen({
     <section className="screen-stack" aria-label="Historical backtest studio">
       <div className="screen-toolbar">
         <p>{template.name} · v1.0 · daily cash-equity model</p>
-        <Button variant="secondary" onClick={onBrowse}>
-          Browse templates
-        </Button>
+        <PageActions>
+          <Button variant="secondary" onClick={onBrowse}>
+            Browse templates
+          </Button>
+        </PageActions>
       </div>
       <div className="environment">
         <div>
@@ -200,8 +203,8 @@ export function BacktestStudioScreen({
           </p>
         )}
       </section>
-      <article className="panel screen-card">
-        <h2>Execution assumptions and limitations</h2>
+      <details className="panel screen-card backtest-assumptions">
+        <summary>Execution assumptions and limitations</summary>
         <p>
           Completed-bar signals fill at the next open. One long cash position,
           integer shares, no leverage. Stops and targets use the entry fill.
@@ -215,7 +218,7 @@ export function BacktestStudioScreen({
           consistent adjusted historical data; results do not predict future
           returns.
         </p>
-      </article>
+      </details>
       {!report ? (
         <article className="panel screen-card">
           <h2>Ready to test</h2>

@@ -9,7 +9,6 @@ import {
   LogOut,
   Menu,
   X,
-  ShieldCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getTradingMode, isTradingPageVisible } from "@/lib/trading-mode";
@@ -18,11 +17,15 @@ import {
   getWorkspacePageLabel,
   workspaceNavigation,
   workspacePageDescriptions,
+  resolveWorkspacePage,
 } from "./workspace-navigation";
 import { WorkspaceContent } from "./workspace-content";
 import { ScreenErrorBoundary } from "./screen-error-boundary";
 import type { WorkspacePage, WorkspaceSnapshot } from "./workspace-types";
 import "./workspace-responsive.css";
+import "./workspace-parity.css";
+import { WorkspaceHelp } from "./workspace-help";
+import { workspaceTour } from "./workspace-tour";
 import type { TemplateId } from "@/features/strategy-library/strategy-templates";
 import {
   createResearchDefinition,
@@ -45,6 +48,8 @@ export function WorkspaceShell({
 }) {
   const [requestedPage, setPage] = useState<WorkspacePage>("Overview");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [tourStep, setTourStep] = useState<number | null>(null);
+  const [helpRequest, setHelpRequest] = useState(0);
   const navigationRef = useRef<HTMLElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
@@ -52,9 +57,15 @@ export function WorkspaceShell({
   const [templateId, setTemplateId] = useState<TemplateId>("ema");
   const [spreadDraft, setSpreadDraft] = useState<ResearchDraft>();
   const tradingMode = getTradingMode(workspace.paper_trading_enabled);
+  const tour = workspaceTour.filter((step) =>
+    isTradingPageVisible(step.page, tradingMode),
+  );
   const page = isTradingPageVisible(requestedPage, tradingMode)
     ? requestedPage
     : "Overview";
+  useEffect(() => {
+    setTourStep(null);
+  }, [tradingMode]);
   /** Stable navigation callback lets independent screens own their effects. */
   const onNavigate = useCallback((destination: WorkspacePage) => {
     setPage(destination);
@@ -64,10 +75,7 @@ export function WorkspaceShell({
   /** Restore deep links and browser history; unknown or hidden destinations fail back to Overview. */
   useEffect(() => {
     function restoreLocation() {
-      const destination = [
-        ...workspaceNavigation.map((item) => item.name),
-        "Learn the stack" as const,
-      ].find((item) => getWorkspacePageHash(item) === window.location.hash);
+      const destination = resolveWorkspacePage(window.location.hash);
       setPage(
         destination && isTradingPageVisible(destination, tradingMode)
           ? destination
@@ -94,7 +102,7 @@ export function WorkspaceShell({
     if (!menuOpen) {
       return;
     }
-    const query = window.matchMedia("(max-width: 880px)");
+    const query = window.matchMedia("(max-width: 760px)");
     if (!query.matches) {
       setMenuOpen(false);
       return;
@@ -215,8 +223,22 @@ export function WorkspaceShell({
     },
     [onNavigate],
   );
+  function visitTourStep(index: number) {
+    setTourStep(index);
+    onNavigate(tour[index].page);
+  }
   return (
     <div className={`app-shell${menuOpen ? " navigation-open" : ""}`}>
+      <a
+        className="workspace-skip"
+        href="#workspace-main"
+        onClick={(event) => {
+          event.preventDefault();
+          document.getElementById("workspace-main")?.focus();
+        }}
+      >
+        Skip to content
+      </a>
       {menuOpen && (
         <button
           className="navigation-overlay"
@@ -239,7 +261,7 @@ export function WorkspaceShell({
           aria-label="Close navigation menu"
           onClick={() => setMenuOpen(false)}
         >
-          <X size={18} /> Close
+          <X size={18} />
         </button>
         <a
           className="brand"
@@ -256,6 +278,7 @@ export function WorkspaceShell({
           </span>
           NRIAlgo<span className="brand-dot">.</span>
         </a>
+        <div className="brand-subtitle">TRADING WORKSPACE</div>
         <div className="workspace-selector">
           <span className="workspace-icon">M</span>
           <div>
@@ -295,8 +318,8 @@ export function WorkspaceShell({
             className="learn-link"
             aria-label="Workspace guide"
             onClick={
-              /** Accessible guide shortcut. */ () =>
-                onNavigate("Learn the stack")
+              /** Open product help without leaving the current screen. */ () =>
+                setHelpRequest((value) => value + 1)
             }
           >
             <CircleHelp size={17} />
@@ -329,20 +352,57 @@ export function WorkspaceShell({
             {menuOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
           <div className="breadcrumb">
-            Workspace <ChevronRight size={13} />
+            <span className="breadcrumb-root">Workspace /</span>
             <strong>{getWorkspacePageLabel(page)}</strong>
           </div>
-          <div className="topbar-right">
-            <span className="local-badge">
-              <i />
-              {tradingMode === "paper" ? "Paper workspace" : "Live workspace"}
-            </span>
-            <span className="topbar-divider" />
-            <ShieldCheck size={16} />
-            <span>Private access</span>
-          </div>
+          <WorkspaceHelp
+            username={workspace.username}
+            helpRequest={helpRequest}
+            busy={busy}
+            onRefresh={onRefresh}
+            onNavigate={onNavigate}
+            onStartTour={() => visitTourStep(0)}
+          />
         </header>
-        <main className="content">
+        {tourStep !== null && (
+          <div
+            className="workspace-tour"
+            role="region"
+            aria-label="Product tour"
+          >
+            <span>
+              {tourStep + 1} / {tour.length}
+            </span>
+            <div>
+              <strong>{tour[tourStep].title}</strong>
+              <p>{tour[tourStep].description}</p>
+            </div>
+            <Button
+              variant="secondary"
+              disabled={tourStep === 0}
+              onClick={() => visitTourStep(tourStep - 1)}
+            >
+              Back
+            </Button>
+            <Button
+              onClick={() =>
+                tourStep === tour.length - 1
+                  ? setTourStep(null)
+                  : visitTourStep(tourStep + 1)
+              }
+            >
+              {tourStep === tour.length - 1 ? "Finish tour" : "Next →"}
+            </Button>
+            <button
+              className="workspace-icon-button"
+              aria-label="Close tour"
+              onClick={() => setTourStep(null)}
+            >
+              <X size={18} />
+            </button>
+          </div>
+        )}
+        <main className="content" id="workspace-main" tabIndex={-1}>
           {page !== "Overview" && (
             <div className="heading">
               <div>
@@ -352,9 +412,7 @@ export function WorkspaceShell({
                     "Your account. Your private workspace."}
                 </p>
               </div>
-              <Button variant="secondary" disabled={busy} onClick={onRefresh}>
-                Refresh workspace
-              </Button>
+              <div id="workspace-page-actions" className="page-actions" />
             </div>
           )}
           {error && (

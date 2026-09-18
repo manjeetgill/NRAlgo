@@ -112,7 +112,7 @@
 .navigation-close {
   display: none;
 }
-@media (max-width: 880px) {
+@media (max-width: 760px) {
   .navigation-close {
     display: flex;
     gap: 6px;

@@ -120,6 +120,7 @@ Screens call feature hooks/adapters → same-origin API → authenticated applic
 | [frontend/src/lib/api.ts](../frontend/src/lib/api.ts) | Same-origin JSON transport, CSRF, deadlines/caller abort and non-retried mutations. |
 | [frontend/src/lib/latest-request.ts](../frontend/src/lib/latest-request.ts) | Generation plus abort gate so superseded reads cannot overwrite current state. |
 | [frontend/src/lib/format.ts](../frontend/src/lib/format.ts) | Shared cached INR formatter; unavailable values are not converted to zero. |
+| [frontend/src/lib/index-constituent-snapshot.ts](../frontend/src/lib/index-constituent-snapshot.ts) | Validated last-known official index membership used only when both allowlisted live sources are unavailable. |
 | [frontend/src/lib/index-constituents.ts](../frontend/src/lib/index-constituents.ts) | Official index-source registry and validated constituent CSV parsing. |
 | [frontend/src/lib/trading-mode.ts](../frontend/src/lib/trading-mode.ts) | Presentation-mode/navigation/activity policy; never grants backend live permission. |
 | [frontend/src/components/ui/button.tsx](../frontend/src/components/ui/button.tsx) | Shared typed button presentation and variants. |
@@ -138,6 +139,10 @@ Screens call feature hooks/adapters → same-origin API → authenticated applic
 | [frontend/src/features/workspace/workspace-shell.tsx](../frontend/src/features/workspace/workspace-shell.tsx) | Navigation, shared layout and mode policy only; independent screen failures do not remove the sidebar. |
 | [frontend/src/features/workspace/workspace-content.tsx](../frontend/src/features/workspace/workspace-content.tsx) | Lazy screen dispatcher with accessible loading fallback. |
 | [frontend/src/features/workspace/workspace-navigation.ts](../frontend/src/features/workspace/workspace-navigation.ts) | Known destinations/icons; no network operations or arbitrary URL navigation. |
+| [frontend/src/features/workspace/page-actions.tsx](../frontend/src/features/workspace/page-actions.tsx) | Client-only portal for rendering screen-specific actions into the shared workspace header. |
+| [frontend/src/features/workspace/workspace-help.tsx](../frontend/src/features/workspace/workspace-help.tsx) | Accessible contextual help dialog for the current workspace destination. |
+| [frontend/src/features/workspace/workspace-parity.css](../frontend/src/features/workspace/workspace-parity.css) | Shared shell, help, tour and page-action presentation required by the reference workspace layout. |
+| [frontend/src/features/workspace/workspace-tour.ts](../frontend/src/features/workspace/workspace-tour.ts) | Ordered product-tour steps bound only to known workspace destinations. |
 | [frontend/src/features/workspace/workspace-types.ts](../frontend/src/features/workspace/workspace-types.ts) | Browser workspace/auth/replay contracts. |
 | [frontend/src/features/workspace/workspace-api.ts](../frontend/src/features/workspace/workspace-api.ts) | Runtime validation of workspace and public authentication-policy JSON. |
 | [frontend/src/features/workspace/use-workspace-session.ts](../frontend/src/features/workspace/use-workspace-session.ts) | Abortable/fenced session reads, explicit auth/logout and sequential active-job polling. |

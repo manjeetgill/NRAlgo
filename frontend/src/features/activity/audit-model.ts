@@ -46,7 +46,7 @@ export function categorizeAuditEvent(
   message: string,
 ): Exclude<AuditCategory, "All"> {
   if (
-    /\b(password|mfa|authenticator|recovery|sign.in|sign.out|app session|sessions revoked)\b/i.test(
+    /\b(password|mfa|authenticator|recovery|sign(?:ed)?[ .-]?in|sign(?:ed)?[ .-]?out|app session|sessions revoked)\b/i.test(
       message,
     )
   ) {
