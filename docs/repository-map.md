@@ -38,6 +38,7 @@ Screens call feature hooks/adapters → same-origin API → authenticated applic
 | [run.ts](../run.ts) | Local development supervisor: starts private PostgreSQL, API and Next; owns child-process shutdown. |
 | [package.json](../package.json) | Backend/runtime dependencies and complete check/build/dev commands. |
 | [package-lock.json](../package-lock.json) | Exact root dependency graph for reproducible installation; never hand-upgrade transitive versions. |
+| [.npmrc](../.npmrc) / [frontend/.npmrc](../frontend/.npmrc) | Public-registry selection for reproducible installs and audits; must never contain registry credentials. |
 | [tsconfig.json](../tsconfig.json) | Strict backend TypeScript compilation and output boundary. |
 | [eslint.config.js](../eslint.config.js) | Repository lint, React hook-dependency and formatting rules; do not suppress safety rules to pass a build. |
 | [.env.example](../.env.example) | Public configuration template with disabled-by-default live execution; never commit real secrets. |
@@ -51,6 +52,9 @@ Screens call feature hooks/adapters → same-origin API → authenticated applic
 | [Caddyfile](../Caddyfile) | TLS edge and trusted-header overwrite; internal API ports must remain private. |
 | [LICENSE](../LICENSE) | Repository licensing terms. |
 | [README.md](../README.md) | Current capabilities, safe local setup, deployment and backup/restore procedure. |
+| [scripts/check-production-environment.mjs](../scripts/check-production-environment.mjs) | Fail-closed deployment settings, secret separation, private registration and off-server-backup preflight. |
+| [scripts/prepare-test-database.mjs](../scripts/prepare-test-database.mjs) | Starts the project-local database once before parallel local test workers; CI keeps its disposable service. |
+| [scripts/check-specification-acceptance.mjs](../scripts/check-specification-acceptance.mjs) | Audits the complete PDF requirement register and fails strict release checks while evidence remains open. |
 | [docs/development-guide.md](../docs/development-guide.md) | Naming, screen/hooks conventions, data/exec contracts and debugging guidance. |
 | [docs/security-review.md](../docs/security-review.md) | Current security boundaries and release gates. |
 | [docs/kotak-api-coverage.md](../docs/kotak-api-coverage.md) | Kotak market-data operation coverage; not permission for live execution. |
@@ -199,6 +203,7 @@ Screens call feature hooks/adapters → same-origin API → authenticated applic
 | [tests/backend/live-status-readonly.test.mjs](../tests/backend/live-status-readonly.test.mjs) | Dormant live GET performs only owner/broker-scoped SELECTs and starts no control session. |
 | [tests/backend/halt-admission.test.mjs](../tests/backend/halt-admission.test.mjs) | Ordinary request exhaustion cannot consume halt capacity; CSRF still required. |
 | [tests/backend/trading-mode.test.mjs](../tests/backend/trading-mode.test.mjs) | Server presentation flags and wallet-independent broker/account routes. |
+| [tests/backend/production-environment.test.mjs](../tests/backend/production-environment.test.mjs) | Production preflight acceptance and fail-closed unsafe configuration regressions. |
 | [tests/frontend/index-constituents.test.mjs](../tests/frontend/index-constituents.test.mjs) | Official CSV validation, allowlists, per-index caching and failure behavior. |
 | [tests/frontend/overview-adapter.test.ts](../tests/frontend/overview-adapter.test.ts) | Account normalization and provider read paths; unknown values remain unknown. |
 | [tests/frontend/overview-model.test.ts](../tests/frontend/overview-model.test.ts) | Atomic row/headline P&L, stale/future/out-of-order tick rejection and valuation units. |

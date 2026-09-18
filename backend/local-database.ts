@@ -65,8 +65,26 @@ function runPostgresUtility(name: string, args: string[], input?: string) {
   });
   if (result.error || result.status !== 0) {
     throw new Error(
-      `PostgreSQL ${name} failed. Check .runtime/postgres.log and that port 55432 is available.`,
+      `PostgreSQL ${name} failed. Check .runtime/postgres.log and the configured local port.`,
     );
+  }
+}
+
+/** Return whether the configured PostgreSQL server already accepts authenticated connections.
+ * This network-level check is more reliable than pg_ctl status inside restricted test runners.
+ */
+async function isPostgresReachable(adminUrl: string): Promise<boolean> {
+  const client = new pg.Client({
+    connectionString: adminUrl,
+    connectionTimeoutMillis: 1000,
+  });
+  try {
+    await client.connect();
+    return true;
+  } catch {
+    return false;
+  } finally {
+    await client.end().catch(() => undefined);
   }
 }
 /** Start only this project's cluster and create its app database if missing; return private settings.
@@ -108,12 +126,9 @@ export async function ensureLocalPostgres(): Promise<LocalPostgresConfiguration>
       `${password}\n`,
     );
   }
-  const status = spawnSync(
-    resolve(postgresBinaryDirectory(), "pg_ctl"),
-    ["-D", clusterDirectory, "status"],
-    { stdio: "ignore" },
-  );
-  if (status.status !== 0) {
+  const adminUrl = new URL(config.adminUrl);
+  adminUrl.pathname = "/postgres";
+  if (!(await isPostgresReachable(adminUrl.toString()))) {
     runPostgresUtility("pg_ctl", [
       "-D",
       clusterDirectory,
@@ -127,8 +142,6 @@ export async function ensureLocalPostgres(): Promise<LocalPostgresConfiguration>
       "start",
     ]);
   }
-  const adminUrl = new URL(config.adminUrl);
-  adminUrl.pathname = "/postgres";
   const client = new pg.Client({
     connectionString: adminUrl.toString(),
     connectionTimeoutMillis: 5000,

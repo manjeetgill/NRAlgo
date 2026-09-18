@@ -8,6 +8,7 @@
   "scripts": {
     "audit:spec": "node scripts/check-specification-acceptance.mjs",
     "check:acceptance": "node scripts/check-specification-acceptance.mjs --strict",
+    "check:production": "node --env-file=.env scripts/check-production-environment.mjs",
     "test:browser": "node tests/e2e/kotak-smoke.mjs",
     "format": "prettier --write 'backend/**/*.ts' run.ts 'tests/**/*.{ts,mjs}' 'frontend/src/**/*.{ts,tsx,css}' frontend/next.config.ts frontend/postcss.config.mjs",
     "lint": "eslint . --concurrency=off --cache --quiet",
@@ -15,7 +16,7 @@
     "dev": "npm run build:backend && node --env-file-if-exists=.env --import tsx run.ts",
     "start": "node --env-file-if-exists=.env dist/backend/main.js",
     "migrate": "node --env-file-if-exists=.env --import tsx backend/database.ts",
-    "test": "npm run build:backend && node --test tests/backend/*.test.mjs",
+    "test": "npm run build:backend && node scripts/prepare-test-database.mjs && node --test tests/backend/*.test.mjs",
     "typecheck": "tsc --noEmit",
     "build:backend": "tsc",
     "check": "npm run lint && npm test && npm --prefix frontend run typecheck && npm --prefix frontend test && npm run test:architecture",

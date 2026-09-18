@@ -211,24 +211,28 @@ not duplicate unmaintained README files in every folder.
 
 ## Verification record
 
-- `npm run check`: lint, backend compilation and **116 backend tests**, frontend
-  type-check and **31 frontend tests** passed. **Five architecture checks** passed,
+- `npm run check`: lint, backend compilation and **124 backend tests**, frontend
+  type-check and **70 frontend tests** passed. **Six architecture checks** passed,
   including the owned-source documentation inventory. Offline brokers and isolated
   schemas only.
 - `npm run build`: backend plus optimized standalone Next build passed.
 - Production dependency audits: **zero known vulnerabilities** reported for root
-  and frontend at review time. The frontend audit needed explicit proxy overrides
-  because the configured corporate proxy was unavailable; no registry credentials
-  were changed by this pass. Re-run audits in CI after lockfile updates.
+  and frontend at review time. Both workspaces now pin the public npm registry so
+  installs and audits do not silently inherit a machine-wide corporate registry.
+  Re-run audits in CI after lockfile updates.
 - Browser checks: Overview, Strategies, Strategy lab, Orders & trades,
   Brokers, Live trading, Account & security, Activity log and Learning guide inspected
   in the existing local session without broker login or order submission. Live-only
   navigation and disconnected/disabled states were preserved. Paper behavior is covered by
   automated markup/model tests; this pass does not claim a real broker tick demo.
-- Not run locally in this pass: standalone Playwright smoke suite, Docker image/
-  Compose integration, off-server restoration, mounted React lifecycle suite,
-  production load/penetration tests and real-money acceptance. The CI smoke script
-  was updated for the separate Brokers and Broker paper screens but must still pass CI.
+- The standalone Playwright/Chromium smoke suite passed against an isolated database
+  and mocked Kotak transport: cash/options paper fills, research, chart lifecycle,
+  cached live marks and MFA. It made no real broker calls.
+- Production API/web/migration/backup images built successfully. A disposable
+  Compose database/migration/API/web stack reached healthy status and its API health
+  and readiness endpoints passed before the validation stack was removed.
+- Not run locally in this pass: encrypted/off-server restoration, public TLS/firewall
+  validation, production load/penetration tests and real-money acceptance.
 
 The existing development backend was not restarted during the review. Restart it
 before relying on the new status/admission behavior; normal restart invalidates

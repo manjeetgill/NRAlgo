@@ -19,7 +19,7 @@ Updated 18 September 2026 during the foundation review. See [the detailed findin
 
 ## Local verification
 
-Run `make check`, `make build`, and `npm run test:browser`. The suites cover auth/ownership, paper/research, provider replacement, live risk/OMS transitions, read-only status and independent halt admission. All broker traffic in automated tests is mocked. The browser smoke script is a separate CI gate; its existence is not evidence that it was run locally. See the dated review for exact checks actually performed.
+Run `make check`, `make build`, and `npm run test:browser`. The suites cover auth/ownership, paper/research, provider replacement, live risk/OMS transitions, read-only status and independent halt admission. All broker traffic in automated tests is mocked. The browser smoke suite passed locally during the dated review; that does not validate real Kotak behavior.
 
 This review did not reset the application database, change broker credentials, place/cancel real orders, or enable live execution. When restoring an older backup, use a matching application/encryption version or an explicit data/key migration; do not assume older encrypted records are compatible.
 
@@ -27,7 +27,7 @@ This review did not reset the application database, change broker credentials, p
 
 1. **Real integrations unverified.** Actual Kotak feed hosts, binary frames, data entitlements, market-hours timestamps and historical coverage require read-only acceptance testing with a real account. Never bypass a host allowlist or stale-price check merely to get a green connection.
 2. **Single-instance design.** Session registries, feeds and some rate limits are in memory. Multiple API replicas require coordinated admission limits and broker ownership. Authentication still needs edge abuse protection and load testing before broad public access.
-3. **Deployment and recovery unverified here.** The Compose/CI configuration includes restricted runtime/backup roles and encrypted backups. Actual Lightsail TLS, firewall rules, container startup, backup privileges, off-server recovery and monitoring need deployment testing. Docker/container checks were not run on this host. Keep the database and API ports private.
+3. **Deployment and recovery remain environment-specific.** The production images built and a disposable database/migration/API/web Compose stack reached healthy status on this host. Actual Lightsail TLS, firewall rules, backup privileges, off-server recovery and monitoring still need deployment testing. Keep the database and API ports private.
 4. **Recovery/key rotation incomplete.** There is no public support/account recovery service or automatic encryption-key rotation. Loss of keys makes encrypted data unrecoverable. Keep registration restricted until operations are ready.
 5. **No certification.** No independent penetration test, high-load test, OS/image audit, Git-history secret audit or real-money test was performed. Older dependency-audit results are not current proof after a lockfile change; rerun CI audits with working registry access.
 6. **CSP and feed memory tradeoffs.** Inline CSS remains allowed; development permits framework evaluation. Native WebSocket frames are checked after Node assembles them, not before allocation. Protocol limits and three connected accounts constrain normal use but do not replace process memory monitoring.

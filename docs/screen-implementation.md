@@ -53,7 +53,7 @@ The document includes illustrative capabilities beyond the implemented backend. 
 - `npm run build`: passed for the API and optimized Next application.
 - Browser inspection: navigation, empty/disconnected states, real saved audit details, password-dialog open/close, spread draft persistence and actual MFA/session reads.
 - Responsive checks at 390 × 844: Strategy library and Account & security had no page-width overflow; navigation opened, selected a destination and closed.
-- The browser smoke script was updated for the new dialogs/navigation. It was not run end-to-end in this session; the browser checks above are not a substitute for that CI job.
+- The browser smoke script passed end-to-end against an isolated PostgreSQL schema and mocked Kotak transport. It covered cash/options paper fills, research, chart lifecycle, cached live marks and MFA; it did not call the real broker.
 - The browser's installed writing extension modifies document attributes and causes a development hydration warning. Do not suppress application-wide hydration errors to hide this; verify in a clean browser profile in CI.
 - Kotak was disconnected during final browser checks. Streamed-price changes, live fills, real margin reconciliation and broker reconnect acceptance remain unverified here.
 - **No real orders, live arming, password changes, MFA changes or session revocations were performed against the user's account.** Live submission remains disabled in the local verification server.

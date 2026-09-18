@@ -40,16 +40,16 @@ Live execution requires server activation, the registered static-IP prerequisite
 | -------------------------------------------------------------------------- | --------------------------------------------------------------------- |
 | `backend/broker-data-access.ts`                                            | Read-only adapter contract and per-owner request guard                |
 | `backend/kotak-market-data-client.ts`                                      | Kotak authentication, host/header handling and response normalization |
-| `backend/kotak-market-data-contracts.ts`                                  | Bounded Kotak request construction and response parsing               |
+| `backend/kotak-market-data-contracts.ts`                                   | Bounded Kotak request construction and response parsing               |
 | `backend/kotak-market-data-stream.ts`                                      | Server-only WebSocket lifecycle and native-batch binary decoding      |
 | `backend/instrument-master.ts`                                             | Current Kotak contract metadata, safe downloads and bounded search    |
 | `backend/paper-trading-ledger.ts` / `paper-trading-routes.ts`              | Virtual ledger, fill rules and authenticated paper endpoints          |
 | `backend/historical-strategy-simulator.ts` / `strategy-research-routes.ts` | Pure replay calculations and owner-scoped research APIs               |
 | `backend/main.ts`                                                          | Dependency construction, account auth and route registration          |
-| `backend/market-data-provider.ts` / `kotak-market-data-provider.ts`           | Replaceable data source, separate from execution and account access   |
-| `backend/live/`                                                           | Durable OMS/risk engine, Kotak execution adapter and guarded routes   |
-| `frontend/src/features/<screen>/`                                         | Dedicated screens, request hooks, models and presentation             |
-| `frontend/src/components/` / `lib/`                                       | Reused UI and bounded shared utilities                               |
+| `backend/market-data-provider.ts` / `kotak-market-data-provider.ts`        | Replaceable data source, separate from execution and account access   |
+| `backend/live/`                                                            | Durable OMS/risk engine, Kotak execution adapter and guarded routes   |
+| `frontend/src/features/<screen>/`                                          | Dedicated screens, request hooks, models and presentation             |
+| `frontend/src/components/` / `lib/`                                        | Reused UI and bounded shared utilities                                |
 | `backend/database.ts` / `local-database.ts`                                | PostgreSQL migrations and local lifecycle                             |
 
 To add a data source later, implement `MarketDataProvider` and register it at the composition root. To add an execution broker, separately implement `ExecutionBrokerAdapter`, account/auth binding, instrument resolution and contract tests. Register the UI account adapter rather than adding broker branches to screens. Existing wire contracts remain Kotak-specific at the adapter boundary; a new source is not a URL-only replacement. Never add an execution method to the read-only data interface or silently translate saved instrument tokens.
@@ -109,6 +109,11 @@ sudo make deploy
 sudo make status
 sudo make logs
 ```
+
+`make deploy` first runs a fail-closed preflight. It rejects placeholder domains, weak or reused
+secrets, public registration, malformed flags, live execution without confirmed static-IP
+registration, insecure `.env` permissions, and deployments without an off-server S3 backup
+destination. Use an instance role where possible; otherwise supply both AWS credential fields.
 
 The migration container uses database administrator credentials; the API uses a restricted
 non-superuser role. Backups use a separate SELECT-only `nexus_backup` role; set the new

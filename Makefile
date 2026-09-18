@@ -1,5 +1,5 @@
 # Development shortcuts and explicit single-host deployment lifecycle commands.
-.PHONY: run check install build migrate deploy logs status stop db-start db-stop
+.PHONY: run check install build migrate preflight deploy logs status stop db-start db-stop
 db-start:
 	node --env-file-if-exists=.env --import tsx backend/local-database.ts
 db-stop:
@@ -15,9 +15,12 @@ build:
 	npm run build
 migrate:
 	npm run migrate
-deploy:
+preflight:
+	npm run check:production
 	docker info > /dev/null
 	docker compose config --quiet
+deploy:
+	$(MAKE) preflight
 	docker compose build --pull
 	docker compose run --rm --no-deps api node --input-type=module -e "import {createApiApplication} from './dist/backend/main.js'; createApiApplication({}, process.env); console.log('Production configuration valid.');"
 	docker compose up -d --wait --wait-timeout 180
