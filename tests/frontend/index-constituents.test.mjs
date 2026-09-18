@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseConstituents } from "../../frontend/src/lib/index-constituents.ts";
+import {
+  parseConstituents,
+  snapshotConstituents,
+} from "../../frontend/src/lib/index-constituents.ts";
 import { GET } from "../../frontend/src/app/reference/index-constituents/route.ts";
 
 test("official CSV parsing handles quoted company names and rejects invalid payloads", () => {
@@ -20,13 +23,37 @@ test("official CSV parsing handles quoted company names and rejects invalid payl
   }
 });
 
-test("membership route allowlists sources, caches per index, and fails closed", async (t) => {
+test("offline snapshot contains complete, unique membership for every selectable index", () => {
+  const expectedCounts = {
+    NIFTY: 50,
+    NIFTYNXT50: 50,
+    FINNIFTY: 20,
+    BANKNIFTY: 14,
+    MIDCPNIFTY: 25,
+    NIFTYFPI: 150,
+  };
+  for (const [index, expected] of Object.entries(expectedCounts)) {
+    const symbols = snapshotConstituents(index);
+    assert.equal(symbols.length, expected);
+    assert.equal(new Set(symbols).size, expected);
+    assert.ok(symbols.every((symbol) => /^[A-Z0-9&-]+$/.test(symbol)));
+  }
+});
+
+test("membership route allowlists official mirrors, caches per index, and has a validated offline fallback", async (t) => {
   let requests = 0;
   t.mock.method(globalThis, "fetch", async (url, options) => {
     assert.equal(options.headers["User-Agent"], "Mozilla/5.0");
-    assert.equal(options.headers.Referer, "https://www.niftyindices.com/");
+    assert.ok(
+      ["https://www.nseindia.com/", "https://www.niftyindices.com/"].includes(
+        options.headers.Referer,
+      ),
+    );
     requests++;
-    assert.match(url, /^https:\/\/www\.niftyindices\.com\/IndexConstituent\//);
+    assert.match(
+      url,
+      /^https:\/\/(nsearchives\.nseindia\.com\/content\/indices|www\.niftyindices\.com\/IndexConstituent)\//,
+    );
     if (url.endsWith("ind_niftybanklist.csv")) {
       return new Response("Symbol\nBANKA\nBANKB\n");
     }
@@ -55,7 +82,9 @@ test("membership route allowlists sources, caches per index, and fails closed", 
   await get("BANKNIFTY");
   assert.equal(requests, 1);
   assert.deepEqual((await (await get("NIFTY")).json()).symbols, ["OTHER"]);
-  assert.equal((await get("FINNIFTY")).status, 503);
-  assert.equal((await get("FINNIFTY")).status, 503);
-  assert.equal(requests, 3);
+  const fallback = await (await get("FINNIFTY")).json();
+  assert.equal(fallback.source, "bundled-offline-snapshot");
+  assert.ok(fallback.symbols.includes("HDFCBANK"));
+  assert.equal((await get("FINNIFTY")).status, 200);
+  assert.equal(requests, 4);
 });

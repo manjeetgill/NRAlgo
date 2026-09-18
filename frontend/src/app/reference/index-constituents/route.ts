@@ -1,6 +1,9 @@
 import {
+  INDEX_CONSTITUENT_SNAPSHOT_DATE,
   INDEX_FILES,
   parseConstituents,
+  snapshotConstituents,
+  type SupportedIndex,
 } from "../../../lib/index-constituents";
 
 export const runtime = "nodejs";
@@ -14,18 +17,31 @@ const cache = new Map<string, { until: number; value: Membership }>();
 const pending = new Map<string, Promise<Membership>>();
 const failures = new Map<string, number>();
 
-/** Download one fixed official CSV with timeout, byte cap and redirect rejection; cache validated results only. */
-async function download(index: keyof typeof INDEX_FILES): Promise<Membership> {
-  const source = `https://www.niftyindices.com/IndexConstituent/${INDEX_FILES[index]}`;
-  const response = await fetch(source, {
+/** Build allowlisted official mirrors; no caller-controlled host or path reaches fetch. */
+function sources(index: SupportedIndex) {
+  const file = INDEX_FILES[index];
+  return [
+    {
+      url: `https://nsearchives.nseindia.com/content/indices/${file}`,
+      referer: "https://www.nseindia.com/",
+    },
+    {
+      url: `https://www.niftyindices.com/IndexConstituent/${file}`,
+      referer: "https://www.niftyindices.com/",
+    },
+  ];
+}
+
+/** Read one bounded official CSV response and reject redirects or malformed payloads. */
+async function downloadSource(url: string, referer: string) {
+  const response = await fetch(url, {
     signal: AbortSignal.timeout(12000),
     cache: "no-store",
     redirect: "error",
-    // The official download service can stall requests without these headers.
     headers: {
       Accept: "text/csv",
       "User-Agent": "Mozilla/5.0",
-      Referer: "https://www.niftyindices.com/",
+      Referer: referer,
     },
   });
   if (!response.ok || !response.body) {
@@ -49,12 +65,35 @@ async function download(index: keyof typeof INDEX_FILES): Promise<Membership> {
   } finally {
     await reader.cancel();
   }
-  const value = {
-    index,
-    symbols: parseConstituents(Buffer.concat(chunks).toString("utf8")),
-    source,
-    fetchedAt: new Date().toISOString(),
-  };
+  return parseConstituents(Buffer.concat(chunks).toString("utf8"));
+}
+
+/** Try official mirrors, then serve the bundled last-known membership without blocking Kotak. */
+async function download(index: SupportedIndex): Promise<Membership> {
+  let selectedSource = "";
+  let symbols: string[] | null = null;
+  for (const source of sources(index)) {
+    try {
+      symbols = await downloadSource(source.url, source.referer);
+      selectedSource = source.url;
+      break;
+    } catch {
+      // Continue to the second allowlisted official host before using the snapshot.
+    }
+  }
+  const value = symbols
+    ? {
+        index,
+        symbols,
+        source: selectedSource,
+        fetchedAt: new Date().toISOString(),
+      }
+    : {
+        index,
+        symbols: snapshotConstituents(index),
+        source: "bundled-offline-snapshot",
+        fetchedAt: `${INDEX_CONSTITUENT_SNAPSHOT_DATE}T00:00:00.000Z`,
+      };
   cache.set(index, { until: Date.now() + 3600000, value });
   return value;
 }
@@ -76,7 +115,7 @@ export async function GET(request: Request) {
     }
     let job = pending.get(index);
     if (!job) {
-      job = download(index as keyof typeof INDEX_FILES)
+      job = download(index as SupportedIndex)
         .catch((error) => {
           failures.set(index, Date.now() + 60000);
           throw error;
@@ -89,7 +128,7 @@ export async function GET(request: Request) {
     return Response.json(
       {
         error:
-          "Official index constituents are temporarily unavailable. No unrelated stocks are shown.",
+          "Validated index constituents are unavailable. No unrelated stocks are shown.",
       },
       { status: 503, headers },
     );

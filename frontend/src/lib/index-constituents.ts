@@ -1,4 +1,5 @@
 import { parse } from "csv-parse/sync";
+import { INDEX_CONSTITUENT_SNAPSHOT } from "./index-constituent-snapshot";
 
 // Fixed official sources: never accept a caller-supplied download URL.
 export const INDEX_FILES = {
@@ -9,6 +10,16 @@ export const INDEX_FILES = {
   MIDCPNIFTY: "ind_niftymidcapselect_list.csv",
   NIFTYFPI: "ind_niftyIndiaFPI150_list.csv",
 } as const;
+
+export type SupportedIndex = keyof typeof INDEX_FILES;
+
+/** Return a defensive copy of the validated bundled membership for offline-hours startup. */
+export function snapshotConstituents(index: SupportedIndex): string[] {
+  return [...INDEX_CONSTITUENT_SNAPSHOT.indices[index]].sort();
+}
+
+/** Identify the date of the official snapshot exposed by the fallback response. */
+export const INDEX_CONSTITUENT_SNAPSHOT_DATE = INDEX_CONSTITUENT_SNAPSHOT.asOf;
 
 /** Parse the bounded official CSV; reject malformed symbols before deduplication. */
 export function parseConstituents(csv: string): string[] {
