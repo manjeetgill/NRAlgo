@@ -106,8 +106,11 @@ test("independent data adapter serves chain and ticks without a broker account; 
         notifications: [],
       },
     disconnect: (user) => {
-      for (const key of subscriptions.keys())
-        if (key.startsWith(`${user}:`)) subscriptions.delete(key);
+      for (const key of subscriptions.keys()) {
+        if (key.startsWith(`${user}:`)) {
+          subscriptions.delete(key);
+        }
+      }
     },
   };
   const app = createApiApplication(
@@ -143,10 +146,13 @@ test("independent data adapter serves chain and ticks without a broker account; 
           body: body === undefined ? undefined : JSON.stringify(body),
         },
       );
-      if (response.headers.get("set-cookie"))
+      if (response.headers.get("set-cookie")) {
         cookie = response.headers.get("set-cookie").split(";")[0];
+      }
       const data = await response.json();
-      if (data.csrf) csrf = data.csrf;
+      if (data.csrf) {
+        csrf = data.csrf;
+      }
       return { status: response.status, data };
     };
   }

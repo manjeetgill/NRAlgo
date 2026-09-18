@@ -21,12 +21,15 @@ export interface PortfolioRow {
 }
 /** Preserve fractional averages; missing optional values are unknown, never fabricated zero. */
 function parseOptionalPortfolioNumber(value: unknown) {
-  if (value == null || value === "") return null;
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
   if (
     !["number", "string"].includes(typeof value) ||
     !Number.isFinite(Number(value))
-  )
+  ) {
     throw new Error("Invalid portfolio number");
+  }
   return Number(value);
 }
 /** Keep display text short and return an empty label when the broker omitted it. */
@@ -41,11 +44,13 @@ export function normalizePortfolioRows(
   kind: "positions" | "holdings",
   raw: unknown,
 ): PortfolioRow[] {
-  if (!Array.isArray(raw) || raw.length >= 10000)
+  if (!Array.isArray(raw) || raw.length >= 10000) {
     throw new Error("Portfolio missing or potentially truncated");
+  }
   return raw.map((row) => {
-    if (!row || typeof row !== "object" || Array.isArray(row))
+    if (!row || typeof row !== "object" || Array.isArray(row)) {
       throw new Error("Invalid portfolio row");
+    }
     const holding = kind === "holdings";
     const symbol = readPortfolioDisplayText(
       holding ? row.displaySymbol || row.symbol : row.trdSym || row.sym,
@@ -64,8 +69,9 @@ export function normalizePortfolioRows(
     const quantity = holding
       ? parseOptionalPortfolioNumber(row.quantity)
       : positionQuantity;
-    if (!symbol || quantity === null || !Number.isSafeInteger(quantity))
+    if (!symbol || quantity === null || !Number.isSafeInteger(quantity)) {
       throw new Error("Missing portfolio identity/quantity");
+    }
     const multiplier = holding
       ? null
       : (parseOptionalPortfolioNumber(row.multiplier) ?? 1);
@@ -84,7 +90,7 @@ export function normalizePortfolioRows(
       : (parseOptionalPortfolioNumber(row.cfSellAmt) ?? 0) +
         (parseOptionalPortfolioNumber(row.sellAmt) ?? 0);
     const hasAmounts = ["cfBuyAmt", "buyAmt", "cfSellAmt", "sellAmt"].some(
-      (key) => row[key] != null && row[key] !== "",
+      (key) => row[key] !== null && row[key] !== undefined && row[key] !== "",
     );
     if (
       !holding &&
@@ -92,8 +98,9 @@ export function normalizePortfolioRows(
         !priceScale ||
         !Number.isFinite(multiplier) ||
         !multiplier)
-    )
+    ) {
       throw new Error("Invalid position scaling");
+    }
     return {
       symbol,
       instrumentToken: holding ? "" : readPortfolioDisplayText(row.tok),

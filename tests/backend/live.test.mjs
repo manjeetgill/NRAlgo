@@ -432,8 +432,9 @@ test("shadow evaluation rejects stale data, rate/loss/position limits without di
     { ...base, snapshot: { ...snapshot, dailyPnlPaise: -10000 } },
     { ...base, outstandingUnits: { TEST: 100 } },
     { ...base, reservedPaise: NaN },
-  ])
+  ]) {
     assert.equal(planShadowOrder(intent(), context).decision, "rejected");
+  }
   assert.equal(broker.placeCalls, 0);
 });
 

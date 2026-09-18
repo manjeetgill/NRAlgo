@@ -175,7 +175,9 @@ export function StrategyLabPanel({ csrf }: { csrf: string }) {
    * Stop on hidden tab, navigation, editing or failure; never start an order worker.
    */
   useEffect(() => {
-    if (!kotakPolling) return;
+    if (!kotakPolling) {
+      return;
+    }
     if (tab !== "quotes" || !strategyId || definition.broker !== "kotak") {
       setKotakPolling(false);
       return;
@@ -183,13 +185,17 @@ export function StrategyLabPanel({ csrf }: { csrf: string }) {
     let active = true,
       pending = false;
     const refresh = async () => {
-      if (pending || document.hidden) return;
+      if (pending || document.hidden) {
+        return;
+      }
       pending = true;
       try {
         const result = await researchRequest("/quotes", csrf, "POST", {
           strategyId,
         });
-        if (active) setQuotes(result.quotes);
+        if (active) {
+          setQuotes(result.quotes);
+        }
       } catch (failure) {
         if (active) {
           setQuotes([]);
@@ -231,7 +237,9 @@ export function StrategyLabPanel({ csrf }: { csrf: string }) {
         }
       })
       .catch((failure) => {
-        if (active) setError(failure.message);
+        if (active) {
+          setError(failure.message);
+        }
       });
     return () => {
       active = false;
@@ -242,7 +250,9 @@ export function StrategyLabPanel({ csrf }: { csrf: string }) {
     return () => clearInterval(timer);
   }, []);
   useEffect(() => {
-    if (!playing || !run) return;
+    if (!playing || !run) {
+      return;
+    }
     const timer = setInterval(
       () =>
         setCursor((current) => {
@@ -428,8 +438,9 @@ export function StrategyLabPanel({ csrf }: { csrf: string }) {
               !window.confirm(
                 "Delete this saved research strategy and its replay history? This does not affect live orders.",
               )
-            )
+            ) {
               return;
+            }
             void act(async () => {
               await researchRequest(
                 `/strategies/${strategyId}`,
@@ -881,7 +892,7 @@ export function StrategyLabPanel({ csrf }: { csrf: string }) {
                 value=""
                 disabled={busy}
                 onChange={(event) => {
-                  if (event.target.value)
+                  if (event.target.value) {
                     void act(async () => {
                       const result = await researchRequest(
                         `/runs/${event.target.value}`,
@@ -894,6 +905,7 @@ export function StrategyLabPanel({ csrf }: { csrf: string }) {
                       setCursor(0);
                       setPlaying(false);
                     });
+                  }
                 }}
               >
                 <option value="">Load a previous run</option>

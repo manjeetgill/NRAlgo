@@ -61,8 +61,9 @@ export async function createLiveAccount(
   limits: RiskLimits,
 ) {
   const id = randomUUID();
-  if (!brokerBinding || brokerBinding.length > 200)
+  if (!brokerBinding || brokerBinding.length > 200) {
     throw new Error("Broker account binding required");
+  }
   await store.transaction((query) =>
     query(
       "INSERT INTO live_accounts(id,user_id,broker_binding,halt_reason,limits) VALUES($1,$2,$3,$4,$5)",
@@ -130,26 +131,31 @@ function validateBrokerProgress(
     next.side !== intent.side ||
     next.quantity !== intent.quantity ||
     next.filledQuantity > next.quantity
-  )
+  ) {
     throw new Error("Broker order identity mismatch");
-  if (next.status === "filled" && next.filledQuantity !== next.quantity)
+  }
+  if (next.status === "filled" && next.filledQuantity !== next.quantity) {
     throw new Error("Invalid filled quantity");
-  if (next.status === "rejected" && next.filledQuantity !== 0)
+  }
+  if (next.status === "rejected" && next.filledQuantity !== 0) {
     throw new Error("Rejected order has fills");
+  }
   if (
     (["acknowledged", "open"].includes(next.status) &&
       next.filledQuantity !== 0) ||
     (next.status === "partially_filled" &&
       (next.filledQuantity === 0 || next.filledQuantity === next.quantity))
-  )
+  ) {
     throw new Error("Order status contradicts fill quantity");
+  }
   if (
     current &&
     (current.brokerOrderId !== next.brokerOrderId ||
       next.filledQuantity < current.filledQuantity ||
       !transitions[current.status].has(next.status))
-  )
+  ) {
     throw new Error("Broker order state regressed");
+  }
 }
 
 export class LiveExecutionService {
@@ -164,8 +170,9 @@ export class LiveExecutionService {
     private readonly deadlineMs = 1500,
     private readonly authorizeSubmission?: (query: Query) => Promise<void>,
   ) {
-    if (deadlineMs < 1 || deadlineMs > 3000)
+    if (deadlineMs < 1 || deadlineMs > 3000) {
       throw new Error("Broker deadline must be between 1 and 3000 ms");
+    }
   }
 
   /** Acquire the shared DB gate and reject cross-account/adapter access before any broker call. */
@@ -176,8 +183,9 @@ export class LiveExecutionService {
         [this.accountId, this.userId],
       )
     )[0];
-    if (!account || account.broker_binding !== this.adapter.accountBinding)
+    if (!account || account.broker_binding !== this.adapter.accountBinding) {
       throw new Error("Live account unavailable");
+    }
     return account;
   }
 
@@ -187,12 +195,13 @@ export class LiveExecutionService {
       "UPDATE live_accounts SET halted=TRUE,halt_reason=$2,generation=generation+1,reconciled_at=0 WHERE id=$1 AND (NOT halted OR halt_reason<>$2 OR reconciled_at<>0) RETURNING id",
       [this.accountId, reason],
     );
-    if (changed.length)
+    if (changed.length) {
       await recordLiveEvent(query, this.accountId, "halt", reason);
+    }
   }
 
   /** Read current state through the owner boundary; useful for a future risk dashboard. */
-  async status() {
+  public async status() {
     return this.store.transaction(async (query) => {
       const account = await this.lockAccount(query);
       const orders = await query<OrderRow>(
@@ -211,7 +220,7 @@ export class LiveExecutionService {
   /** Atomically risk-check and reserve capital. Reusing an intent key returns the same order,
    * never a second submission; reusing it with changed content is rejected.
    */
-  async reserveIntent(rawIntent: OrderIntent): Promise<OrderRow> {
+  public async reserveIntent(rawIntent: OrderIntent): Promise<OrderRow> {
     const intent = orderIntentSchema.parse(rawIntent);
     return this.store.transaction(async (query) => {
       const account = await this.lockAccount(query);
@@ -222,15 +231,17 @@ export class LiveExecutionService {
       );
       const existing = orders.find((order) => order.intent_key === intent.key);
       if (existing) {
-        if (existing.intent !== JSON.stringify(intent))
+        if (existing.intent !== JSON.stringify(intent)) {
           throw new Error("Intent key already used for different content");
+        }
         return existing;
       }
       if (
         account.halted ||
         Date.now() - account.reconciled_at > maximumSnapshotAgeMs
-      )
+      ) {
         throw new Error("Live account halted or reconciliation stale");
+      }
       const outstanding = orders.filter(
         (order) => !terminalStates.has(order.state),
       );
@@ -276,7 +287,7 @@ export class LiveExecutionService {
    * cannot erase evidence of a possible external side effect. Never retry UNKNOWN/SUBMITTING.
    * No modify API exists: replacements need a separately approved intent after confirmed cancel.
    */
-  async submitReservedOrder(orderId: string): Promise<OrderRow> {
+  public async submitReservedOrder(orderId: string): Promise<OrderRow> {
     const claimed = await this.store.transaction(async (query) => {
       const account = await this.lockAccount(query);
       await this.authorizeSubmission?.(query);
@@ -286,18 +297,25 @@ export class LiveExecutionService {
           [orderId, this.accountId],
         )
       )[0];
-      if (!order) throw new Error("Order unavailable");
-      if (order.state !== "reserved") return false;
-      if (account.halted) throw new Error("Live account halted");
+      if (!order) {
+        throw new Error("Order unavailable");
+      }
+      if (order.state !== "reserved") {
+        return false;
+      }
+      if (account.halted) {
+        throw new Error("Live account halted");
+      }
       await query("UPDATE live_orders SET state='submitting' WHERE id=$1", [
         orderId,
       ]);
       return true;
     });
-    if (!claimed)
+    if (!claimed) {
       return (await this.status()).orders.find(
         (order) => order.id === orderId,
       )!;
+    }
     try {
       const submitted = await this.store.transaction(async (query) => {
         const account = await this.lockAccount(query);
@@ -360,8 +378,9 @@ export class LiveExecutionService {
             if (
               !snapshot.sessionHealthy ||
               Date.now() - snapshot.capturedAt > maximumSnapshotAgeMs
-            )
+            ) {
               throw new Error("Session state stale");
+            }
             const probe = brokerSnapshotSchema.parse(
               await withBrokerDeadline(
                 (signal) => this.adapter.getSnapshot(signal),
@@ -383,8 +402,9 @@ export class LiveExecutionService {
               Date.now() - probe.capturedAt > maximumSnapshotAgeMs ||
               probe.capturedAt > Date.now() ||
               comparable(probe) !== comparable(snapshot)
-            )
+            ) {
               throw new Error("Broker state changed before dispatch");
+            }
             // Mark-to-market values can change between probes without changing the books.
             // Recheck buying power, loss and exposure against the NEW values, not cached ones.
             evaluateLiveRisk(intent, {
@@ -443,8 +463,9 @@ export class LiveExecutionService {
           ])
         )[0];
       });
-      if (["unknown", "blocked", "rejected"].includes(submitted.state))
+      if (["unknown", "blocked", "rejected"].includes(submitted.state)) {
         await this.cancelRestingOrders();
+      }
       return submitted;
     } catch (error) {
       // If persistence fails after broker acceptance, the precommitted SUBMITTING row survives.
@@ -466,7 +487,7 @@ export class LiveExecutionService {
    * only a later snapshot may mark it terminal. Retry polls keep cancelling visible rests.
    * Existing positions are NOT flattened automatically by a kill switch.
    */
-  async haltAndCancel(reason = "Operator kill switch") {
+  public async haltAndCancel(reason = "Operator kill switch") {
     await this.store.transaction(async (query) => {
       await this.lockAccount(query);
       await this.latchHalt(query, reason);
@@ -512,8 +533,9 @@ export class LiveExecutionService {
           unresolved.push(order.brokerOrderId);
         }
       }
-      if (!snapshot.complete || !snapshot.sessionHealthy)
+      if (!snapshot.complete || !snapshot.sessionHealthy) {
         unresolved.push("broker-state-unavailable");
+      }
     } catch {
       unresolved.push("broker-state-unavailable");
     }
@@ -534,7 +556,7 @@ export class LiveExecutionService {
    * latch failures. An absent unknown order stays UNKNOWN even after many empty snapshots.
    * A fresh deployment can establish a baseline only with a flat account and empty order book.
    */
-  async reconcile() {
+  public async reconcile() {
     await this.store.transaction((query) => this.lockAccount(query));
     let snapshot: BrokerSnapshot;
     try {
@@ -549,8 +571,9 @@ export class LiveExecutionService {
         !snapshot.sessionHealthy ||
         Date.now() - snapshot.capturedAt > maximumSnapshotAgeMs ||
         snapshot.capturedAt > Date.now()
-      )
+      ) {
         throw new Error("Stale or incomplete broker state");
+      }
     } catch {
       await this.haltAndCancel(
         "Broker session stale, unavailable or incomplete",
@@ -567,8 +590,9 @@ export class LiveExecutionService {
       const previous = account.snapshot
         ? brokerSnapshotSchema.parse(JSON.parse(account.snapshot))
         : undefined;
-      if (previous && snapshot.capturedAt < previous.capturedAt)
+      if (previous && snapshot.capturedAt < previous.capturedAt) {
         reason = "Out-of-order broker snapshot";
+      }
       const ids = new Set<string>(),
         keys = new Set<string>();
       const expectedPositions: Record<string, number> = {};
@@ -576,8 +600,9 @@ export class LiveExecutionService {
         if (
           ids.has(observed.brokerOrderId) ||
           keys.has(observed.clientOrderKey)
-        )
+        ) {
           reason = "Duplicate broker order correlation";
+        }
         ids.add(observed.brokerOrderId);
         keys.add(observed.clientOrderKey);
         const local = orders.find(
@@ -624,10 +649,11 @@ export class LiveExecutionService {
         ) {
           reason =
             "Missing or unresolved broker order; no resubmission allowed";
-          if (order.state === "submitting")
+          if (order.state === "submitting") {
             await query("UPDATE live_orders SET state='unknown' WHERE id=$1", [
               order.id,
             ]);
+          }
         }
       }
       for (const instrument of new Set([
@@ -637,12 +663,14 @@ export class LiveExecutionService {
         if (
           (expectedPositions[instrument] || 0) !==
           (snapshot.positions[instrument] || 0)
-        )
+        ) {
           reason = "Broker position drift";
+        }
       }
       const limits = riskLimitsSchema.parse(JSON.parse(account.limits));
-      if (previous && previous.fundsBasis !== snapshot.fundsBasis)
+      if (previous && previous.fundsBasis !== snapshot.fundsBasis) {
         reason = "Broker accounting basis changed";
+      }
       if (previous && snapshot.fundsBasis === "cash-ledger") {
         const previousCash = previous.orders.reduce(
           (sum, order) => sum + (order.cashDeltaPaise ?? 0),
@@ -658,30 +686,36 @@ export class LiveExecutionService {
               previous.cashBalancePaise! -
               (currentCash - previousCash),
           ) > limits.fundsDriftTolerancePaise
-        )
+        ) {
           reason = "Broker funds drift";
+        }
       } else if (
         !previous &&
         (snapshot.orders.length ||
           Object.values(snapshot.positions).some((quantity) => quantity !== 0))
-      )
+      ) {
         reason = "Initial broker baseline is not flat";
-      if (snapshot.dailyPnlPaise <= -limits.maxDailyLossPaise)
+      }
+      if (snapshot.dailyPnlPaise <= -limits.maxDailyLossPaise) {
         reason = "Daily loss limit reached";
+      }
       if (
         snapshot.grossExposurePaise > limits.maxGrossExposurePaise ||
         Object.values(snapshot.positions).some(
           (quantity) => Math.abs(quantity) > limits.maxPositionUnits,
         )
-      )
+      ) {
         reason = "Post-trade exposure limit reached";
+      }
       // Preserve the last good baseline on drift; repeated polling cannot silently normalize it.
-      if (reason) await this.latchHalt(query, reason);
-      else
+      if (reason) {
+        await this.latchHalt(query, reason);
+      } else {
         await query(
           "UPDATE live_accounts SET snapshot=$2,reconciled_at=$3 WHERE id=$1",
           [this.accountId, JSON.stringify(snapshot), Date.now()],
         );
+      }
       // Unchanged polling must not append an audit row every second indefinitely.
       if (
         (reason && account.halt_reason !== reason) ||
@@ -700,21 +734,24 @@ export class LiveExecutionService {
         halted: account.halted || Boolean(reason),
       };
     });
-    if (result.halted) await this.cancelRestingOrders();
+    if (result.halted) {
+      await this.cancelRestingOrders();
+    }
     return result;
   }
 
   /** Explicit resume only after a fresh successful reconciliation. It cannot clear unknown
    * outcomes, lingering resting orders after a kill, or unresolved multi-leg exposure.
    */
-  async resumeAfterReconciliation() {
+  public async resumeAfterReconciliation() {
     await this.store.transaction(async (query) => {
       const account = await this.lockAccount(query);
       if (
         !account.snapshot ||
         Date.now() - account.reconciled_at > maximumSnapshotAgeMs
-      )
+      ) {
         throw new Error("Fresh reconciliation required");
+      }
       const unresolved = await query(
         "SELECT id FROM live_orders WHERE account_id=$1 AND state IN ('submitting','unknown','acknowledged','open','partially_filled')",
         [this.accountId],
@@ -723,8 +760,9 @@ export class LiveExecutionService {
         "SELECT id FROM live_spreads WHERE account_id=$1 AND state='unwind_required'",
         [this.accountId],
       );
-      if (unresolved.length || spreads.length)
+      if (unresolved.length || spreads.length) {
         throw new Error("Unresolved live exposure requires operator review");
+      }
       await query(
         "UPDATE live_accounts SET halted=FALSE,halt_reason='' WHERE id=$1",
         [this.accountId],
@@ -741,7 +779,7 @@ export class LiveExecutionService {
   /** Store a strategy's explicit hedge-first/slippage/orphan policy before either leg is sent.
    * Generated intent keys bind each leg to this durable plan, preventing duplicate leg calls.
    */
-  async createHedgeFirstSpread(rawPlan: Omit<SpreadPlan, "createdAt">) {
+  public async createHedgeFirstSpread(rawPlan: Omit<SpreadPlan, "createdAt">) {
     const id = randomUUID();
     const plan = spreadPlanSchema.parse({
       ...rawPlan,
@@ -751,7 +789,9 @@ export class LiveExecutionService {
     });
     await this.store.transaction(async (query) => {
       const account = await this.lockAccount(query);
-      if (account.halted) throw new Error("Live account halted");
+      if (account.halted) {
+        throw new Error("Live account halted");
+      }
       await query(
         "INSERT INTO live_spreads(id,account_id,plan,state) VALUES($1,$2,$3,'hedge_pending')",
         [id, this.accountId, JSON.stringify(plan)],
@@ -764,7 +804,7 @@ export class LiveExecutionService {
    * mandatory before exposure; partial/rejected/unknown legs never count as protection.
    * Restart recovery does not automatically call this method or resume a spread.
    */
-  async advanceHedgeFirstSpread(planId: string) {
+  public async advanceHedgeFirstSpread(planId: string) {
     const record = await this.store.transaction(async (query) => {
       await this.lockAccount(query);
       const row = (
@@ -773,11 +813,14 @@ export class LiveExecutionService {
           [planId, this.accountId],
         )
       )[0];
-      if (!row) throw new Error("Spread unavailable");
+      if (!row) {
+        throw new Error("Spread unavailable");
+      }
       return row;
     });
-    if (["complete", "unwind_required"].includes(record.state))
+    if (["complete", "unwind_required"].includes(record.state)) {
       return record.state;
+    }
     const plan = spreadPlanSchema.parse(JSON.parse(record.plan));
     const orders = (await this.status()).orders;
     const hedge = orders.find((order) => order.intent_key === plan.hedge.key),
@@ -812,23 +855,29 @@ export class LiveExecutionService {
         }),
       );
     };
-    if (exposure?.state === "filled" && hedge?.state === "filled")
+    if (exposure?.state === "filled" && hedge?.state === "filled") {
       return saveState("complete");
-    if (Date.now() - plan.createdAt > plan.legDeadlineMs)
+    }
+    if (Date.now() - plan.createdAt > plan.legDeadlineMs) {
       return requireUnwind("Multi-leg deadline exceeded");
+    }
     if (!hedge) {
       const reserved = await this.reserveIntent(plan.hedge);
       await this.submitReservedOrder(reserved.id);
       return saveState("hedge_pending");
     }
-    if (["unknown", "blocked", "rejected", "cancelled"].includes(hedge.state))
+    if (["unknown", "blocked", "rejected", "cancelled"].includes(hedge.state)) {
       return requireUnwind("Hedge failed or remains uncertain");
-    if (hedge.state !== "filled") return "hedge_pending";
+    }
+    if (hedge.state !== "filled") {
+      return "hedge_pending";
+    }
     if (exposure) {
       if (
         ["unknown", "blocked", "rejected", "cancelled"].includes(exposure.state)
-      )
+      ) {
         return requireUnwind("Exposure leg failed or remains uncertain");
+      }
       return "exposure_pending";
     }
     try {
@@ -857,15 +906,18 @@ export class LiveExecutionService {
   /** A restart always halts first. Polling is serial (no overlapping reconciliation jobs),
    * and never auto-resumes. The existing paper worker does not import or launch this loop.
    */
-  async runReconciliationLoop(signal: AbortSignal, intervalMs = 1000) {
-    if (intervalMs < 100 || intervalMs > 2000)
+  public async runReconciliationLoop(signal: AbortSignal, intervalMs = 1000) {
+    if (intervalMs < 100 || intervalMs > 2000) {
       throw new Error("Polling interval must be 100–2000 ms");
+    }
     await this.haltAndCancel(
       "Live worker restarted; reconciliation and explicit resume required",
     );
     while (!signal.aborted) {
       await this.reconcile();
-      if (signal.aborted) break;
+      if (signal.aborted) {
+        break;
+      }
       await new Promise<void>((resolve) => {
         const finish = () => {
           clearTimeout(timer);

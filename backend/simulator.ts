@@ -43,8 +43,9 @@ export function simulateSyntheticStrategy(
   prices.forEach((price, bar) => {
     fastEma += ((price - fastEma) * 2) / (fast + 1);
     slowEma += ((price - slowEma) * 2) / (slow + 1);
-    if (availableCash + positionQuantity * price <= capital * 0.98)
+    if (availableCash + positionQuantity * price <= capital * 0.98) {
       riskStopped = true;
+    }
     if (
       positionQuantity &&
       (fastEma < slowEma || riskStopped || bar === prices.length - 1)

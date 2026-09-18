@@ -34,8 +34,9 @@ export async function passwordHash(
   password: string,
   salt = randomBytes(16).toString("hex"),
 ): Promise<string> {
-  if (activePasswordHashes >= 4)
+  if (activePasswordHashes >= 4) {
     fail(429, "Authentication busy. Try again shortly.");
+  }
   activePasswordHashes++;
   try {
     const key = await new Promise<Buffer>((resolve, reject) =>
@@ -62,16 +63,21 @@ export function rateLimit(
   const buckets = new Map<string, { count: number; until: number }>();
   return (req, res, next) => {
     const now = Date.now();
-    if (buckets.size > 5000)
-      for (const [id, bucket] of buckets)
-        if (bucket.until <= now) buckets.delete(id);
+    if (buckets.size > 5000) {
+      for (const [id, bucket] of buckets) {
+        if (bucket.until <= now) {
+          buckets.delete(id);
+        }
+      }
+    }
     const id = digest(key(req));
     let bucket = buckets.get(id);
     if (!bucket || bucket.until <= now) {
-      if (!bucket && buckets.size >= 10000)
+      if (!bucket && buckets.size >= 10000) {
         return res
           .status(429)
           .json({ detail: "Server busy. Try again shortly." });
+      }
       bucket = { count: 0, until: now + windowMs };
       buckets.set(id, bucket);
     }
@@ -91,28 +97,34 @@ export function rateLimit(
 export function credentialVault(env: NodeJS.ProcessEnv) {
   let hex = env.BROKER_ENCRYPTION_KEY;
   if (!hex) {
-    if (env.APP_ENV === "production" || env.NODE_ENV === "production")
+    if (env.APP_ENV === "production" || env.NODE_ENV === "production") {
       throw new Error(
         "BROKER_ENCRYPTION_KEY must be 64 random hex characters.",
       );
+    }
     const directory = resolve(root, ".runtime"),
       path = resolve(directory, "broker.key");
     mkdirSync(directory, { recursive: true, mode: 0o700 });
     try {
       hex = readFileSync(path, "utf8").trim();
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw error;
+      }
       hex = randomBytes(32).toString("hex");
       try {
         writeFileSync(path, hex, { flag: "wx", mode: 0o600 });
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
+          throw error;
+        }
         hex = readFileSync(path, "utf8").trim();
       }
     }
   }
-  if (!/^[a-f0-9]{64}$/i.test(hex))
+  if (!/^[a-f0-9]{64}$/i.test(hex)) {
     throw new Error("BROKER_ENCRYPTION_KEY must be 64 random hex characters.");
+  }
   const key = Buffer.from(hex, "hex");
   return {
     /** Serialize and authenticate a secret, binding its ciphertext to its owning account/purpose. */
@@ -134,7 +146,9 @@ export function credentialVault(env: NodeJS.ProcessEnv) {
     /** Authenticate before parsing; a changed key, record or account context fails closed. */
     open(userId: string, text: string): unknown {
       const [version, iv, tag, encrypted] = text.split(".");
-      if (version !== "v1") throw new Error("Unsupported credential format.");
+      if (version !== "v1") {
+        throw new Error("Unsupported credential format.");
+      }
       const cipher = createDecipheriv(
         "aes-256-gcm",
         key,

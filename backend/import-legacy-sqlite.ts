@@ -58,20 +58,22 @@ export async function importLegacySqlite(
     const versions = source
       .prepare("SELECT version FROM schema_migrations ORDER BY version")
       .all();
-    if (versions.at(-1)?.version !== 3)
+    if (versions.at(-1)?.version !== 3) {
       throw new Error(
         "Only the previous schema-v3 workspace can be imported. Keep older backups untouched.",
       );
+    }
     return await destination.transaction(async (query) => {
       await query("SELECT pg_advisory_xact_lock(684201)");
       await query(
         "LOCK TABLE users,user_settings,strategies,jobs,events,broker_credentials,user_security,broker_usage,sessions IN ACCESS EXCLUSIVE MODE",
       );
       for (const table of [...Object.keys(tables), "sessions"]) {
-        if ((await query(`SELECT 1 FROM ${table} LIMIT 1`)).length)
+        if ((await query(`SELECT 1 FROM ${table} LIMIT 1`)).length) {
           throw new Error(
             "Import refused: destination already contains account data.",
           );
+        }
       }
       const counts: Record<string, number> = {};
       for (const [table, columns] of Object.entries(tables)) {
@@ -81,14 +83,16 @@ export async function importLegacySqlite(
         for (const row of rows) {
           const values = columns.map((column) => {
             const value = row[column];
-            if (column === "halted" || column === "enabled")
+            if (column === "halted" || column === "enabled") {
               return Boolean(value);
+            }
             if (
               value === null ||
               typeof value === "string" ||
               typeof value === "number"
-            )
+            ) {
               return value;
+            }
             throw new Error(`Unsupported value in ${table}.${column}`);
           });
           await query(
@@ -109,16 +113,17 @@ export async function importLegacySqlite(
 }
 
 if (isEntryPoint(import.meta.url)) {
-  if (!process.argv[2])
+  if (!process.argv[2]) {
     throw new Error(
       "Usage: node --import tsx backend/import-legacy-sqlite.ts /absolute/path/to/workspace.db (stop the app first)",
     );
+  }
   const database = openDatabaseStore(
     process.env.MIGRATION_DATABASE_URL ||
       readLocalPostgresConfiguration()?.adminUrl,
   );
   try {
-    console.log(
+    console.debug(
       "Imported row counts (old sessions invalidated):",
       await importLegacySqlite(process.argv[2], database),
     );

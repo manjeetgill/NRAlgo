@@ -37,8 +37,9 @@ test("Kotak allows documented production origins only", () => {
     " https://e43.kotaksecurities.com",
     "https://e43.kotaksecurities.com\n",
     "https://e43.kotaksecurities.com\\evil",
-  ])
+  ]) {
     assert.throws(() => validateKotakOrigin(url));
+  }
 });
 
 /** A login-assigned data center must carry through to reads, never a hardcoded fallback. */
@@ -48,9 +49,12 @@ test("Kotak routes quotes to the authenticated account data center", async () =>
     const calls = [];
     const manager = new KotakMarketDataClient(async (url) => {
       calls.push(url);
-      if (url.endsWith("tradeApiLogin")) return success("View");
-      if (url.endsWith("tradeApiValidate"))
+      if (url.endsWith("tradeApiLogin")) {
+        return success("View");
+      }
+      if (url.endsWith("tradeApiValidate")) {
         return { data: { ...success("Trade").data, baseUrl: `${origin}/` } };
+      }
       return [
         {
           exchange: "nse_cm",
@@ -257,11 +261,12 @@ test("Kotak exposes redacted broker codes and messages on HTTP failures", async 
           "shortsecret",
           "PRIVATE_DEBUG_MUST_NOT_LEAVE_SERVER",
           "example.com",
-        ])
+        ]) {
           assert.ok(
             !serialized.includes(privateValue),
             "Private field was exposed",
           );
+        }
         return true;
       },
     );
@@ -370,8 +375,12 @@ test("Kotak rejects snapshots arriving after disconnect", async () => {
     entered = resolve;
   });
   const manager = new KotakMarketDataClient(async (url) => {
-    if (url.endsWith("tradeApiLogin")) return success("View");
-    if (url.endsWith("tradeApiValidate")) return success("Trade");
+    if (url.endsWith("tradeApiLogin")) {
+      return success("View");
+    }
+    if (url.endsWith("tradeApiValidate")) {
+      return success("Trade");
+    }
     entered();
     return new Promise((resolve) => {
       release = resolve;

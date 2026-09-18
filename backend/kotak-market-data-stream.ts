@@ -44,8 +44,12 @@ function getMinimumPacketBytes(messageCode: number, detailLevel: number) {
     case 6521:
       return 9;
   }
-  if (detailLevel === 1) return 54;
-  if ([2, 4, 8].includes(detailLevel)) return 144;
+  if (detailLevel === 1) {
+    return 54;
+  }
+  if ([2, 4, 8].includes(detailLevel)) {
+    return 144;
+  }
   return 0;
 }
 export const feedRequestSchema = z
@@ -88,8 +92,9 @@ export const feedRequestSchema = z
           (row) => `${row.exchange}|${row.instrument}`,
         ),
       ).size !== subscription.instruments.length
-    )
+    ) {
       ctx.addIssue({ code: "custom", message: "Duplicate subscriptions." });
+    }
     for (const row of subscription.instruments) {
       const isIndexRequest = subscription.kind === "indices";
       const usesCashExchange = ["nse_cm", "bse_cm"].includes(row.exchange);
@@ -97,12 +102,13 @@ export const feedRequestSchema = z
       if (
         (isIndexRequest && !usesCashExchange) ||
         (!isIndexRequest && !hasNumericToken)
-      )
+      ) {
         ctx.addIssue({
           code: "custom",
           message:
             "Use a cash-segment index name, or a numeric pSymbol for scrips.",
         });
+      }
     }
   });
 export type FeedRequest = z.infer<typeof feedRequestSchema>;
@@ -126,27 +132,42 @@ export function decodeKotakBinaryFrame(
   frame: Uint8Array,
   dividers: Record<string, number> = {},
 ) {
-  if (frame.byteLength > 1048576) throw new Error("Feed frame too large.");
+  if (frame.byteLength > 1048576) {
+    throw new Error("Feed frame too large.");
+  }
   const bytes = Buffer.from(frame.buffer, frame.byteOffset, frame.byteLength);
   const records: FeedRecord[] = [];
   let offset = 0;
   while (offset + 2 <= bytes.length) {
     const size = bytes.readUInt16LE(offset);
-    if (size < 9) throw new Error("Invalid feed packet length.");
-    if (offset + size > bytes.length) break;
+    if (size < 9) {
+      throw new Error("Invalid feed packet length.");
+    }
+    if (offset + size > bytes.length) {
+      break;
+    }
     const packet = bytes.subarray(offset, offset + size);
     offset += size;
-    if (packet[8] !== 0) throw new Error("Unsupported feed bitmask.");
+    if (packet[8] !== 0) {
+      throw new Error("Unsupported feed bitmask.");
+    }
     const exchange = exchanges[packet.readInt8(4)];
-    if (!exchange || exchange === "none") continue;
+    if (!exchange || exchange === "none") {
+      continue;
+    }
     const divider = dividers[exchange] ?? 100;
-    if (!Number.isFinite(divider) || divider <= 0)
+    if (!Number.isFinite(divider) || divider <= 0) {
       throw new Error("Invalid feed divider.");
+    }
     const code = packet.readUInt16LE(2);
     const level = packet[5];
     const minimumPacketBytes = getMinimumPacketBytes(code, level);
-    if (minimumPacketBytes === 0) continue;
-    if (size < minimumPacketBytes) throw new Error("Short feed body.");
+    if (minimumPacketBytes === 0) {
+      continue;
+    }
+    if (size < minimumPacketBytes) {
+      throw new Error("Short feed body.");
+    }
     const readUnsignedInt32 = (at: number) => packet.readUInt32LE(at);
     const readSignedInt32 = (at: number) => packet.readInt32LE(at);
     const readExactInt64 = (at: number) => packet.readBigInt64LE(at).toString();
@@ -232,8 +253,9 @@ export function decodeKotakBinaryFrame(
         });
       }
       const tradedValue = packet.readDoubleLE(107) / divider;
-      if (!Number.isFinite(tradedValue))
+      if (!Number.isFinite(tradedValue)) {
         throw new Error("Invalid traded value.");
+      }
       records.push({
         ...base,
         type: "quote",
@@ -301,29 +323,34 @@ export class KotakMarketDataStream {
     this.socket = factory(url);
     this.socket.binaryType = "arraybuffer";
     this.connectionHealthTimer = setInterval(() => {
-      if (!isSessionActive())
+      if (!isSessionActive()) {
         this.closeConnection(
           "session-expired",
           "Reconnect your Kotak account.",
         );
-      else if (Date.now() - this.lastViewerActivityAt > VIEWER_IDLE_TIMEOUT_MS)
+      } else if (
+        Date.now() - this.lastViewerActivityAt >
+        VIEWER_IDLE_TIMEOUT_MS
+      ) {
         this.closeConnection("stopped", "Viewer inactive; feed released.");
-      else if (
+      } else if (
         !this.isAuthenticated &&
         Date.now() - this.connectionStartedAt > AUTHENTICATION_TIMEOUT_MS
-      )
+      ) {
         this.closeConnection(
           "error",
           "Feed authentication timed out; reconnect explicitly.",
         );
+      }
     }, HEALTH_CHECK_INTERVAL_MS);
     this.connectionHealthTimer.unref();
     this.socket.addEventListener("open", () => {
-      if (this.isClosed || !isSessionActive())
+      if (this.isClosed || !isSessionActive()) {
         return this.closeConnection(
           "session-expired",
           "Reconnect your Kotak account.",
         );
+      }
       try {
         this.socket.send(
           JSON.stringify({
@@ -344,12 +371,15 @@ export class KotakMarketDataStream {
       }
     });
     this.socket.addEventListener("message", (event) => {
-      if (this.isClosed) return;
-      if (!isSessionActive())
+      if (this.isClosed) {
+        return;
+      }
+      if (!isSessionActive()) {
         return this.closeConnection(
           "session-expired",
           "Reconnect your Kotak account.",
         );
+      }
       try {
         this.handleIncomingMessage(event.data);
       } catch {
@@ -386,17 +416,19 @@ export class KotakMarketDataStream {
    * Never pass raw control messages to the UI: they may contain session information.
    */
   private handleBrokerControlMessage(data: string) {
-    if (Buffer.byteLength(data) > 65536)
+    if (Buffer.byteLength(data) > 65536) {
       throw new Error("Control frame too large.");
+    }
     const row = z
       .object({ message_code: z.number().int() })
       .passthrough()
       .parse(JSON.parse(data));
-    if (row.message_code === AUTHENTICATION_FAILED)
+    if (row.message_code === AUTHENTICATION_FAILED) {
       return this.closeConnection(
         "authentication-failed",
         "Broker rejected feed authentication; reconnect your account.",
       );
+    }
     if (
       [AUTHENTICATION_SUCCEEDED, AUTHENTICATION_INITIAL_VALUES].includes(
         row.message_code,
@@ -414,7 +446,9 @@ export class KotakMarketDataStream {
       this.priceDividers = {};
       for (const exchange of exchanges) {
         const settings = auth.exchanges[exchange];
-        if (settings) this.priceDividers[exchange] = settings.divider;
+        if (settings) {
+          this.priceDividers[exchange] = settings.divider;
+        }
       }
       // Official SFeed SDK accepts 1117 and production response 1119 as auth success.
       if (!this.isAuthenticated) {
@@ -423,7 +457,8 @@ export class KotakMarketDataStream {
       }
     } else if (
       row.message_code === SUBSCRIPTION_ACKNOWLEDGEMENT &&
-      row.error_code != null &&
+      row.error_code !== null &&
+      row.error_code !== undefined &&
       row.error_code !== 0
     ) {
       this.closeConnection(
@@ -437,15 +472,22 @@ export class KotakMarketDataStream {
    * exchange freshness, so these cached prices must never be used to match paper orders.
    */
   private updateQuotesFromBinaryFrame(data: unknown) {
-    if (!(data instanceof ArrayBuffer))
+    if (!(data instanceof ArrayBuffer)) {
       throw new Error("Unexpected binary feed.");
-    if (!this.isAuthenticated) return; // The documented feed may send binary frames before auth.
-    if (this.connectionState === "unsubscribed") return;
+    }
+    if (!this.isAuthenticated) {
+      return;
+    } // The documented feed may send binary frames before auth.
+    if (this.connectionState === "unsubscribed") {
+      return;
+    }
     const decoded = decodeKotakBinaryFrame(
       new Uint8Array(data),
       this.priceDividers,
     );
-    if (decoded.truncated) this.truncatedFrames++;
+    if (decoded.truncated) {
+      this.truncatedFrames++;
+    }
     const requested = new Set(
       this.subscription.instruments.map(
         (row) => `${row.exchange}|${row.instrument}`,
@@ -461,8 +503,9 @@ export class KotakMarketDataStream {
         if (
           record.type === "cas" &&
           !requested.has(`${record.exchange}|${record.instrument}`)
-        )
+        ) {
           continue;
+        }
         this.notifications = [...this.notifications.slice(-19), entry];
       } else if (requested.has(`${record.exchange}|${record.instrument}`)) {
         this.latestQuotes.set(`${record.exchange}|${record.instrument}`, entry);
@@ -471,9 +514,12 @@ export class KotakMarketDataStream {
   }
 
   /** The selected set is immutable per feed: no unbounded accumulation of subscriptions. */
-  sendSubscriptionCommand(action: "subscribe" | "unsubscribe" | "snapshot") {
-    if (!this.isSessionActive() || this.isClosed || !this.isAuthenticated)
+  public sendSubscriptionCommand(
+    action: "subscribe" | "unsubscribe" | "snapshot",
+  ) {
+    if (!this.isSessionActive() || this.isClosed || !this.isAuthenticated) {
       throw new Error("Feed is not authenticated.");
+    }
     const suffix = {
       indices: "Indices",
       depth: "Depth",
@@ -498,13 +544,16 @@ export class KotakMarketDataStream {
     this.connectionState = requestedState[action];
     this.statusMessage =
       "Indicative feed only; exchange timestamp units are unverified. Not used for paper fills.";
-    if (action === "unsubscribe") this.latestQuotes.clear();
+    if (action === "unsubscribe") {
+      this.latestQuotes.clear();
+    }
   }
 
   /** Polling reads only this memory cache and renews the viewer lease, never broker REST. */
-  getLatestSnapshot() {
-    if (!this.isSessionActive())
+  public getLatestSnapshot() {
+    if (!this.isSessionActive()) {
       this.closeConnection("session-expired", "Reconnect your Kotak account.");
+    }
     this.lastViewerActivityAt = Date.now();
     return {
       state: this.connectionState,
@@ -522,8 +571,10 @@ export class KotakMarketDataStream {
   }
 
   /** Idempotent cleanup discards prices and socket access on logout, expiry, error or shutdown. */
-  closeConnection(state = "stopped", detail = "Feed stopped.") {
-    if (this.isClosed) return;
+  public closeConnection(state = "stopped", detail = "Feed stopped.") {
+    if (this.isClosed) {
+      return;
+    }
     this.isClosed = true;
     this.connectionState = state;
     this.statusMessage = detail;

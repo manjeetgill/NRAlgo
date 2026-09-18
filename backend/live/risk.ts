@@ -39,17 +39,20 @@ export function evaluateLiveRisk(
     Object.values(context.outstandingUnits).some(
       (value) => !Number.isSafeInteger(value) || value < 0,
     )
-  )
+  ) {
     throw new Error("Invalid risk context");
+  }
   if (
     !snapshot.complete ||
     !snapshot.sessionHealthy ||
     context.now - snapshot.capturedAt > maximumSnapshotAgeMs ||
     snapshot.capturedAt > context.now
-  )
+  ) {
     throw new Error("Fresh complete broker state is required");
-  if (snapshot.dailyPnlPaise <= -limits.maxDailyLossPaise)
+  }
+  if (snapshot.dailyPnlPaise <= -limits.maxDailyLossPaise) {
     throw new Error("Daily loss limit reached");
+  }
   const reservation = intent.quantity * intent.limitPaise;
   if (intent.reduceOnly) {
     const position = snapshot.positions[intent.instrument] || 0;
@@ -57,12 +60,14 @@ export function evaluateLiveRisk(
       (intent.side === "sell" ? position <= 0 : position >= 0) ||
       intent.quantity + (context.outstandingUnits[intent.instrument] || 0) >
         Math.abs(position)
-    )
+    ) {
       throw new Error(
         "Reduce-only quantity exceeds unreserved broker position",
       );
-    if (context.ordersLastMinute >= limits.maxOrdersPerMinute)
+    }
+    if (context.ordersLastMinute >= limits.maxOrdersPerMinute) {
       throw new Error("Order rate limit reached");
+    }
     return 0;
   }
   if (
@@ -71,26 +76,31 @@ export function evaluateLiveRisk(
     !Number.isSafeInteger(
       snapshot.grossExposurePaise + context.reservedPaise + reservation,
     )
-  )
+  ) {
     throw new Error("Order notional exceeds safe arithmetic");
+  }
   if (
     context.reservedPaise + reservation > limits.maxReservedPaise ||
     context.reservedPaise + reservation > snapshot.availablePaise
-  )
+  ) {
     throw new Error("Capital reservation limit reached");
+  }
   if (
     snapshot.grossExposurePaise + context.reservedPaise + reservation >
     limits.maxGrossExposurePaise
-  )
+  ) {
     throw new Error("Gross exposure limit reached");
+  }
   if (
     Math.abs(snapshot.positions[intent.instrument] || 0) +
       (context.outstandingUnits[intent.instrument] || 0) +
       intent.quantity >
     limits.maxPositionUnits
-  )
+  ) {
     throw new Error("Position limit reached");
-  if (context.ordersLastMinute >= limits.maxOrdersPerMinute)
+  }
+  if (context.ordersLastMinute >= limits.maxOrdersPerMinute) {
     throw new Error("Order rate limit reached");
+  }
   return reservation;
 }

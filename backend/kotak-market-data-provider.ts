@@ -18,12 +18,15 @@ export function createKotakMarketDataProvider(
     instruments: catalog,
     isConnected: (user, session) => client.isConnected(user, session),
     async prepareInstruments(session, market, reserve) {
-      if (!client.isConnected(session.userId, session.sessionHash))
+      if (!client.isConnected(session.userId, session.sessionHash)) {
         throw Object.assign(new Error("Connect Kotak first."), {
           status: 409,
           detail: "Connect Kotak first.",
         });
-      if (catalog.isFresh("kotak", market)) return;
+      }
+      if (catalog.isFresh("kotak", market)) {
+        return;
+      }
       await reserve();
       await reserve();
       await catalog.load(
@@ -35,11 +38,12 @@ export function createKotakMarketDataProvider(
           market,
         ),
       );
-      if (!client.isConnected(session.userId, session.sessionHash))
+      if (!client.isConnected(session.userId, session.sessionHash)) {
         throw Object.assign(new Error("Kotak disconnected."), {
           status: 409,
           detail: "Kotak disconnected during instrument discovery.",
         });
+      }
     },
     getPaperFillQuote: (...args) => client.getPaperFillQuote(...args),
     getQuoteSnapshots: (...args) => client.getQuoteSnapshots(...args),

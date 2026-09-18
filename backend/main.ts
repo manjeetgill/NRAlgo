@@ -87,12 +87,14 @@ export function createApiApplication(
     const u = new URL(origin);
     validOrigin = u.protocol === "https:" && u.origin === origin;
   } catch {}
-  if (production && (!validOrigin || setupToken.length < 32))
+  if (production && (!validOrigin || setupToken.length < 32)) {
     throw new Error(
       "Production requires an HTTPS origin and 32+ character SETUP_TOKEN.",
     );
-  if (env.REGISTRATION_TOKEN && env.REGISTRATION_TOKEN.length < 32)
+  }
+  if (env.REGISTRATION_TOKEN && env.REGISTRATION_TOKEN.length < 32) {
     throw new Error("REGISTRATION_TOKEN must contain at least 32 characters.");
+  }
   const vault = credentialVault(env);
   // Runtime presentation setting, deliberately independent of real-money execution permission.
   const paperTradingEnabled = env.PAPER_TRADING_ENABLED === "true";
@@ -115,7 +117,9 @@ export function createApiApplication(
   function disconnectUserData(userId: string) {
     liveManager.revoke(userId);
     marketData.disconnect(userId);
-    if (marketData !== kotakMarketData) kotakClient.disconnect(userId);
+    if (marketData !== kotakMarketData) {
+      kotakClient.disconnect(userId);
+    }
   }
   const openRegistration =
     env.ALLOW_PUBLIC_REGISTRATION === "true" ||
@@ -126,7 +130,9 @@ export function createApiApplication(
   app.locals.shutdown = async () => {
     await liveManager.close();
     marketData.close();
-    if (marketData !== kotakMarketData) kotakClient.close();
+    if (marketData !== kotakMarketData) {
+      kotakClient.close();
+    }
   };
   app.disable("x-powered-by");
   app.use((req, res, next) => {
@@ -140,8 +146,9 @@ export function createApiApplication(
       !(production ? [origin] : [origin, "http://127.0.0.1:3000"]).includes(
         req.headers.origin,
       )
-    )
+    ) {
       return res.status(403).json({ detail: "Origin not allowed" });
+    }
     next();
   });
   app.use(express.json({ limit: "16kb" }));
@@ -153,11 +160,14 @@ export function createApiApplication(
   app.use("/api/auth", rateLimit(40, 60000, source));
   let activeAuth = 0;
   app.use("/api/auth", (req, res, next) => {
-    if (req.method !== "POST") return next();
-    if (activeAuth >= 4)
+    if (req.method !== "POST") {
+      return next();
+    }
+    if (activeAuth >= 4) {
       return res
         .status(429)
         .json({ detail: "Authentication busy. Try again shortly." });
+    }
     activeAuth++;
     let released = false;
     const release = () => {
@@ -181,10 +191,11 @@ export function createApiApplication(
       "SELECT token_hash FROM sessions WHERE user_id=$1 ORDER BY expires DESC",
       [userId],
     );
-    for (const session of existing.slice(9))
+    for (const session of existing.slice(9)) {
       await query("DELETE FROM sessions WHERE token_hash=$1", [
         session.token_hash,
       ]);
+    }
     await query(
       "INSERT INTO sessions (token_hash,csrf,expires,user_id) VALUES ($1,$2,$3,$4)",
       [digest(raw), csrf, seconds() + 28800, userId],
@@ -202,8 +213,9 @@ export function createApiApplication(
   app.get("/api/health", async (req, res) => {
     try {
       const worker = await store.transaction(async (query) => {
-        if (!(await query("SELECT id FROM settings WHERE id=1")).length)
+        if (!(await query("SELECT id FROM settings WHERE id=1")).length) {
           throw new Error();
+        }
         const [row] = await query<{ heartbeat: number }>(
           "SELECT heartbeat FROM worker_health WHERE id=1",
         );
@@ -253,36 +265,41 @@ export function createApiApplication(
     first: boolean,
   ) {
     const data = credentials.parse(req.body);
-    if (first && setupToken && !equal(data.setup_token, setupToken))
+    if (first && setupToken && !equal(data.setup_token, setupToken)) {
       fail(403, "Invalid setup token.");
+    }
     if (
       !first &&
       (!registrationEnabled ||
         (!openRegistration &&
           !equal(data.invite_token, env.REGISTRATION_TOKEN)))
-    )
+    ) {
       fail(403, "Registration requires a valid invitation.");
+    }
     const hashed = await passwordHash(data.password),
       userId = randomUUID();
     res.json(
       await store.transaction(async (query) => {
         await lockWorkspaceSettings(query, store);
         const exists = (await query("SELECT id FROM users LIMIT 1")).length > 0;
-        if (first && exists)
+        if (first && exists) {
           fail(
             409,
             "Workspace already configured. Sign in or create another account.",
           );
-        if (!first && !exists)
+        }
+        if (!first && !exists) {
           fail(409, "Complete first-account setup before registration.");
+        }
         if (
           (
             await query("SELECT id FROM users WHERE username=$1", [
               data.username,
             ])
           ).length
-        )
+        ) {
           fail(409, "Username unavailable.");
+        }
         await query("INSERT INTO users VALUES ($1,$2,$3)", [
           userId,
           data.username,
@@ -324,7 +341,9 @@ export function createApiApplication(
         await passwordHash(data.password, expected.split(":")[0]),
         expected,
       );
-      if (!user || !valid) fail(401, "Incorrect username or password.");
+      if (!user || !valid) {
+        fail(401, "Incorrect username or password.");
+      }
       res.json(
         await store.transaction(async (query) => {
           await lockWorkspaceSettings(query, store, user.id);
@@ -333,8 +352,9 @@ export function createApiApplication(
             "SELECT password_hash FROM users WHERE id=$1",
             [user.id],
           );
-          if (!equal(current.password_hash, expected))
+          if (!equal(current.password_hash, expected)) {
             fail(401, "Please sign in again.");
+          }
           await verifySecondFactor(query, vault, user.id, data.token);
           await audit(query, "Signed in.", user.id);
           return issueSession(query, res, user.id);
@@ -351,19 +371,23 @@ export function createApiApplication(
         .map((v) => v.trim())
         .find((v) => v.startsWith("nexus_session="))
         ?.slice(14) || "";
-    if (!/^[A-Za-z0-9_-]{64}$/.test(raw)) fail(401, "Please sign in.");
+    if (!/^[A-Za-z0-9_-]{64}$/.test(raw)) {
+      fail(401, "Please sign in.");
+    }
     const [session] = await store.transaction((query) =>
       query<LoginSession>("SELECT * FROM sessions WHERE token_hash=$1", [
         digest(raw),
       ]),
     );
-    if (!session || !session.user_id || session.expires < seconds())
+    if (!session || !session.user_id || session.expires < seconds()) {
       fail(401, "Please sign in.");
+    }
     if (
       !["GET", "HEAD"].includes(req.method) &&
       !equal(req.headers["x-csrf-token"] || "", session.csrf)
-    )
+    ) {
       fail(403, "Session verification failed. Refresh and try again.");
+    }
     res.locals.session = session;
     next();
   });
@@ -423,8 +447,9 @@ export function createApiApplication(
         ),
         user.password_hash,
       )
-    )
+    ) {
       fail(403, "Current password is incorrect.");
+    }
     const hashed = await passwordHash(data.new_password);
     const result = await store.transaction(async (query) => {
       await lockWorkspaceSettings(query, store, userId);
@@ -432,8 +457,9 @@ export function createApiApplication(
         "SELECT password_hash FROM users WHERE id=$1",
         [userId],
       );
-      if (!equal(current.password_hash, user.password_hash))
+      if (!equal(current.password_hash, user.password_hash)) {
         fail(409, "Password changed. Sign in again.");
+      }
       await verifySecondFactor(query, vault, userId, data.token);
       await query("UPDATE users SET password_hash=$1 WHERE id=$2", [
         hashed,
@@ -500,8 +526,9 @@ export function createApiApplication(
             userId,
           ])
         ).length >= 100
-      )
+      ) {
         fail(409, "Limit: 100 strategies per account.");
+      }
       await query(
         "INSERT INTO strategies (id,name,symbol,fast,slow,capital,status,pnl,created_at,user_id) VALUES ($1,$2,$3,$4,$5,$6,'draft',0,$7,$8)",
         [
@@ -530,15 +557,19 @@ export function createApiApplication(
       const id = randomUUID(),
         userId = res.locals.session.user_id;
       await store.transaction(async (query) => {
-        if ((await lockWorkspaceSettings(query, store, userId)).halted)
+        if ((await lockWorkspaceSettings(query, store, userId)).halted) {
           fail(409, "Workspace is paused. Resume before starting a replay.");
+        }
         const [strategy] = await query<Strategy>(
           "SELECT * FROM strategies WHERE id=$1 AND user_id=$2",
           [String(req.params.id), userId],
         );
-        if (!strategy) fail(404, "Strategy not found.");
-        if (["queued", "running"].includes(strategy.status))
+        if (!strategy) {
+          fail(404, "Strategy not found.");
+        }
+        if (["queued", "running"].includes(strategy.status)) {
           fail(409, "Strategy already queued/running.");
+        }
         await query(
           "UPDATE strategies SET status='queued' WHERE id=$1 AND user_id=$2",
           [strategy.id, userId],
@@ -615,8 +646,9 @@ export function createApiApplication(
       detail?: string;
     };
     const status = err instanceof z.ZodError ? 422 : error.status || 500;
-    if (status >= 500)
+    if (status >= 500) {
       console.error("API request failed:", error.code || error.name);
+    }
     res.status(status).json({
       detail:
         err instanceof z.ZodError
@@ -638,9 +670,9 @@ if (isEntryPoint(import.meta.url)) {
   const server = app.listen(
     Number(process.env.PORT || 8000),
     process.env.API_HOST || "127.0.0.1",
-    () => console.log("Node.js API ready."),
+    () => console.debug("Node.js API ready."),
   );
-  for (const signal of ["SIGINT", "SIGTERM"])
+  for (const signal of ["SIGINT", "SIGTERM"]) {
     process.once(signal, async () => {
       setTimeout(() => process.exit(1), 25000).unref();
       await app.locals.shutdown();
@@ -649,4 +681,5 @@ if (isEntryPoint(import.meta.url)) {
         process.exit(0);
       });
     });
+  }
 }

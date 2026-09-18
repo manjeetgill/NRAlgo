@@ -78,12 +78,15 @@ export function selectMarketDataProvider(
   providers: readonly MarketDataProvider[],
 ) {
   const provider = providers.find((candidate) => candidate.id === id);
-  if (!provider) throw new Error(`Unsupported market-data provider: ${id}`);
+  if (!provider) {
+    throw new Error(`Unsupported market-data provider: ${id}`);
+  }
   // Existing database records and account positions use Kotak contract identities.
   // A new adapter must explicitly map these to its own tokens, not reuse token numbers.
-  if (provider.capabilities.instrumentNamespace !== "kotak")
+  if (provider.capabilities.instrumentNamespace !== "kotak") {
     throw new Error(
       "Market-data adapter must map the existing kotak instrument namespace.",
     );
+  }
   return provider;
 }

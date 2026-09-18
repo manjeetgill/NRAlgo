@@ -33,10 +33,8 @@ export default tseslint.config(
       "react-hooks": reactHooksPlugin,
     },
     rules: {
-      // Existing code is baselined at warning severity; new code should not add
-      // to these findings while the repository is migrated incrementally.
-      curly: ["warn", "all"],
-      eqeqeq: "warn",
+      curly: ["error", "all"],
+      eqeqeq: "error",
       "no-console": ["warn", { allow: ["debug", "error"] }],
       "no-unused-expressions": "off",
       "object-shorthand": "error",
@@ -59,7 +57,7 @@ export default tseslint.config(
 
       "@typescript-eslint/explicit-function-return-type": "off",
       "@typescript-eslint/explicit-member-accessibility": [
-        "warn",
+        "error",
         {
           accessibility: "explicit",
           overrides: {
@@ -80,11 +78,17 @@ export default tseslint.config(
       "@typescript-eslint/no-unused-vars": "off",
       "@typescript-eslint/no-var-requires": "off",
 
-      "react-hooks/exhaustive-deps": "warn",
+      "react-hooks/exhaustive-deps": "error",
       "react-hooks/rules-of-hooks": "error",
       "no-control-regex": "off",
       "no-empty": ["error", { allowEmptyCatch: true }],
-      "prettier/prettier": "warn",
+      "prettier/prettier": "error",
+    },
+  },
+  {
+    files: ["**/*.{js,mjs}"],
+    rules: {
+      "@typescript-eslint/explicit-member-accessibility": "off",
     },
   },
 );

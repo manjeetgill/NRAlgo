@@ -4,7 +4,14 @@
  * order endpoint or credential storage exists in the browser. Each selected broker remounts
  * its wallet view so an old response cannot overwrite the newly selected broker's state.
  */
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 import { requestApiJson } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { BrokerPortfolioPanel } from "./broker-portfolio-panel";
@@ -51,7 +58,7 @@ type Wallet = {
   settlementRequired?: string[];
 };
 const money = (value: number | null | undefined) =>
-  value == null
+  value === null || value === undefined
     ? "Unavailable / stale"
     : new Intl.NumberFormat("en-IN", {
         style: "currency",
@@ -108,12 +115,15 @@ function PaperWallet({ broker, csrf }: { broker: Broker; csrf: string }) {
   });
   const [selectedInstrument, setSelectedInstrument] =
     useState<PaperInstrument | null>(null);
-  const contractFields = {
-    ...(market === "options" ? { option } : {}),
-    ...(selectedInstrument
-      ? { masterToken: selectedInstrument.masterToken }
-      : {}),
-  };
+  const contractFields = useMemo(
+    () => ({
+      ...(market === "options" ? { option } : {}),
+      ...(selectedInstrument
+        ? { masterToken: selectedInstrument.masterToken }
+        : {}),
+    }),
+    [market, option, selectedInstrument],
+  );
   const [editing, setEditing] = useState<Order | null>(null),
     [editQuantity, setEditQuantity] = useState(1),
     [editLimit, setEditLimit] = useState("");
@@ -129,10 +139,14 @@ function PaperWallet({ broker, csrf }: { broker: Broker; csrf: string }) {
     let active = true;
     request(broker, csrf)
       .then((data) => {
-        if (active) setWallet(data);
+        if (active) {
+          setWallet(data);
+        }
       })
       .catch((e) => {
-        if (active) setError(e.message);
+        if (active) {
+          setError(e.message);
+        }
       });
     const timer = setInterval(() => tick((value) => value + 1), 1000);
     return () => {
@@ -141,8 +155,10 @@ function PaperWallet({ broker, csrf }: { broker: Broker; csrf: string }) {
     };
   }, [broker, csrf]);
   /** Serialize UI actions; preserve the idempotency key after an uncertain response for safe retry. */
-  async function act(operation: () => Promise<void>) {
-    if (running.current) return;
+  const act = useCallback(async (operation: () => Promise<void>) => {
+    if (running.current) {
+      return;
+    }
     running.current = true;
     setBusy(true);
     setError("");
@@ -156,35 +172,44 @@ function PaperWallet({ broker, csrf }: { broker: Broker; csrf: string }) {
       running.current = false;
       setBusy(false);
     }
-  }
+  }, []);
   /** Each tick requests server-side market data, never submits client-supplied prices for fills. */
-  async function refresh(includeDraft = false) {
-    const result = await request(
-      `${broker}/refresh`,
-      csrf,
-      includeDraft ? { instrument, ...contractFields } : {},
-    );
-    setWallet((previous) => ({ ...previous, ...result, connected: true }));
-    setNotice(
-      result.stale
-        ? "Stale or empty quotes: affected orders remain unfilled."
-        : "Quote cycle completed. Eligible paper limits were matched locally.",
-    );
-  }
+  const refresh = useCallback(
+    async (includeDraft = false) => {
+      const result = await request(
+        `${broker}/refresh`,
+        csrf,
+        includeDraft ? { instrument, ...contractFields } : {},
+      );
+      setWallet((previous) => ({ ...previous, ...result, connected: true }));
+      setNotice(
+        result.stale
+          ? "Stale or empty quotes: affected orders remain unfilled."
+          : "Quote cycle completed. Eligible paper limits were matched locally.",
+      );
+    },
+    [broker, contractFields, csrf, instrument],
+  );
   useEffect(() => {
-    if (!automatic) return;
+    if (!automatic) {
+      return;
+    }
     const timer = setInterval(() => {
-      if (!document.hidden) void act(() => refresh());
+      if (!document.hidden) {
+        void act(() => refresh());
+      }
     }, 10000);
     const hide = () => {
-      if (document.hidden) setAutomatic(false);
+      if (document.hidden) {
+        setAutomatic(false);
+      }
     };
     document.addEventListener("visibilitychange", hide);
     return () => {
       clearInterval(timer);
       document.removeEventListener("visibilitychange", hide);
     };
-  }, [automatic, broker, csrf]);
+  }, [act, automatic, refresh]);
   /** Retrying identical content reuses the same key. Editing fields explicitly starts a new intent. */
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -354,7 +379,9 @@ function PaperWallet({ broker, csrf }: { broker: Broker; csrf: string }) {
             onSelect={(item) => {
               setSelectedInstrument(item);
               setInstrument(item.instrument);
-              if (item.option) setOption(item.option);
+              if (item.option) {
+                setOption(item.option);
+              }
               setQuantity(item.lotSize);
               orderKey.current = "";
               setNotice(
@@ -373,7 +400,9 @@ function PaperWallet({ broker, csrf }: { broker: Broker; csrf: string }) {
             onSelect={(item) => {
               setSelectedInstrument(item);
               setInstrument(item.instrument);
-              if (item.option) setOption(item.option);
+              if (item.option) {
+                setOption(item.option);
+              }
               setQuantity(item.lotSize);
               orderKey.current = "";
               setNotice(

@@ -75,8 +75,9 @@ test("master discovery URLs cannot forward secrets, redirect to other hosts or a
     url.replace("https://", "https://secret@"),
     url.replace(day, "2020-01-01"),
     url.replace("nse_fo.csv", "bse_fo.csv"),
-  ])
+  ]) {
     assert.throws(() => validateKotakMasterUrl(bad, "options"));
+  }
 });
 test("catalog search is paged, single-flight, expires safely and rejects tampered selected tickets", async () => {
   const realNow = Date.now;

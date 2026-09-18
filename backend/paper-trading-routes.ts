@@ -164,7 +164,9 @@ export function registerPaperRoutes(
               input,
             );
           } catch (error) {
-            if (error instanceof KotakConnectionError) throw error;
+            if (error instanceof KotakConnectionError) {
+              throw error;
+            }
             fail(
               502,
               "Kotak login failed. Verify token, TOTP, MPIN and host. Credentials are not saved.",
@@ -213,12 +215,14 @@ export function registerPaperRoutes(
       if (
         input.query.length < 2 &&
         !(broker === "kotak" && input.market === "cash")
-      )
+      ) {
         fail(422, "Enter at least two characters for this instrument search.");
+      }
       if (
         !isPaperDataBrokerConnected(session.user_id, broker, session.token_hash)
-      )
+      ) {
         fail(409, "Connect the selected broker before instrument search.");
+      }
       await requestCoordinator.runExclusiveForUser(
         session.user_id,
         async () => {
@@ -247,8 +251,9 @@ export function registerPaperRoutes(
               broker,
               session.token_hash,
             )
-          )
+          ) {
             fail(409, "Broker disconnected during instrument search.");
+          }
           res.json(catalog.search(broker, input));
         },
       );
@@ -269,8 +274,9 @@ export function registerPaperRoutes(
         .strict()
         .parse(req.body);
       const session = res.locals.session;
-      if (!marketData.isConnected(session.user_id, session.token_hash))
+      if (!marketData.isConnected(session.user_id, session.token_hash)) {
         fail(409, "Connect Kotak under Broker paper first.");
+      }
       await requestCoordinator.runExclusiveForUser(
         session.user_id,
         async () => {
@@ -300,8 +306,9 @@ export function registerPaperRoutes(
             expiryDate: input.expiryDate,
             offset: input.offset,
           });
-          if (!marketData.isConnected(session.user_id, session.token_hash))
+          if (!marketData.isConnected(session.user_id, session.token_hash)) {
             fail(409, "Kotak disconnected during chain discovery.");
+          }
           if (!input.expiryDate) {
             res.json({
               ...result,
@@ -311,8 +318,9 @@ export function registerPaperRoutes(
             });
             return;
           }
-          if (input.expiryDate < paperTradingDay(Date.now()))
+          if (input.expiryDate < paperTradingDay(Date.now())) {
             fail(422, "Choose a current, unexpired option contract.");
+          }
           if (!result.items.length) {
             res.json({
               ...result,
@@ -366,12 +374,14 @@ export function registerPaperRoutes(
     const broker = paperBrokerSchema.parse(req.params.broker),
       input = paperOrderInput.parse(req.body),
       session = res.locals.session;
-    if (broker === "kotak" && !/^\d{1,15}$/.test(input.instrument))
+    if (broker === "kotak" && !/^\d{1,15}$/.test(input.instrument)) {
       fail(422, "Kotak requires an NSE instrument token (pSymbol).");
+    }
     if (
       !isPaperDataBrokerConnected(session.user_id, broker, session.token_hash)
-    )
+    ) {
       fail(409, "Connect the selected data broker first.");
+    }
     res.json(
       await withPaperAccountLedger(session.user_id, broker, (state) => {
         catalog.validate(broker, input, input.quantity);
@@ -383,10 +393,11 @@ export function registerPaperRoutes(
               Boolean(o.option) === Boolean(input.option) &&
               paperInstrumentKey(o) !== paperInstrumentKey(input),
           )
-        )
+        ) {
           throw new Error(
             "This Kotak token is already bound to a different contract.",
           );
+        }
         const instruments = new Set([
           ...state.orders
             .filter((o) => o.state === "open")
@@ -396,10 +407,11 @@ export function registerPaperRoutes(
           ),
           paperInstrumentKey(input),
         ]);
-        if (instruments.size > 4)
+        if (instruments.size > 4) {
           throw new Error(
             "This paper wallet supports four active instruments.",
           );
+        }
         placePaperOrder(state, input, Date.now());
       }),
     );
@@ -416,7 +428,9 @@ export function registerPaperRoutes(
         broker,
         (state) => {
           const order = state.orders.find((order) => order.key === key);
-          if (order) catalog.validate(broker, order, input.quantity);
+          if (order) {
+            catalog.validate(broker, order, input.quantity);
+          }
           modifyPaperOrder(
             state,
             key,
@@ -461,13 +475,15 @@ export function registerPaperRoutes(
       string,
       Pick<PaperInput, "instrument" | "option" | "masterToken">
     >();
-    for (const order of before.orders)
+    for (const order of before.orders) {
       if (
         order.state === "open" ||
         before.positions[paperInstrumentKey(order)]?.quantity
-      )
+      ) {
         contracts.set(paperInstrumentKey(order), order);
-    if (input.instrument)
+      }
+    }
+    if (input.instrument) {
       contracts.set(
         paperInstrumentKey({
           instrument: input.instrument,
@@ -479,12 +495,15 @@ export function registerPaperRoutes(
           masterToken: input.masterToken,
         },
       );
-    if (contracts.size > 4)
+    }
+    if (contracts.size > 4) {
       fail(422, "Refresh supports at most four active instruments.");
+    }
     if (
       !isPaperDataBrokerConnected(session.user_id, broker, session.token_hash)
-    )
+    ) {
       fail(409, "Selected broker disconnected. Paper matching is paused.");
+    }
     const quotes: PaperQuote[] = [];
     await requestCoordinator.runExclusiveForUser(session.user_id, async () => {
       // A manual draft must not bypass validation of a previously master-selected held contract.
@@ -494,7 +513,7 @@ export function registerPaperRoutes(
             before.positions[paperInstrumentKey(order)]?.quantity) &&
           (!order.option ||
             order.option.expiryDate >= paperTradingDay(Date.now()))
-        )
+        ) {
           try {
             catalog.validate(broker, order);
           } catch {
@@ -503,10 +522,13 @@ export function registerPaperRoutes(
               "Reload instrument search before matching master-selected contracts.",
             );
           }
+        }
       }
       for (const [key, contract] of contracts) {
         const { instrument, option } = contract;
-        if (option && option.expiryDate < paperTradingDay(Date.now())) continue;
+        if (option && option.expiryDate < paperTradingDay(Date.now())) {
+          continue;
+        }
         try {
           catalog.validate(broker, contract);
         } catch {
@@ -551,8 +573,9 @@ export function registerPaperRoutes(
     ["/api/paper/kotak/reports", "/api/brokers/kotak/overview"],
     async (_req, res) => {
       const session = res.locals.session;
-      if (!kotak.isConnected(session.user_id, session.token_hash))
+      if (!kotak.isConnected(session.user_id, session.token_hash)) {
         fail(409, "Connect Kotak first.");
+      }
       const cachedPositions = openPositionCache.get(session.user_id);
       const reusablePositions =
         cachedPositions &&
@@ -586,12 +609,13 @@ export function registerPaperRoutes(
                             session.token_hash,
                             "positions",
                           ));
-                        if (!reusablePositions)
+                        if (!reusablePositions) {
                           openPositionCache.set(session.user_id, {
                             sessionHash: session.token_hash,
                             expiresAt: Date.now() + 15 * 60 * 1000,
                             rows: positions,
                           });
+                        }
                         const bySegment = new Map<
                           "nse_cm" | "nse_fo",
                           string[]
@@ -602,11 +626,12 @@ export function registerPaperRoutes(
                           if (
                             (segment === "nse_cm" || segment === "nse_fo") &&
                             /^\d{1,15}$/.test(position.instrumentToken)
-                          )
+                          ) {
                             bySegment.set(segment, [
                               ...(bySegment.get(segment) || []),
                               position.instrumentToken,
                             ]);
+                          }
                         }
                         const marks = new Map<string, number>();
                         for (const [segment, tokens] of bySegment) {
@@ -626,12 +651,14 @@ export function registerPaperRoutes(
                               session.token_hash,
                               uniqueTokens.slice(offset, offset + 50),
                               segment,
-                            ))
-                              if (quote.price !== null && !quote.stale)
+                            )) {
+                              if (quote.price !== null && !quote.stale) {
                                 marks.set(
                                   `${segment}|${quote.instrument}`,
                                   quote.price,
                                 );
+                              }
+                            }
                           }
                         }
                         return positions.map(
@@ -690,8 +717,9 @@ export function registerPaperRoutes(
   app.post(
     ["/api/market/live-feed", "/api/paper/kotak/live-feed"],
     async (req, res) => {
-      if (!marketData.capabilities.live)
+      if (!marketData.capabilities.live) {
         fail(422, "Selected data provider does not support live streaming.");
+      }
       const input = z
         .object({
           instruments: z
@@ -734,13 +762,15 @@ export function registerPaperRoutes(
           ].map((row) => [`${row.exchange}|${row.instrument}`, row]),
         ).values(),
       ];
-      if (positions.length > 50)
+      if (positions.length > 50) {
         fail(
           422,
           "More than 50 open positions require a larger feed subscription; no partial portfolio is streamed.",
         );
-      if (!instruments.length)
+      }
+      if (!instruments.length) {
         fail(409, "No quoteable open positions were returned by Kotak.");
+      }
       await requestCoordinator.runExclusiveForUser(
         session.user_id,
         async () => {
@@ -786,8 +816,9 @@ export function registerPaperRoutes(
   app.post("/api/portfolio/:broker/refresh", limit, async (req, res) => {
     const broker = paperBrokerSchema.parse(req.params.broker),
       session = res.locals.session;
-    if (!kotak.isConnected(session.user_id, session.token_hash))
+    if (!kotak.isConnected(session.user_id, session.token_hash)) {
       fail(409, "Connect the selected broker first.");
+    }
     const result: Record<string, unknown> = {
       broker,
       readOnly: true,

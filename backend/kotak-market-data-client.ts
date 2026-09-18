@@ -73,8 +73,8 @@ export class KotakConnectionError extends Error {
 /** Internal transport classification contains no response text or request metadata. */
 class KotakTransportError extends Error {
   constructor(
-    readonly category: string,
-    readonly brokerDetail = "",
+    public readonly category: string,
+    public readonly brokerDetail = "",
   ) {
     super(category);
   }
@@ -82,9 +82,15 @@ class KotakTransportError extends Error {
 
 /** Classify failures without retaining the original exception or its possibly sensitive body. */
 function getLoginFailureReason(error: unknown, stage: LoginStage) {
-  if (error instanceof KotakTransportError) return error.category;
-  if (stage === "HOST_VALIDATION") return "UNSUPPORTED_HOST";
-  if (stage === "SESSION") return "REVOKED";
+  if (error instanceof KotakTransportError) {
+    return error.category;
+  }
+  if (stage === "HOST_VALIDATION") {
+    return "UNSUPPORTED_HOST";
+  }
+  if (stage === "SESSION") {
+    return "REVOKED";
+  }
   return "REQUEST_FAILED";
 }
 
@@ -122,17 +128,20 @@ function extractSafeBrokerErrorMessage(
 ): string {
   const sensitiveValues = [...secrets];
   function collectSensitiveResponseValues(value: unknown, depth = 0) {
-    if (!value || typeof value !== "object" || depth > 6) return;
+    if (!value || typeof value !== "object" || depth > 6) {
+      return;
+    }
     for (const [key, item] of Object.entries(value)) {
       if (
         /token|secret|password|mpin|totp|authorization|sid|ucc|mobile|pan|email/i.test(
           key,
         ) &&
         typeof item === "string"
-      )
+      ) {
         sensitiveValues.push(item);
-      else if (typeof item === "object")
+      } else if (typeof item === "object") {
         collectSensitiveResponseValues(item, depth + 1);
+      }
     }
   }
   collectSensitiveResponseValues(raw);
@@ -144,8 +153,9 @@ function extractSafeBrokerErrorMessage(
         secret,
         encodeURIComponent(secret),
         JSON.stringify(secret).slice(1, -1),
-      ]))
+      ])) {
         text = text.split(variant).join("[redacted]");
+      }
     }
     return text
       .replace(
@@ -167,11 +177,13 @@ function extractSafeBrokerErrorMessage(
       typeof value !== "object" ||
       depth > 3 ||
       messages.length >= 3
-    )
+    ) {
       return;
+    }
     if (Array.isArray(value)) {
-      for (const item of value.slice(0, 3))
+      for (const item of value.slice(0, 3)) {
         collectBrokerErrorMessages(item, depth + 1);
+      }
       return;
     }
     const row = value as Record<string, unknown>;
@@ -189,8 +201,9 @@ function extractSafeBrokerErrorMessage(
           : "";
       messages.push(`${safeCode ? `[${safeCode}] ` : ""}${redact(message)}`);
     }
-    for (const key of ["error", "errors", "data", "fault"])
+    for (const key of ["error", "errors", "data", "fault"]) {
       collectBrokerErrorMessages(row[key], depth + 1);
+    }
   }
   collectBrokerErrorMessages(raw);
   return messages.slice(0, 3).join("; ").slice(0, 800);
@@ -201,17 +214,19 @@ function parseKotakLoginResponse(raw: unknown, secrets: string[]) {
   if (
     rejected.safeParse(raw).success ||
     z.object({ data: rejected }).safeParse(raw).success
-  )
+  ) {
     throw new KotakTransportError(
       "REJECTED",
       extractSafeBrokerErrorMessage(raw, secrets),
     );
+  }
   const parsed = loginResponse.safeParse(raw);
-  if (!parsed.success)
+  if (!parsed.success) {
     throw new KotakTransportError(
       "UNEXPECTED_RESPONSE",
       extractSafeBrokerErrorMessage(raw, secrets),
     );
+  }
   return parsed.data;
 }
 /** Bound duration/body size and reject redirects so tokens cannot be forwarded to another host. */
@@ -228,20 +243,24 @@ export const sendKotakHttpRequest: KotakHttpRequest = async (
         ? AbortSignal.any([init.signal, AbortSignal.timeout(10000)])
         : AbortSignal.timeout(10000),
     });
-    if (!response.body)
+    if (!response.body) {
       throw new KotakTransportError(
         response.ok ? "UNEXPECTED_RESPONSE" : `HTTP_${response.status}`,
       );
+    }
     const reader = response.body.getReader();
     const chunks: Uint8Array[] = [];
     let length = 0;
     try {
       for (;;) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+          break;
+        }
         length += value.length;
-        if (length > Math.min(maxBytes, 4194304))
+        if (length > Math.min(maxBytes, 4194304)) {
           throw new KotakTransportError("RESPONSE_TOO_LARGE");
+        }
         chunks.push(value);
       }
     } finally {
@@ -275,7 +294,9 @@ export const sendKotakHttpRequest: KotakHttpRequest = async (
     }
     return raw;
   } catch (error) {
-    if (error instanceof KotakTransportError) throw error;
+    if (error instanceof KotakTransportError) {
+      throw error;
+    }
     throw new KotakTransportError(
       error instanceof Error &&
         ["AbortError", "TimeoutError"].includes(error.name)
@@ -299,10 +320,11 @@ export function validateKotakOrigin(value: unknown) {
     !/^https:\/\/(?:mis|cis|e21|e22|e41|e43)\.kotaksecurities\.com\/?$/.test(
       value,
     )
-  )
+  ) {
     throw new Error(
       "Unsupported Kotak data host. Verify the official endpoint before enabling it.",
     );
+  }
   return value.replace(/\/$/, "");
 }
 /** Only the documented /apifeed path on an approved broker data center may receive a SID.
@@ -310,18 +332,21 @@ export function validateKotakOrigin(value: unknown) {
  */
 export function validateKotakFeedUrl(value: unknown) {
   // Official SDK default: docs/guides/websocket.md and utils/urls.py.
-  if (value == null || value === "")
+  if (value === null || value === undefined || value === "") {
     return "wss://sfeed.kotaksecurities.com/apifeed";
+  }
   if (
     value === "https://sfeed.kotaksecurities.com/apifeed" ||
     value === "wss://sfeed.kotaksecurities.com/apifeed"
-  )
+  ) {
     return "wss://sfeed.kotaksecurities.com/apifeed";
+  }
   if (
     typeof value !== "string" ||
     !/^(https|wss):\/\/[^/]+\/apifeed$/.test(value)
-  )
+  ) {
     throw new Error("Kotak did not return a supported feed URL.");
+  }
   const origin = validateKotakOrigin(
     value.replace(/^wss:/, "https:").slice(0, -8),
   );
@@ -332,11 +357,13 @@ function convertRupeesToPaise(value: unknown) {
   if (
     !["string", "number"].includes(typeof value) ||
     String(value).trim() === ""
-  )
+  ) {
     throw new Error("Missing price.");
+  }
   const n = Number(value) * 100;
-  if (!Number.isFinite(n) || Math.abs(n - Math.round(n)) > 0.001)
+  if (!Number.isFinite(n) || Math.abs(n - Math.round(n)) > 0.001) {
     throw new Error("Invalid price.");
+  }
   return Math.round(n);
 }
 /** Match the requested exchange/token exactly and retain the exchange update epoch, not HTTP arrival. */
@@ -346,14 +373,17 @@ export function parseKotakPaperFillQuote(
   now = Date.now(),
   segment: "nse_cm" | "nse_fo" = "nse_cm",
 ): PaperQuote {
-  if (!Array.isArray(raw) || raw.length !== 1)
+  if (!Array.isArray(raw) || raw.length !== 1) {
     throw new Error("Missing or ambiguous Kotak quote.");
+  }
   const row = raw[0];
-  if (row.exchange !== segment || String(row.exchange_token) !== instrument)
+  if (row.exchange !== segment || String(row.exchange_token) !== instrument) {
     throw new Error("Kotak instrument mismatch.");
+  }
   const observedAt = Number(row.lstup_time) * 1000;
-  if (!Number.isSafeInteger(observedAt) || observedAt <= 0)
+  if (!Number.isSafeInteger(observedAt) || observedAt <= 0) {
     throw new Error("Kotak timestamp missing.");
+  }
   return {
     instrument,
     bid: convertRupeesToPaise(row.depth?.buy?.[0]?.price),
@@ -386,33 +416,39 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
     private socketFactory?: FeedSocketFactory,
   ) {}
   /** Authenticate once, reserving connection capacity before asynchronous network work begins. */
-  async connect(
+  public async connect(
     userId: string,
     sessionHash: string,
     expires: number,
     input: KotakLogin,
   ) {
-    if (this.closed)
+    if (this.closed) {
       throw new KotakConnectionError(
         "SESSION",
         "CLOSED",
         "The connection service is shutting down.",
       );
-    if (this.pending.has(userId))
+    }
+    if (this.pending.has(userId)) {
       throw new KotakConnectionError(
         "SESSION",
         "IN_PROGRESS",
         "Wait for the existing login attempt to finish.",
       );
+    }
     this.disconnect(userId);
-    for (const [id, value] of this.sessions)
-      if (value.expires < Date.now()) this.disconnect(id);
-    if (this.sessions.size + this.pending.size >= 3)
+    for (const [id, value] of this.sessions) {
+      if (value.expires < Date.now()) {
+        this.disconnect(id);
+      }
+    }
+    if (this.sessions.size + this.pending.size >= 3) {
       throw new KotakConnectionError(
         "SESSION",
         "CAPACITY",
         "The server connection limit has been reached.",
       );
+    }
     const generation = Symbol("kotak-login");
     this.pending.set(userId, generation);
     const headers = {
@@ -442,8 +478,9 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
         first.data.kType !== "View" ||
         !first.data.token ||
         !first.data.sid
-      )
+      ) {
         throw new KotakTransportError("UNEXPECTED_RESPONSE");
+      }
       stage = "MPIN_VERIFY";
       const second = parseKotakLoginResponse(
         await this.transport(
@@ -465,8 +502,9 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
         second.data.kType !== "Trade" ||
         !second.data.token ||
         !second.data.sid
-      )
+      ) {
         throw new KotakTransportError("UNEXPECTED_RESPONSE");
+      }
       stage = "HOST_VALIDATION";
       const baseUrl = validateKotakOrigin(second.data.baseUrl);
       stage = "SESSION";
@@ -474,8 +512,9 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
         this.closed ||
         this.pending.get(userId) !== generation ||
         expires <= Date.now()
-      )
+      ) {
         throw new Error("Login revoked during authentication.");
+      }
       this.sessions.set(userId, {
         sessionHash,
         expires: Math.min(expires, Date.now() + 8 * 3600000),
@@ -503,13 +542,17 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
         `${brokerDetail ? `Broker response: ${brokerDetail}. ` : ""}${guidance}`,
       );
     } finally {
-      if (this.pending.get(userId) === generation) this.pending.delete(userId);
+      if (this.pending.get(userId) === generation) {
+        this.pending.delete(userId);
+      }
     }
   }
   /** A second app session cannot borrow this session's token; expiry requires fresh login. */
-  isConnected(userId: string, sessionHash: string) {
+  public isConnected(userId: string, sessionHash: string) {
     const session = this.sessions.get(userId);
-    if (session && session.expires < Date.now()) this.disconnect(userId);
+    if (session && session.expires < Date.now()) {
+      this.disconnect(userId);
+    }
     return Boolean(
       session &&
       session.expires >= Date.now() &&
@@ -518,9 +561,10 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
   }
   /** Server-only capability; credentials never leave this closure. No HTTP route accepts
    * arbitrary paths. Capturing the exact session object fences reconnects and revocations. */
-  executionSession(userId: string, sessionHash: string) {
-    if (!this.isConnected(userId, sessionHash))
+  public executionSession(userId: string, sessionHash: string) {
+    if (!this.isConnected(userId, sessionHash)) {
       throw new Error("Connect Kotak first");
+    }
     const session = this.sessions.get(userId)!;
     const isCurrent = () =>
       this.sessions.get(userId) === session &&
@@ -543,13 +587,15 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
           !isCurrent() ||
           signal.aborted ||
           ![...reads, ...writes].includes(path)
-        )
+        ) {
           throw new Error("Live broker session unavailable");
+        }
         if (
           (path === "/quick/user/limits" || writes.includes(path)) !==
           Boolean(body)
-        )
+        ) {
           throw new Error("Invalid broker request");
+        }
         const result = await this.transport(`${session.baseUrl}${path}`, {
           method: body ? "POST" : "GET",
           signal,
@@ -568,8 +614,9 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
               }
             : {}),
         });
-        if (!isCurrent() || signal.aborted)
+        if (!isCurrent() || signal.aborted) {
           throw new Error("Live broker session changed");
+        }
         return result;
       },
     };
@@ -578,21 +625,23 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
    * never use a display snapshot as a paper fill or substitute another contract's price.
    * Kotak documents up to 50 instruments per quotes request in its current SDK.
    */
-  async getQuoteSnapshots(
+  public async getQuoteSnapshots(
     userId: string,
     sessionHash: string,
     instruments: string[],
     segment: "nse_cm" | "nse_fo" = "nse_fo",
   ) {
-    if (!this.isConnected(userId, sessionHash))
+    if (!this.isConnected(userId, sessionHash)) {
       throw new Error("Connect Kotak first.");
+    }
     if (
       !instruments.length ||
       instruments.length > 50 ||
       new Set(instruments).size !== instruments.length ||
       instruments.some((token) => !/^\d{1,15}$/.test(token))
-    )
+    ) {
       throw new Error("Invalid option quote batch.");
+    }
     const session = this.sessions.get(userId)!;
     const raw = await this.transport(
       `${session.baseUrl}/script-details/1.0/quotes/neosymbol/${encodeURIComponent(instruments.map((token) => `${segment}|${token}`).join(","))}/all`,
@@ -601,10 +650,12 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
     if (
       this.sessions.get(userId) !== session ||
       !this.isConnected(userId, sessionHash)
-    )
+    ) {
       throw new Error("Kotak session changed during quote fetch.");
-    if (!Array.isArray(raw) || raw.length > instruments.length)
+    }
+    if (!Array.isArray(raw) || raw.length > instruments.length) {
       throw new Error("Unexpected option quote response.");
+    }
     const quoteRow = z.object({
       exchange: z.string(),
       exchange_token: z.union([z.string(), z.number()]),
@@ -626,16 +677,18 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
         row.exchange !== segment ||
         !instruments.includes(String(row.exchange_token)) ||
         rows.has(String(row.exchange_token))
-      )
+      ) {
         throw new Error("Option quote identity mismatch.");
+      }
       rows.set(String(row.exchange_token), quoteRow.parse(row));
     }
     const number = (value: unknown) => {
       if (
         (typeof value !== "number" && typeof value !== "string") ||
         String(value).trim() === ""
-      )
+      ) {
         return null;
+      }
       const result = Number(value);
       return Number.isFinite(result) && result >= 0 ? result : null;
     };
@@ -662,7 +715,7 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
   /** Fetch one day of real candles using documented lowercase wire parameters.
    * Convert positional ISO rows to our research candle input; no synthetic bars or token fallback.
    */
-  async getHistoricalCandlesForDay(
+  public async getHistoricalCandlesForDay(
     userId: string,
     sessionHash: string,
     token: string,
@@ -670,14 +723,16 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
     day: string,
     interval: "1minute" | "5minute",
   ) {
-    if (!this.isConnected(userId, sessionHash))
+    if (!this.isConnected(userId, sessionHash)) {
       throw new Error("Connect Kotak first.");
+    }
     if (
       !/^\d{1,15}$/.test(token) ||
       !z.iso.date().safeParse(day).success ||
       !["1minute", "5minute"].includes(interval)
-    )
+    ) {
       throw new Error("Invalid historical query.");
+    }
     const session = this.sessions.get(userId)!;
     const query = new URLSearchParams({
       neosymbol: `${segment}|${token}`,
@@ -698,8 +753,9 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
     if (
       this.sessions.get(userId) !== session ||
       !this.isConnected(userId, sessionHash)
-    )
+    ) {
       throw new Error("Kotak session changed during history fetch.");
+    }
     const parsed = z
       .object({
         status: z.literal("success"),
@@ -709,16 +765,18 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
         }),
       })
       .safeParse(raw);
-    if (!parsed.success)
+    if (!parsed.success) {
       throw new Error("Kotak history unavailable or malformed.");
+    }
     return parsed.data.data.candles.map((row) => {
       if (
         typeof row[0] !== "string" ||
         !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:?\d{2})$/.test(
           row[0],
         )
-      )
+      ) {
         throw new Error("Invalid Kotak candle timestamp.");
+      }
       return {
         datetime: row[0].replace(/([+-]\d{2})(\d{2})$/, "$1:$2"),
         open: row[1],
@@ -729,19 +787,21 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
     });
   }
   /** Read executable top-of-book separately from research data. */
-  async getPaperFillQuote(
+  public async getPaperFillQuote(
     userId: string,
     sessionHash: string,
     instrument: string,
     segment: "nse_cm" | "nse_fo" = "nse_cm",
     signal?: AbortSignal,
   ) {
-    if (!this.isConnected(userId, sessionHash))
+    if (!this.isConnected(userId, sessionHash)) {
       throw new Error("Connect Kotak in this app session first.");
-    if (!/^\d{1,15}$/.test(instrument))
+    }
+    if (!/^\d{1,15}$/.test(instrument)) {
       throw new Error(
         "Use the NSE segment-specific pSymbol token from Kotak's instrument master.",
       );
+    }
     const session = this.sessions.get(userId)!;
     try {
       const raw = await this.transport(
@@ -758,25 +818,29 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
       if (
         this.sessions.get(userId) !== session ||
         !this.isConnected(userId, sessionHash)
-      )
+      ) {
         throw new Error("Connection changed during quote request.");
+      }
       return parseKotakPaperFillQuote(raw, instrument, Date.now(), segment);
     } catch {
       // A delayed failure belongs to its captured session, never a newer login.
-      if (this.sessions.get(userId) === session) this.disconnect(userId);
+      if (this.sessions.get(userId) === session) {
+        this.disconnect(userId);
+      }
       throw new Error(
         "Kotak data unavailable. Reconnect and verify the instrument; paper matching is paused.",
       );
     }
   }
   /** Discover only the requested segment's official master file; never expose the API token. */
-  async getInstrumentMasterUrl(
+  public async getInstrumentMasterUrl(
     userId: string,
     sessionHash: string,
     market: "cash" | "options",
   ) {
-    if (!this.isConnected(userId, sessionHash))
+    if (!this.isConnected(userId, sessionHash)) {
       throw new Error("Connect Kotak first.");
+    }
     const session = this.sessions.get(userId)!;
     try {
       const raw = (await this.transport(
@@ -787,8 +851,9 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
         this.sessions.get(userId) !== session ||
         !this.isConnected(userId, sessionHash) ||
         !Array.isArray(raw?.data?.filesPaths)
-      )
+      ) {
         throw new Error();
+      }
       const suffix =
         market === "cash"
           ? "/transformed-v1/nse_cm-v1.csv"
@@ -796,7 +861,9 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
       const paths = raw.data.filesPaths.filter(
         (path) => typeof path === "string" && path.endsWith(suffix),
       );
-      if (paths.length !== 1) throw new Error();
+      if (paths.length !== 1) {
+        throw new Error();
+      }
       return validateKotakMasterUrl(paths[0], market);
     } catch {
       throw new Error(
@@ -805,13 +872,14 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
     }
   }
   /** Portfolio uses the session Auth/Sid headers, unlike the access-token-only quote endpoint. */
-  async getPortfolioRows(
+  public async getPortfolioRows(
     userId: string,
     sessionHash: string,
     kind: "positions" | "holdings",
   ) {
-    if (!this.isConnected(userId, sessionHash))
+    if (!this.isConnected(userId, sessionHash)) {
       throw new Error("Connect Kotak first.");
+    }
     const session = this.sessions.get(userId)!;
     try {
       const raw = (await this.transport(
@@ -828,8 +896,9 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
       if (
         this.sessions.get(userId) !== session ||
         !this.isConnected(userId, sessionHash)
-      )
+      ) {
         throw new Error();
+      }
       const nested =
         raw && typeof raw.data === "object" && !Array.isArray(raw.data)
           ? (raw.data as Record<string, unknown>)
@@ -852,8 +921,9 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
         brokerError ||
         (statusCode !== undefined && Number(statusCode) !== 200) ||
         !rows
-      )
+      ) {
         throw new Error();
+      }
       return normalizePortfolioRows(kind, rows);
     } catch {
       throw new Error(
@@ -864,15 +934,17 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
   /** Read-only broker reports. Limits uses a documented POST query, never an order endpoint.
    * Return selected public account fields only; unknown payloads are not empty accounts.
    */
-  async getAccountReport(
+  public async getAccountReport(
     userId: string,
     sessionHash: string,
     kind: "limits" | "orders" | "trades",
   ) {
-    if (!this.isConnected(userId, sessionHash))
+    if (!this.isConnected(userId, sessionHash)) {
       throw new Error("Connect Kotak first.");
-    if (!["limits", "orders", "trades"].includes(kind))
+    }
+    if (!["limits", "orders", "trades"].includes(kind)) {
       throw new Error("Unsupported report.");
+    }
     const session = this.sessions.get(userId)!;
     const raw = await this.transport(`${session.baseUrl}/quick/user/${kind}`, {
       method: kind === "limits" ? "POST" : "GET",
@@ -893,8 +965,9 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
     if (
       this.sessions.get(userId) !== session ||
       !this.isConnected(userId, sessionHash)
-    )
+    ) {
       throw new Error("Kotak session changed during report fetch.");
+    }
     const envelope = z
       .object({ stat: z.enum(["Ok", "ok"]), stCode: z.number().optional() })
       .passthrough()
@@ -902,8 +975,9 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
     if (
       !envelope.success ||
       (envelope.data.stCode !== undefined && envelope.data.stCode !== 200)
-    )
+    ) {
       throw new Error("Kotak report unavailable.");
+    }
     const numeric = (value: unknown) =>
       (typeof value === "number" ||
         (typeof value === "string" && value.trim() !== "")) &&
@@ -914,7 +988,7 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
       typeof value === "string" || typeof value === "number"
         ? String(value).slice(0, 100)
         : "";
-    if (kind === "limits")
+    if (kind === "limits") {
       return [
         {
           available: numeric(envelope.data.Net),
@@ -924,6 +998,7 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
           unrealizedPnl: numeric(envelope.data.UnrealizedMtomPrsnt),
         },
       ];
+    }
     const rows = z
       .array(z.record(z.string(), z.unknown()))
       .max(5000)
@@ -943,17 +1018,18 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
   /** Execute one explorer read, fenced to the current session. Larger history responses get
    * an explicit 4 MiB ceiling, never an unbounded download. Sanitized errors do not echo tokens.
    */
-  async fetchMarketData(
+  public async fetchMarketData(
     userId: string,
     sessionHash: string,
     request: MarketRequest,
   ) {
     const input = marketRequestSchema.parse(request);
-    if (!this.isConnected(userId, sessionHash))
+    if (!this.isConnected(userId, sessionHash)) {
       throw Object.assign(new Error(), {
         status: 409,
         detail: "Connect Kotak in this app session first.",
       });
+    }
     const session = this.sessions.get(userId)!;
     try {
       const raw = await this.transport(
@@ -970,13 +1046,14 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
       if (
         this.sessions.get(userId) !== session ||
         !this.isConnected(userId, sessionHash)
-      )
+      ) {
         throw new Error("Session changed.");
+      }
       const envelope = raw as Record<string, unknown> | null;
       if (
         envelope &&
         (envelope.stat === "Not_Ok" || envelope.status === "ERROR")
-      )
+      ) {
         throw new KotakTransportError(
           "BROKER_REJECTED",
           extractSafeBrokerErrorMessage(raw, [
@@ -986,14 +1063,16 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
             session.ucc,
           ]),
         );
+      }
       return parseKotakMarketDataResponse(input, raw);
     } catch (error) {
       if (
         this.sessions.get(userId) === session &&
         error instanceof KotakTransportError &&
         ["HTTP_401", "HTTP_403"].includes(error.category)
-      )
+      ) {
         this.disconnect(userId);
+      }
       const reason =
         error instanceof KotakTransportError
           ? error.category
@@ -1015,17 +1094,18 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
   }
 
   /** Start a fresh session-owned feed. Endpoint/credentials are never returned to the browser. */
-  startMarketDataStream(
+  public startMarketDataStream(
     userId: string,
     sessionHash: string,
     request: FeedRequest,
   ) {
     const input = feedRequestSchema.parse(request);
-    if (!this.isConnected(userId, sessionHash))
+    if (!this.isConnected(userId, sessionHash)) {
       throw Object.assign(new Error(), {
         status: 409,
         detail: "Connect Kotak first.",
       });
+    }
     const session = this.sessions.get(userId)!;
     const existing = this.feeds.get(userId)?.getLatestSnapshot();
     if (
@@ -1042,8 +1122,9 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
             row.instrument === item.instrument,
         ),
       )
-    )
+    ) {
       return existing;
+    }
     let url: string;
     try {
       url = validateKotakFeedUrl(session.feedUrl);
@@ -1070,12 +1151,13 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
   }
 
   /** Read only the current browser session's cache, never another session's subscription. */
-  getMarketDataStreamSnapshot(userId: string, sessionHash: string) {
-    if (!this.isConnected(userId, sessionHash))
+  public getMarketDataStreamSnapshot(userId: string, sessionHash: string) {
+    if (!this.isConnected(userId, sessionHash)) {
       throw Object.assign(new Error(), {
         status: 409,
         detail: "Connect Kotak first.",
       });
+    }
     return (
       this.feeds.get(userId)?.getLatestSnapshot() ?? {
         state: "stopped",
@@ -1086,16 +1168,17 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
   }
 
   /** Bounded control operations reuse the immutable subscription set; no order messages exist. */
-  sendMarketDataStreamCommand(
+  public sendMarketDataStreamCommand(
     userId: string,
     sessionHash: string,
     action: "subscribe" | "unsubscribe" | "snapshot",
   ) {
-    if (!this.isConnected(userId, sessionHash) || !this.feeds.has(userId))
+    if (!this.isConnected(userId, sessionHash) || !this.feeds.has(userId)) {
       throw Object.assign(new Error(), {
         status: 409,
         detail: "Start the feed first.",
       });
+    }
     try {
       this.feeds.get(userId)!.sendSubscriptionCommand(action);
     } catch {
@@ -1108,23 +1191,27 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
   }
 
   /** Closing a feed is always local and does not consume a broker REST budget. */
-  stopMarketDataStream(userId: string, sessionHash: string) {
-    if (this.sessions.get(userId)?.sessionHash !== sessionHash) return;
+  public stopMarketDataStream(userId: string, sessionHash: string) {
+    if (this.sessions.get(userId)?.sessionHash !== sessionHash) {
+      return;
+    }
     this.feeds.get(userId)?.closeConnection();
     this.feeds.delete(userId);
   }
 
   /** Remove local token access without invoking any trading endpoint. */
-  disconnect(userId: string) {
+  public disconnect(userId: string) {
     this.feeds.get(userId)?.closeConnection();
     this.feeds.delete(userId);
     this.sessions.delete(userId);
     this.pending.delete(userId);
   }
   /** Shutdown discards every in-memory token; the next process must authenticate explicitly. */
-  close() {
+  public close() {
     this.closed = true;
-    for (const feed of this.feeds.values()) feed.closeConnection();
+    for (const feed of this.feeds.values()) {
+      feed.closeConnection();
+    }
     this.feeds.clear();
     this.sessions.clear();
     this.pending.clear();

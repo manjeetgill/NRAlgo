@@ -34,8 +34,9 @@ export async function reserveBrokerRequestBudget(
         "SELECT enabled FROM user_security WHERE user_id=$1",
         [userId],
       );
-      if (!row?.enabled)
+      if (!row?.enabled) {
         fail(403, "Enable MFA before requesting broker data on this server.");
+      }
     }
     const indiaTimezoneOffsetMs = 5.5 * 60 * 60 * 1000;
     const day = new Date(Date.now() + indiaTimezoneOffsetMs)
@@ -53,8 +54,9 @@ export async function reserveBrokerRequestBudget(
     const count = daily?.usage_day === day ? daily.request_count : 0;
     const perMinute =
       window?.window_start === minute ? window.request_count : 0;
-    if (count >= 4000 || perMinute >= 60)
+    if (count >= 4000 || perMinute >= 60) {
       fail(429, "Market-data budget reached. Wait before refreshing.");
+    }
     await query(
       "INSERT INTO broker_usage VALUES($1,$2,$3) ON CONFLICT(user_id) DO UPDATE SET usage_day=$2,request_count=$3",
       [userId, day, count + 1],
@@ -75,11 +77,12 @@ export function registerResearchRoutes(
 ) {
   const catalog = brokerDataReader.instruments;
   function requireHistory(interval: "1minute" | "5minute") {
-    if (!brokerDataReader.capabilities.historyIntervals.includes(interval))
+    if (!brokerDataReader.capabilities.historyIntervals.includes(interval)) {
       fail(
         422,
         "Selected data provider does not support this historical interval.",
       );
+    }
   }
   const researchLimit = rateLimit(
     30,
@@ -95,8 +98,9 @@ export function registerResearchRoutes(
     strategy: ResearchStrategy,
     session: { user_id: string; token_hash: string },
   ) {
-    if (!brokerDataReader.isConnected(session.user_id, session.token_hash))
+    if (!brokerDataReader.isConnected(session.user_id, session.token_hash)) {
       fail(409, "Connect Kotak under Broker paper first.");
+    }
     if (!catalog.isFresh("kotak", strategy.market)) {
       try {
         await brokerDataReader.prepareInstruments(
@@ -135,10 +139,13 @@ export function registerResearchRoutes(
         [identity.parse(id), userId],
       ),
     );
-    if (!row) fail(404, "Research strategy not found.");
+    if (!row) {
+      fail(404, "Research strategy not found.");
+    }
     const definition = JSON.parse(row.definition);
-    if (definition.broker !== "kotak")
+    if (definition.broker !== "kotak") {
       fail(409, "Unsupported legacy strategy. Create a new Kotak strategy.");
+    }
     return researchStrategySchema.parse(definition);
   }
   app.get("/api/research", async (_req, res) => {
@@ -171,11 +178,12 @@ export function registerResearchRoutes(
         "SELECT COUNT(*) FROM research_strategies WHERE user_id=$1",
         [userId],
       );
-      if (Number(row.count) >= 50)
+      if (Number(row.count) >= 50) {
         fail(
           409,
           "Research library is full (50). Remove a saved strategy first.",
         );
+      }
       await query("INSERT INTO research_strategies VALUES($1,$2,$3,$4)", [
         id,
         userId,
@@ -199,7 +207,9 @@ export function registerResearchRoutes(
         [id, userId],
       ),
     );
-    if (!rows.length) fail(404, "Research strategy not found.");
+    if (!rows.length) {
+      fail(404, "Research strategy not found.");
+    }
     res.json({ ok: true });
   });
   app.get("/api/research/runs/:id", async (req, res) => {
@@ -209,7 +219,9 @@ export function registerResearchRoutes(
         [identity.parse(req.params.id), res.locals.session.user_id],
       ),
     );
-    if (!row) fail(404, "Research run not found.");
+    if (!row) {
+      fail(404, "Research run not found.");
+    }
     res.json(JSON.parse(row.result));
   });
   app.post("/api/research/backtest", async (req, res) => {
@@ -224,12 +236,14 @@ export function registerResearchRoutes(
     requireHistory(input.interval);
     const userId = res.locals.session.user_id,
       strategy = await loadUserResearchStrategy(userId, input.strategyId);
-    if (Date.parse(`${input.day}T15:30:00+05:30`) > Date.now())
+    if (Date.parse(`${input.day}T15:30:00+05:30`) > Date.now()) {
       fail(422, "Choose a completed historical trading session.");
+    }
     if (
       strategy.legs.some((leg) => leg.expiryDate && leg.expiryDate < input.day)
-    )
+    ) {
       fail(422, "Selected session is after a contract expiry.");
+    }
     await requestCoordinator.runExclusiveForUser(userId, async () => {
       const contracts = await resolveStrategyContracts(
         strategy,
@@ -283,8 +297,9 @@ export function registerResearchRoutes(
           "SELECT id FROM research_strategies WHERE id=$1 AND user_id=$2 FOR UPDATE",
           [input.strategyId, userId],
         );
-        if (!owner.length)
+        if (!owner.length) {
           fail(409, "Strategy was removed during the request.");
+        }
         await query("INSERT INTO research_runs VALUES($1,$2,$3,$4,$5)", [
           id,
           userId,
@@ -315,15 +330,18 @@ export function registerResearchRoutes(
       .parse(req.body);
     requireHistory(input.interval);
     const days = [...new Set(input.days)].sort();
-    if (days.length !== input.days.length)
+    if (days.length !== input.days.length) {
       fail(422, "Duplicate dates in batch request.");
+    }
     const userId = res.locals.session.user_id,
       strategy = await loadUserResearchStrategy(userId, input.strategyId);
     for (const day of days) {
-      if (Date.parse(`${day}T15:30:00+05:30`) > Date.now())
+      if (Date.parse(`${day}T15:30:00+05:30`) > Date.now()) {
         fail(422, `${day} is not a completed historical trading session.`);
-      if (strategy.legs.some((leg) => leg.expiryDate && leg.expiryDate < day))
+      }
+      if (strategy.legs.some((leg) => leg.expiryDate && leg.expiryDate < day)) {
         fail(422, `Session ${day} is after a contract expiry.`);
+      }
     }
     await requestCoordinator.runExclusiveForUser(userId, async () => {
       const contracts = await resolveStrategyContracts(
@@ -336,9 +354,10 @@ export function registerResearchRoutes(
       let stoppedReason: string | null = null,
         budgetStopped = false;
       for (const day of days) {
-        if (!stoppedReason && (Date.now() >= deadline || res.destroyed))
+        if (!stoppedReason && (Date.now() >= deadline || res.destroyed)) {
           stoppedReason =
             "Batch time limit or client disconnect; remaining sessions not attempted.";
+        }
         if (stoppedReason) {
           skipped.push({ day, reason: stoppedReason });
           continue;
@@ -354,7 +373,9 @@ export function registerResearchRoutes(
           try {
             await reserveBrokerRequestBudget(store, userId, requireMfa);
           } catch (error) {
-            if ((error as { status?: number }).status !== 429) throw error;
+            if ((error as { status?: number }).status !== 429) {
+              throw error;
+            }
             budgetStopped = true;
             stoppedReason = "Market-data budget reached; batch stopped early.";
             break;
@@ -377,9 +398,10 @@ export function registerResearchRoutes(
                 userId,
                 res.locals.session.token_hash,
               )
-            )
+            ) {
               stoppedReason =
                 "Broker disconnected; remaining sessions not attempted. Reconnect before retrying.";
+            }
             break;
           }
           try {
@@ -410,11 +432,12 @@ export function registerResearchRoutes(
           });
         }
       }
-      if (!completed.length)
+      if (!completed.length) {
         fail(
           budgetStopped ? 429 : 422,
           `No requested session could be completed. First issue: ${skipped[0]?.reason || "unknown"}`,
         );
+      }
       const summary = summarizeBacktestBatch(completed),
         id = randomUUID();
       const result = {
@@ -433,8 +456,9 @@ export function registerResearchRoutes(
           "SELECT id FROM research_strategies WHERE id=$1 AND user_id=$2 FOR UPDATE",
           [input.strategyId, userId],
         );
-        if (!owner.length)
+        if (!owner.length) {
           fail(409, "Strategy was removed during the request.");
+        }
         await query("INSERT INTO research_runs VALUES($1,$2,$3,$4,$5)", [
           id,
           userId,
@@ -447,7 +471,9 @@ export function registerResearchRoutes(
           [userId],
         );
       });
-      if (!res.destroyed) res.json({ id, ...result });
+      if (!res.destroyed) {
+        res.json({ id, ...result });
+      }
     });
   });
   app.post("/api/research/quotes", async (req, res) => {
@@ -473,11 +499,12 @@ export function registerResearchRoutes(
               (row) =>
                 row.price === null || row.bid === null || row.ask === null,
             )
-          )
+          ) {
             return fail(
               502,
               "Kotak returned incomplete quotes; no placeholder prices were used.",
             );
+          }
           res.json({
             source: "kotak",
             quotes: snapshots.map((row, index) => ({

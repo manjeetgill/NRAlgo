@@ -52,7 +52,9 @@ export function OptionChainPicker({
         disabled={disabled}
         selectionLabel="Use research contract"
         onSelect={(item) => {
-          if (!item.option || (index === legCount && legCount >= 4)) return;
+          if (!item.option || (index === legCount && legCount >= 4)) {
+            return;
+          }
           onSelect(
             {
               stockCode: item.symbol,

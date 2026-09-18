@@ -33,15 +33,20 @@ test("production cannot fall back to a local database", () => {
     assert.throws(() => openDatabaseStore(""), /PostgreSQL/);
     assert.throws(() => openDatabaseStore("sqlite://:memory:"), /PostgreSQL/);
   } finally {
-    if (previous === undefined) delete process.env.APP_ENV;
-    else process.env.APP_ENV = previous;
+    if (previous === undefined) {
+      delete process.env.APP_ENV;
+    } else {
+      process.env.APP_ENV = previous;
+    }
   }
   assert.throws(() => openDatabaseStore("https://example.com"), /PostgreSQL/);
 });
 /** Start an isolated HTTP API with independent cookie jars; always release sockets and stores. */
 async function fixture(t, env = {}, options = {}) {
   const store = await createPostgresTestStore();
-  if (options.seed) await options.seed(store);
+  if (options.seed) {
+    await options.seed(store);
+  }
   await runDatabaseMigrations(store, {});
   const app = createApiApplication(store, {
     BROKER_ENCRYPTION_KEY: "ab".repeat(32),
@@ -67,9 +72,13 @@ async function fixture(t, env = {}, options = {}) {
         },
       );
       const setCookie = response.headers.get("set-cookie");
-      if (setCookie) cookie = setCookie.split(";")[0];
+      if (setCookie) {
+        cookie = setCookie.split(";")[0];
+      }
       const data = await response.json();
-      if (data.csrf) csrf = data.csrf;
+      if (data.csrf) {
+        csrf = data.csrf;
+      }
       return { status: response.status, data, headers: response.headers };
     };
   };
@@ -192,7 +201,7 @@ test("pause cancels work, blocks new work and can resume", async (t) => {
 test("login throttles by source and username, not by victim account", async (t) => {
   const { request, owner } = await fixture(t);
   await owner();
-  for (let i = 0; i < 5; i++)
+  for (let i = 0; i < 5; i++) {
     assert.equal(
       (
         await request("/api/auth/login", "POST", {
@@ -202,6 +211,7 @@ test("login throttles by source and username, not by victim account", async (t) 
       ).status,
       401,
     );
+  }
   assert.equal((await request("/api/auth/login", "POST", creds)).status, 429);
 });
 test("production setup token and secure cookie", async (t) => {
@@ -227,7 +237,7 @@ test("production config rejects unsafe origins and short tokens", () => {
     "http://example.com",
     "https://example.com/path",
     "https://user@example.com",
-  ])
+  ]) {
     assert.throws(() =>
       createApiApplication(
         {},
@@ -238,6 +248,7 @@ test("production config rejects unsafe origins and short tokens", () => {
         },
       ),
     );
+  }
   assert.throws(() =>
     createApiApplication(
       {},
@@ -299,7 +310,7 @@ test("migrations preserve legacy rows and password hashes", async (t) => {
 test("nonexistent username cannot lock the real account", async (t) => {
   const { request, owner } = await fixture(t);
   await owner();
-  for (let i = 0; i < 5; i++)
+  for (let i = 0; i < 5; i++) {
     assert.equal(
       (
         await request("/api/auth/login", "POST", {
@@ -309,6 +320,7 @@ test("nonexistent username cannot lock the real account", async (t) => {
       ).status,
       401,
     );
+  }
   assert.equal((await request("/api/auth/login", "POST", creds)).status, 200);
 });
 test("two accounts isolate strategies, jobs, pause state and audit events", async (t) => {

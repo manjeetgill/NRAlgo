@@ -6,8 +6,9 @@ export async function requestApiJson(
   csrf?: string,
   timeoutMs = 15000,
 ) {
-  if (!path.startsWith("/") || path.startsWith("//"))
+  if (!path.startsWith("/") || path.startsWith("//")) {
     throw new Error("Invalid API path.");
+  }
   const response = await fetch(`/api${path}`, {
     method,
     credentials: "same-origin",

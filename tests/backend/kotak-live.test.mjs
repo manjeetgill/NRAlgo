@@ -52,15 +52,17 @@ function broker() {
     async request(path, body, signal) {
       signal.throwIfAborted();
       state.calls.push({ path, body });
-      if (path === "/quick/user/orders")
+      if (path === "/quick/user/orders") {
         return { stat: "Ok", stCode: 200, data: structuredClone(state.book) };
-      if (path === "/quick/user/positions")
+      }
+      if (path === "/quick/user/positions") {
         return {
           stat: "ok",
           stCode: 200,
           data: structuredClone(state.positions),
         };
-      if (path === "/quick/user/limits")
+      }
+      if (path === "/quick/user/limits") {
         return {
           stat: "Ok",
           stCode: 200,
@@ -69,6 +71,7 @@ function broker() {
           UnrealizedMtomPrsnt: "0",
           BrokeragePrsnt: "0",
         };
+      }
       if (path === "/quick/order/rule/ms/place") {
         const id = String(1000 + state.book.length);
         state.book.push({
@@ -303,10 +306,13 @@ async function fixture(t, enabled = true) {
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       },
     );
-    if (response.headers.get("set-cookie"))
+    if (response.headers.get("set-cookie")) {
       cookie = response.headers.get("set-cookie").split(";")[0];
+    }
     const data = await response.json();
-    if (data.csrf) csrf = data.csrf;
+    if (data.csrf) {
+      csrf = data.csrf;
+    }
     return { status: response.status, data };
   }
   t.after(async () => {
@@ -464,7 +470,7 @@ test("Kotak execution session sends form-encoded jData with auth, propagates abo
   const calls = [];
   const client = new KotakMarketDataClient(async (url, init) => {
     calls.push({ url, init });
-    if (url.endsWith("tradeApiLogin"))
+    if (url.endsWith("tradeApiLogin")) {
       return {
         data: {
           status: "success",
@@ -473,7 +479,8 @@ test("Kotak execution session sends form-encoded jData with auth, propagates abo
           sid: "viewsid",
         },
       };
-    if (url.endsWith("tradeApiValidate"))
+    }
+    if (url.endsWith("tradeApiValidate")) {
       return {
         data: {
           status: "success",
@@ -483,6 +490,7 @@ test("Kotak execution session sends form-encoded jData with auth, propagates abo
           baseUrl: "https://mis.kotaksecurities.com",
         },
       };
+    }
     return { stat: "Ok", stCode: 200, data: [] };
   });
   await client.connect("owner", "hash", Date.now() + 3600000, {

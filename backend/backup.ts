@@ -24,10 +24,11 @@ const healthFile = resolve(backupDirectory, "last-success");
 /** Obtain a fixed-size encryption key without exposing it through logs or command arguments. */
 function encryptionKey(): Buffer {
   const value = process.env.BACKUP_ENCRYPTION_KEY || "";
-  if (!/^[a-f0-9]{64}$/i.test(value))
+  if (!/^[a-f0-9]{64}$/i.test(value)) {
     throw new Error(
       "Configure BACKUP_ENCRYPTION_KEY as 64 random hex characters.",
     );
+  }
   return Buffer.from(value, "hex");
 }
 /** Launch a database utility with standard PG* environment variables and bounded execution time. */
@@ -84,12 +85,14 @@ async function createBackup() {
       .filter((entry) => /^nralgo-[\dTZ-]+\.dump\.enc$/.test(entry))
       .sort()
       .reverse();
-    for (const entry of archives.slice(14))
+    for (const entry of archives.slice(14)) {
       await unlink(resolve(backupDirectory, entry));
+    }
     const s3 = process.env.BACKUP_S3_URI;
     if (s3) {
-      if (!/^s3:\/\/[a-z0-9.-]+(?:\/[A-Za-z0-9/_-]*)?$/.test(s3))
+      if (!/^s3:\/\/[a-z0-9.-]+(?:\/[A-Za-z0-9/_-]*)?$/.test(s3)) {
         throw new Error("Invalid BACKUP_S3_URI.");
+      }
       await new Promise<void>((resolve, reject) => {
         const upload = spawn(
           "aws",
@@ -116,13 +119,15 @@ async function createBackup() {
     }
     await writeFile(healthFile, String(Date.now()), { mode: 0o600 });
     // Delete only this service's encrypted archives older than 14 days, never arbitrary files.
-    for (const entry of await readdir(backupDirectory))
+    for (const entry of await readdir(backupDirectory)) {
       if (/^nralgo-[\dTZ-]+\.dump\.enc$/.test(entry)) {
         const path = resolve(backupDirectory, entry);
-        if (Date.now() - (await stat(path)).mtimeMs > 14 * 86400000)
+        if (Date.now() - (await stat(path)).mtimeMs > 14 * 86400000) {
           await unlink(path);
+        }
       }
-    console.log(
+    }
+    console.debug(
       s3
         ? "Encrypted local and off-server backup complete."
         : "Encrypted local backup complete. Configure S3 for protection against server loss.",
@@ -137,14 +142,17 @@ async function createBackup() {
 async function decryptBackup(input: string, output: string) {
   const source = await open(input, "r"),
     size = (await source.stat()).size;
-  if (size < 32) throw new Error("Invalid archive.");
+  if (size < 32) {
+    throw new Error("Invalid archive.");
+  }
   const header = Buffer.alloc(16),
     tag = Buffer.alloc(16);
   await source.read(header, 0, 16, 0);
   await source.read(tag, 0, 16, size - 16);
   await source.close();
-  if (header.subarray(0, 4).toString() !== "NRA1")
+  if (header.subarray(0, 4).toString() !== "NRA1") {
     throw new Error("Unsupported archive.");
+  }
   const cipher = createDecipheriv(
     "aes-256-gcm",
     encryptionKey(),
@@ -173,14 +181,17 @@ try {
     if (
       !Number.isFinite(lastSuccess) ||
       Date.now() - lastSuccess > 26 * 3600000
-    )
+    ) {
       process.exitCode = 1;
+    }
   } else if (process.argv[2] === "--decrypt") {
-    if (!process.argv[3] || !process.argv[4])
+    if (!process.argv[3] || !process.argv[4]) {
       throw new Error("Provide input and output archive paths.");
+    }
     await decryptBackup(process.argv[3], process.argv[4]);
-  } else if (process.argv.includes("--once")) await createBackup();
-  else
+  } else if (process.argv.includes("--once")) {
+    await createBackup();
+  } else {
     for (;;) {
       try {
         await createBackup();
@@ -192,6 +203,7 @@ try {
         await delay(900000);
       }
     }
+  }
 } catch {
   console.error(
     "Backup operation failed. Check configuration, disk, database and off-server access.",

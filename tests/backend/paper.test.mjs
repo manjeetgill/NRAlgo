@@ -65,11 +65,12 @@ function kotakQuote(instrument = "123", extra = {}) {
 function fakeTransport(calls = []) {
   return async (url, init) => {
     calls.push({ url, init });
-    if (url.endsWith("/tradeApiLogin"))
+    if (url.endsWith("/tradeApiLogin")) {
       return {
         data: { status: "success", kType: "View", token: "view", sid: "sid" },
       };
-    if (url.endsWith("/tradeApiValidate"))
+    }
+    if (url.endsWith("/tradeApiValidate")) {
       return {
         data: {
           status: "success",
@@ -79,6 +80,7 @@ function fakeTransport(calls = []) {
           baseUrl: "https://cis.kotaksecurities.com",
         },
       };
+    }
     assert.equal(init.method, "GET");
     if (url.endsWith("/masterscrip/file-paths")) {
       assert.equal(init.headers.Authorization, "fake-token-only");
@@ -228,8 +230,9 @@ test("Kotak rejects unexpected hosts, wrong instruments and bad auth, redacting 
     "https://cis.kotaksecurities.com.evil.test",
     "https://localhost",
     "https://cis.kotaksecurities.com/path",
-  ])
+  ]) {
     assert.throws(() => validateKotakOrigin(host));
+  }
   assert.throws(() => parseKotakPaperFillQuote(kotakQuote("456"), "123"));
   assert.throws(() =>
     parseKotakPaperFillQuote(kotakQuote("123", { lstup_time: "bad" }), "123"),
@@ -263,10 +266,11 @@ test("paper dependency paths contain no live execution or order RPC", () => {
 test("disconnect fences a pending Kotak login so a late response cannot restore it", async () => {
   let finish;
   const manager = new KotakMarketDataClient(async (url) => {
-    if (url.endsWith("/tradeApiLogin"))
+    if (url.endsWith("/tradeApiLogin")) {
       return {
         data: { status: "success", kType: "View", token: "view", sid: "sid" },
       };
+    }
     return new Promise((resolve) => {
       finish = resolve;
     });
@@ -326,7 +330,7 @@ test("options enforce lots, isolate contract balances, prevent naked sales and f
     { right: "put" },
     { strikePrice: 25100 },
     { expiryDate: "2026-10-01" },
-  ])
+  ]) {
     assert.throws(
       () =>
         placePaperOrder(
@@ -340,6 +344,7 @@ test("options enforce lots, isolate contract balances, prevent naked sales and f
         ),
       /held|sell|units/i,
     );
+  }
   const expired = paperSummary(state, Date.parse("2026-09-25T05:00Z"));
   assert.equal(expired.settlementRequired.length, 1);
   assert.equal(expired.equityPaise, null);
@@ -412,8 +417,9 @@ test("portfolio normalizers preserve signed exposure and reject incomplete books
     {},
     [{ stock_code: "TEST" }],
     [{ stock_code: "TEST", quantity: "unknown" }],
-  ])
+  ]) {
     assert.throws(() => normalizePortfolioRows("positions", raw));
+  }
   assert.deepEqual(normalizePortfolioRows("holdings", []), []);
   const manager = new KotakMarketDataClient(async (url, init) =>
     url.includes("tradeApi")

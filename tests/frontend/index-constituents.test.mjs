@@ -27,10 +27,12 @@ test("membership route allowlists sources, caches per index, and fails closed", 
     assert.equal(options.headers.Referer, "https://www.niftyindices.com/");
     requests++;
     assert.match(url, /^https:\/\/www\.niftyindices\.com\/IndexConstituent\//);
-    if (url.endsWith("ind_niftybanklist.csv"))
+    if (url.endsWith("ind_niftybanklist.csv")) {
       return new Response("Symbol\nBANKA\nBANKB\n");
-    if (url.endsWith("ind_nifty50list.csv"))
+    }
+    if (url.endsWith("ind_nifty50list.csv")) {
       return new Response("Symbol\nOTHER\n");
+    }
     throw new Error("Network unavailable");
   });
   const get = (index) =>
@@ -39,8 +41,9 @@ test("membership route allowlists sources, caches per index, and fails closed", 
         `http://localhost/reference/index-constituents?index=${index}`,
       ),
     );
-  for (const invalid of ["UNKNOWN", "constructor", "__proto__"])
+  for (const invalid of ["UNKNOWN", "constructor", "__proto__"]) {
     assert.equal((await get(invalid)).status, 400);
+  }
   assert.equal(requests, 0);
   const [bank1, bank2] = await Promise.all([
     get("BANKNIFTY"),

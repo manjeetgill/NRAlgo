@@ -149,16 +149,21 @@ export default function TradingWorkspacePage() {
   const [formError, setFormError] = useState("");
   const dialog = useRef<HTMLDialogElement>(null);
   const loadVersion = useRef(0);
+  const hasWorkspace = workspace !== null;
   // A version guard prevents an old snapshot from reviving UI state after logout/newer requests.
   const refreshWorkspace = useCallback(async () => {
     const version = ++loadVersion.current;
     try {
       const next = await requestApiJson("/workspace");
-      if (version !== loadVersion.current) return;
+      if (version !== loadVersion.current) {
+        return;
+      }
       setWorkspace(next);
       setError("");
     } catch (e) {
-      if (version !== loadVersion.current) return;
+      if (version !== loadVersion.current) {
+        return;
+      }
       if ((e as { status?: number }).status === 401) {
         setWorkspace(null);
         setAuth(await requestApiJson("/auth/status"));
@@ -171,19 +176,26 @@ export default function TradingWorkspacePage() {
     void refreshWorkspace().catch((e) => setError(e.message));
   }, [refreshWorkspace]);
   useEffect(() => {
-    if (!workspace) return;
+    if (!hasWorkspace) {
+      return;
+    }
     const timer = setInterval(
       () => void refreshWorkspace().catch((e) => setError(e.message)),
       3000,
     );
     return () => clearInterval(timer);
-  }, [!!workspace, refreshWorkspace]);
+  }, [hasWorkspace, refreshWorkspace]);
   useEffect(() => {
-    if (modal) dialog.current?.showModal();
-    else dialog.current?.close();
+    if (modal) {
+      dialog.current?.showModal();
+    } else {
+      dialog.current?.close();
+    }
   }, [modal]);
   useEffect(() => {
-    if (!notice) return;
+    if (!notice) {
+      return;
+    }
     const timer = setTimeout(() => setNotice(""), 4500);
     return () => clearTimeout(timer);
   }, [notice]);
@@ -194,7 +206,9 @@ export default function TradingWorkspacePage() {
     data: unknown,
     message: string,
   ) {
-    if (!workspace) return;
+    if (!workspace) {
+      return;
+    }
     setBusy(true);
     setError("");
     try {
@@ -261,7 +275,7 @@ export default function TradingWorkspacePage() {
     }
   }
 
-  if (!workspace)
+  if (!workspace) {
     return (
       <main className="auth-shell">
         <div className="auth-story">
@@ -413,6 +427,7 @@ export default function TradingWorkspacePage() {
         </div>
       </main>
     );
+  }
 
   const trades = workspace.jobs.flatMap((j) =>
     (j.result.trades || []).map((t, index) => ({

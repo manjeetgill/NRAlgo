@@ -52,7 +52,9 @@ export async function verifySecondFactor(
     "SELECT * FROM user_security WHERE user_id=$1",
     [userId],
   );
-  if (!record?.enabled) return;
+  if (!record?.enabled) {
+    return;
+  }
   const recovery = JSON.parse(record.recovery_hashes) as string[];
   const recoveryIndex = recovery.findIndex((hash) =>
     equal(hash, digest(token)),
@@ -76,8 +78,9 @@ export async function verifySecondFactor(
       timestamp: verificationTime,
     });
   const counter = Math.floor(verificationTime / 30000) + (delta || 0);
-  if (delta === null || counter <= Number(record.last_counter))
+  if (delta === null || counter <= Number(record.last_counter)) {
     fail(401, "Enter a fresh authenticator code or unused recovery code.");
+  }
   await query("UPDATE user_security SET last_counter=$1 WHERE user_id=$2", [
     counter,
     userId,
@@ -112,8 +115,9 @@ export function registerMfaRoutes(
         await passwordHash(password, user.password_hash.split(":")[0]),
         user.password_hash,
       )
-    )
+    ) {
       fail(403, "Current password is incorrect.");
+    }
     return user;
   }
   app.get("/api/auth/mfa", async (req, res) => {
@@ -136,13 +140,16 @@ export function registerMfaRoutes(
         "SELECT password_hash FROM users WHERE id=$1",
         [userId],
       );
-      if (!equal(currentUser.password_hash, user.password_hash))
+      if (!equal(currentUser.password_hash, user.password_hash)) {
         fail(409, "Password changed. Sign in again.");
+      }
       const [record] = await query<SecurityRecord>(
         "SELECT enabled FROM user_security WHERE user_id=$1",
         [userId],
       );
-      if (record?.enabled) fail(409, "MFA is already enabled.");
+      if (record?.enabled) {
+        fail(409, "MFA is already enabled.");
+      }
       await query(
         "INSERT INTO user_security VALUES ($1,$2,$3,-1,$4,$5) ON CONFLICT(user_id) DO UPDATE SET encrypted_secret=$2,pending_expires=$5",
         [
@@ -172,8 +179,9 @@ export function registerMfaRoutes(
         "SELECT * FROM user_security WHERE user_id=$1",
         [userId],
       );
-      if (!record || record.enabled || record.pending_expires < Date.now())
+      if (!record || record.enabled || record.pending_expires < Date.now()) {
         fail(409, "Start a new MFA setup.");
+      }
       const verifier = authenticator(
         z.string().parse(vault.open(`${userId}:mfa`, record.encrypted_secret)),
       );
@@ -183,7 +191,9 @@ export function registerMfaRoutes(
         window: 1,
         timestamp: verificationTime,
       });
-      if (delta === null) fail(401, "Authenticator code is incorrect.");
+      if (delta === null) {
+        fail(401, "Authenticator code is incorrect.");
+      }
       await query(
         "UPDATE user_security SET enabled=$1,last_counter=$2,recovery_hashes=$3,pending_expires=0 WHERE user_id=$4",
         [
@@ -216,8 +226,9 @@ export function registerMfaRoutes(
         "SELECT password_hash FROM users WHERE id=$1",
         [userId],
       );
-      if (!equal(currentUser.password_hash, user.password_hash))
+      if (!equal(currentUser.password_hash, user.password_hash)) {
         fail(409, "Password changed. Sign in again.");
+      }
       await verifySecondFactor(query, vault, userId, data.token);
       await query("DELETE FROM user_security WHERE user_id=$1", [userId]);
       await query("DELETE FROM sessions WHERE user_id=$1 AND token_hash<>$2", [

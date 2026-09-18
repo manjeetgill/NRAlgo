@@ -55,14 +55,22 @@ export function KotakOptionChain({
         csrf,
         95000,
       );
-      if (current !== generation.current) return;
+      if (current !== generation.current) {
+        return;
+      }
       setChain(result);
       setOffset(nextOffset);
-      if (metadata) setExpiry(result.expiries[0] || "");
+      if (metadata) {
+        setExpiry(result.expiries[0] || "");
+      }
     } catch (failure) {
-      if (current === generation.current) setError((failure as Error).message);
+      if (current === generation.current) {
+        setError((failure as Error).message);
+      }
     } finally {
-      if (current === generation.current) setBusy(false);
+      if (current === generation.current) {
+        setBusy(false);
+      }
     }
   }
   const money = (value: number | null) =>

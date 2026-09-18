@@ -41,7 +41,9 @@ export function validateKotakMasterUrl(
   value: unknown,
   market: "cash" | "options",
 ) {
-  if (typeof value !== "string") throw new Error("Missing master URL");
+  if (typeof value !== "string") {
+    throw new Error("Missing master URL");
+  }
   const url = new URL(value),
     suffix =
       market === "cash"
@@ -56,15 +58,17 @@ export function validateKotakMasterUrl(
     !new RegExp(
       `^/wso2-scripmaster/v1/prod/\\d{4}-\\d{2}-\\d{2}/${suffix.replaceAll(".", "\\.")}$`,
     ).test(url.pathname)
-  )
+  ) {
     throw new Error("Unsupported master URL");
+  }
   const day = url.pathname.split("/")[4];
   if (
     !z.iso.date().safeParse(day).success ||
     day > paperTradingDay(Date.now()) ||
     Date.parse(paperTradingDay(Date.now())) - Date.parse(day) > 7 * 86400000
-  )
+  ) {
     throw new Error("Stale master source");
+  }
   return value;
 }
 /** Fetch public master bytes with TLS, timeout and decompressed HTTP-body limits. */
@@ -77,18 +81,22 @@ export async function downloadInstrumentMaster(url: string): Promise<Buffer> {
     redirect: "error",
     signal: AbortSignal.timeout(15000),
   });
-  if (!response.ok || !response.body)
+  if (!response.ok || !response.body) {
     throw new Error("Instrument master unavailable");
+  }
   const reader = response.body.getReader(),
     chunks: Uint8Array[] = [];
   let bytes = 0;
   try {
     for (;;) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done) {
+        break;
+      }
       bytes += value.length;
-      if (bytes > 32 * 1024 * 1024)
+      if (bytes > 32 * 1024 * 1024) {
         throw new Error("Master exceeds size limit");
+      }
       chunks.push(value);
     }
   } finally {
@@ -109,13 +117,15 @@ function csvRows(csv: string, required: string[]): Record<string, string>[] {
       if (
         new Set(names).size !== names.length ||
         required.some((name) => !names.includes(name))
-      )
+      ) {
         throw new Error("Unsupported master columns");
+      }
       return names;
     },
   });
-  if (!rows.length || rows.length > 250000)
+  if (!rows.length || rows.length > 250000) {
     throw new Error("Empty or oversized instrument master");
+  }
   return rows;
 }
 /** Parse only NSE equity series and listed call/put contracts. Futures/indices are not order tickets. */
@@ -145,13 +155,17 @@ export function parseInstrumentCsv(
   for (const row of csvRows(csv, required)) {
     const options = market === "options",
       token = row.pSymbol;
-    if (!/^[1-9]\d{0,14}$/.test(token)) continue;
-    if (row.pExchSeg !== (options ? "nse_fo" : "nse_cm"))
+    if (!/^[1-9]\d{0,14}$/.test(token)) {
+      continue;
+    }
+    if (row.pExchSeg !== (options ? "nse_fo" : "nse_cm")) {
       throw new Error("Wrong master segment");
+    }
     if (
       options ? !/^(OPTIDX|OPTSTK)$/.test(row.pInstType) : row.pGroup !== "EQ"
-    )
+    ) {
       continue;
+    }
     const instrument = token,
       symbol = row.pSymbolName;
     const lotSize = Number(row.lLotSize);
@@ -161,10 +175,13 @@ export function parseInstrumentCsv(
       symbol.length > 40 ||
       !Number.isSafeInteger(lotSize) ||
       lotSize < 1
-    )
+    ) {
       throw new Error("Invalid contract identity or lot size");
+    }
     // Paper tickets cap quantity at 10,000 units. Do not offer an unplaceable single lot.
-    if (lotSize > 10000) continue;
+    if (lotSize > 10000) {
+      continue;
+    }
     const value: CatalogInstrument = {
       masterToken: `${broker}:${market}:${token}`,
       instrument,
@@ -179,24 +196,27 @@ export function parseInstrumentCsv(
     };
     if (options) {
       const right = row.pOptionType;
-      if (!["CE", "PE"].includes(right))
+      if (!["CE", "PE"].includes(right)) {
         throw new Error("Unknown option right");
+      }
       // Kotak NSE expiry is a non-Unix epoch: official docs require +315511200, then IST.
       const epoch = Number(row.lExpiryDate);
       if (
         !Number.isSafeInteger(epoch) ||
         epoch <= 0 ||
         Number(row.lPrecision) !== 2
-      )
+      ) {
         throw new Error("Unsupported Kotak units");
+      }
       const expiryDate = paperTradingDay((epoch + 315511200) * 1000);
       const strikePrice = Number(row.dStrikePrice) / 100;
       if (
         !Number.isFinite(strikePrice) ||
         strikePrice <= 0 ||
         strikePrice > 1000000
-      )
+      ) {
         throw new Error("Invalid strike");
+      }
       value.option = {
         expiryDate,
         right: right === "CE" ? "call" : "put",
@@ -204,12 +224,15 @@ export function parseInstrumentCsv(
         lotSize,
       };
     }
-    if (seen.has(value.masterToken)) throw new Error("Duplicate master token");
+    if (seen.has(value.masterToken)) {
+      throw new Error("Duplicate master token");
+    }
     seen.add(value.masterToken);
     instruments.push(value);
   }
-  if (!instruments.length)
+  if (!instruments.length) {
     throw new Error("No supported instruments in master");
+  }
   return instruments.sort(
     (a, b) =>
       a.symbol.localeCompare(b.symbol) ||
@@ -239,11 +262,11 @@ export class InstrumentCatalog {
       ? value
       : undefined;
   }
-  isFresh(broker: PaperBroker, market: "cash" | "options") {
+  public isFresh(broker: PaperBroker, market: "cash" | "options") {
     return Boolean(this.current(`${broker}:${market}`));
   }
   /** Live execution never trusts client-supplied symbols, tick sizes or lot sizes. */
-  resolveLive(masterToken: string) {
+  public resolveLive(masterToken: string) {
     const match = /^kotak:(cash|options):[1-9]\d{0,14}$/.exec(masterToken);
     const row =
       match &&
@@ -254,17 +277,26 @@ export class InstrumentCatalog {
       !row ||
       !row.tickPaise ||
       (row.option && row.option.expiryDate < paperTradingDay(Date.now()))
-    )
+    ) {
       throw new Error(
         "Reload Kotak master; a current contract with a verified tick size is required",
       );
+    }
     return row;
   }
   /** Single-flight downloads prevent simultaneous searches from multiplying large public fetches. */
-  async load(broker: PaperBroker, market: "cash" | "options", url?: string) {
-    if (this.isFresh(broker, market)) return;
+  public async load(
+    broker: PaperBroker,
+    market: "cash" | "options",
+    url?: string,
+  ) {
+    if (this.isFresh(broker, market)) {
+      return;
+    }
     const key = `${broker}:${market}`;
-    if (this.pending.has(key)) return this.pending.get(key);
+    if (this.pending.has(key)) {
+      return this.pending.get(key);
+    }
     const work = (async () => {
       const data = await this.download(validateKotakMasterUrl(url, market));
       const fetchedAt = Date.now();
@@ -281,10 +313,11 @@ export class InstrumentCatalog {
     }
   }
   /** Return bounded pages plus expiry facets; master listings do not imply executable quotes. */
-  search(broker: PaperBroker, input: InstrumentSearch) {
+  public search(broker: PaperBroker, input: InstrumentSearch) {
     const data = this.current(`${broker}:${input.market}`);
-    if (!data)
+    if (!data) {
       throw new Error("Reload instrument search; master cache expired.");
+    }
     const matching = data.rows.filter(
       (row) =>
         (!row.option || row.option.expiryDate >= paperTradingDay(Date.now())) &&
@@ -293,12 +326,13 @@ export class InstrumentCatalog {
           .includes(input.query),
     );
     const underlyings = [...new Set(matching.map((row) => row.symbol))].sort();
-    if (input.market === "cash")
+    if (input.market === "cash") {
       matching.sort(
         (a, b) =>
           a.symbol.localeCompare(b.symbol) ||
           a.instrument.localeCompare(b.instrument),
       );
+    }
     const scoped = matching.filter(
       (row) => !input.underlying || row.symbol === input.underlying,
     );
@@ -323,7 +357,7 @@ export class InstrumentCatalog {
   }
   /** Selected tickets must match the cached broker contract exactly; browser metadata is not authority. */
   /** Resolve an exact research contract; never translate broker aliases or guess a token. */
-  resolveResearch(
+  public resolveResearch(
     broker: PaperBroker,
     market: "cash" | "options",
     leg: {
@@ -334,7 +368,9 @@ export class InstrumentCatalog {
     },
   ) {
     const data = this.current(`${broker}:${market}`);
-    if (!data) throw new Error("Reload the broker instrument master first.");
+    if (!data) {
+      throw new Error("Reload the broker instrument master first.");
+    }
     const matches = data.rows.filter(
       (row) =>
         row.symbol === leg.stockCode &&
@@ -343,19 +379,22 @@ export class InstrumentCatalog {
             row.option?.right === leg.right &&
             row.option?.strikePrice === leg.strikePrice)),
     );
-    if (matches.length !== 1)
+    if (matches.length !== 1) {
       throw new Error(
         "Exact contract not found in the current broker master. Use that broker's symbol and a listed contract; expired token history is not guessed.",
       );
+    }
     return matches[0];
   }
   /** Selected tickets must match the cached broker contract exactly; browser metadata is not authority. */
-  validate(
+  public validate(
     broker: PaperBroker,
     input: Pick<PaperInput, "instrument" | "option" | "masterToken">,
     quantity?: number,
   ) {
-    if (!input.masterToken) return; // Explicit legacy/manual research input is still supported.
+    if (!input.masterToken) {
+      return;
+    } // Explicit legacy/manual research input is still supported.
     const data = this.current(`${broker}:${input.option ? "options" : "cash"}`),
       row = data?.rows.find((row) => row.masterToken === input.masterToken);
     if (
@@ -363,9 +402,10 @@ export class InstrumentCatalog {
       row.instrument !== input.instrument ||
       JSON.stringify(row.option) !== JSON.stringify(input.option) ||
       (quantity !== undefined && quantity % row.lotSize !== 0)
-    )
+    ) {
       throw new Error(
         "Selected contract changed or master expired. Search and select the contract again; quantity must be whole lots.",
       );
+    }
   }
 }

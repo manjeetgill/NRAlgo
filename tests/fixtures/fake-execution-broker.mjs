@@ -22,10 +22,15 @@ export class FakeExecutionBroker {
   /** Accept/reject before returning; timeout variants deliberately leave the outcome ambiguous. */
   async placeOrder(intent, signal) {
     this.placeCalls++;
-    if (signal.aborted) throw new Error("aborted before dispatch");
-    if (this.behavior === "reject")
+    if (signal.aborted) {
+      throw new Error("aborted before dispatch");
+    }
+    if (this.behavior === "reject") {
       throw new DefinitiveOrderRejection("definitively rejected");
-    if (this.behavior === "timeout_without_order") return new Promise(() => {});
+    }
+    if (this.behavior === "timeout_without_order") {
+      return new Promise(() => {});
+    }
     const order = {
       brokerOrderId: `fake-${this.placeCalls}`,
       clientOrderKey: intent.key,
@@ -38,16 +43,21 @@ export class FakeExecutionBroker {
     };
     this.intents.set(order.brokerOrderId, structuredClone(intent));
     this.orders.push(order);
-    if (!this.quotes.has(intent.instrument))
+    if (!this.quotes.has(intent.instrument)) {
       this.quotes.set(intent.instrument, intent.limitPaise);
-    if (this.behavior === "filled")
+    }
+    if (this.behavior === "filled") {
       this.fill(order.brokerOrderId, intent.quantity);
-    if (this.behavior === "partial")
+    }
+    if (this.behavior === "partial") {
       this.fill(
         order.brokerOrderId,
         Math.max(1, Math.floor(intent.quantity / 2)),
       );
-    if (this.behavior === "accept_then_timeout") return new Promise(() => {});
+    }
+    if (this.behavior === "accept_then_timeout") {
+      return new Promise(() => {});
+    }
     return structuredClone(order);
   }
   /** Apply a cumulative fill and its cash movement to the fake book. */
@@ -62,14 +72,19 @@ export class FakeExecutionBroker {
   /** A successful cancel changes the fake book, but OMS still needs a later snapshot to know. */
   async cancelOrder(id) {
     this.cancelCalls.push(id);
-    if (this.cancelFails) throw new Error("cancel unavailable");
+    if (this.cancelFails) {
+      throw new Error("cancel unavailable");
+    }
     const order = this.orders.find((order) => order.brokerOrderId === id);
-    if (order && !["filled", "cancelled", "rejected"].includes(order.status))
+    if (order && !["filled", "cancelled", "rejected"].includes(order.status)) {
       order.status = "cancelled";
+    }
   }
   /** Produce complete normalized cash/order/position state without any network operation. */
   async getSnapshot() {
-    if (this.unavailable) throw new Error("session unavailable");
+    if (this.unavailable) {
+      throw new Error("session unavailable");
+    }
     const positions = { ...this.extraPositions };
     let cashBalancePaise = 1000000 + this.cashAdjustment,
       reserved = 0;
@@ -78,10 +93,11 @@ export class FakeExecutionBroker {
         (positions[order.instrument] || 0) +
         (order.side === "buy" ? 1 : -1) * order.filledQuantity;
       cashBalancePaise += order.cashDeltaPaise;
-      if (!["filled", "cancelled", "rejected"].includes(order.status))
+      if (!["filled", "cancelled", "rejected"].includes(order.status)) {
         reserved +=
           (order.quantity - order.filledQuantity) *
           this.intents.get(order.brokerOrderId).limitPaise;
+      }
     }
     return {
       capturedAt: Date.now(),

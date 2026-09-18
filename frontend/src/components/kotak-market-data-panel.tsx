@@ -61,7 +61,9 @@ function getSupportedExchanges(selectedTool: Tool) {
 
 /** Avoid rendering thousands of candle rows. The download still includes the full response. */
 function getResultPreview(result: Result | null) {
-  if (!result || !Array.isArray(result.candles)) return result;
+  if (!result || !Array.isArray(result.candles)) {
+    return result;
+  }
   return {
     ...result,
     totalCandles: result.candles.length,
@@ -90,10 +92,12 @@ export function KotakMarketDataPanel({
   const [instrumentInput, setInstrumentInput] = useState(
     prefilledInstruments.join(",") || "Nifty 50",
   );
+  const prefilledInstrumentKey = prefilledInstruments.join(",");
   useEffect(() => {
-    if (prefilledInstruments.length)
-      setInstrumentInput(prefilledInstruments.join(","));
-  }, [prefilledInstruments.join(",")]);
+    if (prefilledInstrumentKey) {
+      setInstrumentInput(prefilledInstrumentKey);
+    }
+  }, [prefilledInstrumentKey]);
   const [underlying, setUnderlying] = useState("NIFTY");
   const [instrumentType, setInstrumentType] = useState("option");
   const [expiry, setExpiry] = useState("");
@@ -114,16 +118,22 @@ export function KotakMarketDataPanel({
   // The feed is shared with the overview. The server viewer lease owns cleanup.
 
   useEffect(() => {
-    if (!isPollingStream) return;
+    if (!isPollingStream) {
+      return;
+    }
     // Cleanup marks in-flight requests as obsolete; their results must not update a new view.
     let cancelled = false;
     let pending = false;
     const timer = setInterval(async () => {
-      if (document.hidden || pending) return;
+      if (document.hidden || pending) {
+        return;
+      }
       pending = true;
       try {
         const snapshot = await requestApiJson("/market/kotak/feed");
-        if (cancelled) return;
+        if (cancelled) {
+          return;
+        }
         setStreamSnapshot(snapshot);
         if (
           [
@@ -133,8 +143,9 @@ export function KotakMarketDataPanel({
             "session-expired",
             "authentication-failed",
           ].includes(snapshot.state)
-        )
+        ) {
           setIsPollingStream(false);
+        }
       } catch (failure) {
         if (!cancelled) {
           setErrorMessage(
@@ -183,7 +194,9 @@ export function KotakMarketDataPanel({
           count: Number(strikeCount),
         };
         // Omitting expiry asks Kotak for its default; sending an empty date is invalid.
-        if (expiry) request.expiry = expiry;
+        if (expiry) {
+          request.expiry = expiry;
+        }
         return request;
       }
       default:

@@ -20,7 +20,7 @@ type Section = { rows: Row[] | null; error: string | null };
 type Snapshot = { observedAt: number; positions: Section; holdings: Section };
 /** Broker monetary fields are rupees, unlike the paper ledger's integer paise. */
 const rupees = (value: number | null) =>
-  value == null
+  value === null
     ? "Unavailable"
     : new Intl.NumberFormat("en-IN", {
         style: "currency",

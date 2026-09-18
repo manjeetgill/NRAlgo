@@ -20,7 +20,9 @@ test("Kotak handshake completing after app-session expiry discards tokens", asyn
     Date.now = realNow;
   });
   const manager = new KotakMarketDataClient(async () => {
-    if (++count === 2) now += 2000;
+    if (++count === 2) {
+      now += 2000;
+    }
     return {
       data: {
         status: "success",
@@ -76,10 +78,13 @@ test("MFA enrollment and removal disconnect Kotak data", async (t) => {
         body: JSON.stringify(body),
       },
     );
-    if (response.headers.get("set-cookie"))
+    if (response.headers.get("set-cookie")) {
       cookie = response.headers.get("set-cookie").split(";")[0];
+    }
     const data = await response.json();
-    if (data.csrf) csrf = data.csrf;
+    if (data.csrf) {
+      csrf = data.csrf;
+    }
     assert.equal(response.status, 200, path);
     return data;
   }

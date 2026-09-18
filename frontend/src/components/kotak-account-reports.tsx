@@ -1,6 +1,6 @@
 "use client";
 /** Selected broker-owned account fields only. Reports never modify the separate paper ledger. */
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { requestApiJson } from "@/lib/api";
 import { Button } from "./ui/button";
 import { LiveOptionChain, type LiveTick } from "./live-option-chain";
@@ -39,6 +39,7 @@ export function KotakAccountReports({
     [error, setError] = useState(""),
     [showPositions, setShowPositions] = useState(false);
   const requestInFlight = useRef(false);
+  const latestReport = useRef<Reports | null>(null);
   const [showChain, setShowChain] = useState(false);
   const [ticks, setTicks] = useState<LiveTick[]>([]);
   const [feedStatus, setFeedStatus] = useState("Waiting for position snapshot");
@@ -56,44 +57,62 @@ export function KotakAccountReports({
       ? (positionPnl ?? 0)
       : null;
   /** Load explicitly and clear old data first; unavailable values must not appear as zero. */
-  async function refresh(manual = true) {
-    if (requestInFlight.current) return;
-    requestInFlight.current = true;
-    if (manual) setBusy(true);
-    if (manual) setData(null);
-    setError("");
-    try {
-      setData(
-        await requestApiJson(
+  const refresh = useCallback(
+    async (manual = true) => {
+      if (requestInFlight.current) {
+        return;
+      }
+      requestInFlight.current = true;
+      if (manual) {
+        setBusy(true);
+      }
+      if (manual) {
+        setData(null);
+      }
+      setError("");
+      try {
+        const report = await requestApiJson(
           "/brokers/kotak/overview",
           "POST",
           {},
           csrf,
           95000,
-        ),
-      );
-    } catch (failure) {
-      setError((failure as Error).message);
-    } finally {
-      requestInFlight.current = false;
-      if (manual) setBusy(false);
-    }
-  }
+        );
+        latestReport.current = report;
+        setData(report);
+      } catch (failure) {
+        setError((failure as Error).message);
+      } finally {
+        requestInFlight.current = false;
+        if (manual) {
+          setBusy(false);
+        }
+      }
+    },
+    [csrf],
+  );
   useEffect(() => {
-    if (!autoRefresh && !loadOnMount) return;
+    if (!autoRefresh && !loadOnMount) {
+      return;
+    }
     void refresh(false);
-    if (!autoRefresh) return;
+    if (!autoRefresh) {
+      return;
+    }
     const timer = setInterval(() => void refresh(false), 1000);
     return () => clearInterval(timer);
-  }, [autoRefresh, loadOnMount, csrf]);
+  }, [autoRefresh, loadOnMount, refresh]);
   useEffect(() => {
-    if (!data) return;
+    const report = latestReport.current;
+    if (!report) {
+      return;
+    }
     if (
-      data.positions?.rows?.length &&
-      !data.positions.rows.some((row) => row.instrumentToken)
+      report.positions?.rows?.length &&
+      !report.positions.rows.some((row) => row.instrumentToken)
     ) {
       setFeedStatus(
-        data.positions?.rows?.length
+        report.positions?.rows?.length
           ? "The running API is missing instrument tokens. Restart the backend and reconnect Kotak."
           : "No open contracts to stream",
       );
@@ -103,19 +122,26 @@ export function KotakAccountReports({
     let pending = false;
     setFeedStatus("Connecting to Kotak live feed…");
     let startupError = "";
-    if (data.positions?.rows?.some((row) => row.quantity !== 0))
+    if (report.positions?.rows?.some((row) => row.quantity !== 0)) {
       void requestApiJson("/market/live-feed", "POST", {}, csrf).catch(
         (failure) => {
           startupError = (failure as Error).message;
-          if (!cancelled) setFeedStatus(startupError);
+          if (!cancelled) {
+            setFeedStatus(startupError);
+          }
         },
       );
+    }
     const timer = setInterval(async () => {
-      if (cancelled || document.hidden || pending) return;
+      if (cancelled || document.hidden || pending) {
+        return;
+      }
       pending = true;
       try {
         const snapshot = await requestApiJson("/market/feed");
-        if (cancelled) return;
+        if (cancelled) {
+          return;
+        }
         setFeedStatus(
           snapshot.state === "stopped" && startupError
             ? startupError
@@ -126,13 +152,16 @@ export function KotakAccountReports({
           (tick: LiveTick) =>
             tick.receivedRecently && typeof tick.ltp === "number",
         );
-        if (fresh.length)
+        if (fresh.length) {
           setFeedStatus(
             `Receiving prices · ${fresh.length} contracts · latest tick ${new Date(Math.max(...fresh.map((tick: LiveTick) => tick.receivedAt ?? 0))).toLocaleTimeString("en-IN")}`,
           );
+        }
         setTicks(records);
         setData((previous) => {
-          if (!previous?.positions.rows) return previous;
+          if (!previous?.positions.rows) {
+            return previous;
+          }
           return {
             ...previous,
             positions: {
@@ -149,8 +178,9 @@ export function KotakAccountReports({
                   tick?.receivedRecently !== true ||
                   !Number.isFinite(mark) ||
                   typeof position.pnlPerMark !== "number"
-                )
+                ) {
                   return position;
+                }
                 const slope =
                   typeof position.pnlPerMark === "number"
                     ? position.pnlPerMark
@@ -175,7 +205,9 @@ export function KotakAccountReports({
           };
         });
       } catch (failure) {
-        if (!cancelled) setFeedStatus((failure as Error).message);
+        if (!cancelled) {
+          setFeedStatus((failure as Error).message);
+        }
       } finally {
         pending = false;
       }
@@ -240,7 +272,9 @@ export function KotakAccountReports({
             aria-expanded={showPositions}
             onClick={() => {
               setShowPositions((open) => !open);
-              if (!data) void refresh(false);
+              if (!data) {
+                void refresh(false);
+              }
             }}
           >
             <span>Open positions</span>

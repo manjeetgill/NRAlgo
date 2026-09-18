@@ -68,20 +68,22 @@ export const brokerSnapshotSchema = z
       snapshot.fundsBasis === "cash-ledger" &&
       (snapshot.cashBalancePaise === null ||
         snapshot.orders.some((o) => o.cashDeltaPaise === null))
-    )
+    ) {
       ctx.addIssue({
         code: "custom",
         message: "Cash-ledger accounting requires actual cash movements",
       });
+    }
     if (
       snapshot.fundsBasis === "broker-rms" &&
       (snapshot.cashBalancePaise !== null ||
         snapshot.orders.some((o) => o.cashDeltaPaise !== null))
-    )
+    ) {
       ctx.addIssue({
         code: "custom",
         message: "RMS must not fabricate cash-ledger balances",
       });
+    }
   });
 export type BrokerSnapshot = z.infer<typeof brokerSnapshotSchema>;
 export type OrderState =

@@ -40,13 +40,15 @@ export function boundedExposureLimit(
     !Number.isSafeInteger(quote.observedAt) ||
     now - quote.observedAt > 1000 ||
     quote.observedAt > now
-  )
+  ) {
     throw new Error("Exposure quote is stale or invalid");
+  }
   const worstAcceptable = Math.ceil(
     reference * (1 - plan.maxSlippageBps / 10000),
   );
-  if (quote.pricePaise < worstAcceptable)
+  if (quote.pricePaise < worstAcceptable) {
     throw new Error("Exposure leg exceeds slippage budget");
+  }
   return Math.max(worstAcceptable, quote.pricePaise);
 }
 

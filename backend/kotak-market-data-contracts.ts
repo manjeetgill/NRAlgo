@@ -88,9 +88,12 @@ export const marketRequestSchema = z
       new Set(
         input.instruments.map((row) => `${row.exchange}|${row.instrument}`),
       ).size !== input.instruments.length
-    )
+    ) {
       ctx.addIssue({ code: "custom", message: "Duplicate quote instruments." });
-    if (input.operation !== "history") return;
+    }
+    if (input.operation !== "history") {
+      return;
+    }
     const limits = {
       "1min": 30,
       "3min": 30,
@@ -104,11 +107,12 @@ export const marketRequestSchema = z
     };
     const days = (Date.parse(input.to) - Date.parse(input.from)) / 86400000 + 1;
     const today = new Date(Date.now() + 19800000).toISOString().slice(0, 10);
-    if (days < 1 || days > limits[input.interval] || input.to > today)
+    if (days < 1 || days > limits[input.interval] || input.to > today) {
       ctx.addIssue({
         code: "custom",
         message: `History requires an ordered, non-future range of at most ${limits[input.interval]} calendar days.`,
       });
+    }
   });
 export type MarketRequest = z.infer<typeof marketRequestSchema>;
 
@@ -140,7 +144,9 @@ export function buildKotakMarketDataPath(input: MarketRequest): string {
         instrument_type: input.instrumentType,
       });
       if (input.operation === "chain") {
-        if (input.expiry) query.set("expiry", input.expiry);
+        if (input.expiry) {
+          query.set("expiry", input.expiry);
+        }
         query.set("count", String(input.count));
       }
       if (input.operation === "chain") {
@@ -232,12 +238,14 @@ function parseInstrumentMasterFiles(raw: unknown) {
         url,
       );
     const exchange = match && masterFiles.get(match[2]);
-    if (!match || !exchange || !z.iso.date().safeParse(match[1]).success)
+    if (!match || !exchange || !z.iso.date().safeParse(match[1]).success) {
       throw new Error("Unsupported instrument file.");
+    }
     return { exchange, date: match[1], url };
   });
-  if (new Set(files.map((file) => file.exchange)).size !== files.length)
+  if (new Set(files.map((file) => file.exchange)).size !== files.length) {
     throw new Error("Duplicate instrument files.");
+  }
   return { files };
 }
 
@@ -274,8 +282,9 @@ function parseQuoteSnapshots(
   const seen = new Set<string>();
   for (const row of rows) {
     const key = `${row.exchange}|${row.exchange_token}`;
-    if (!requested.has(key) || seen.has(key))
+    if (!requested.has(key) || seen.has(key)) {
       throw new Error("Quote identity mismatch.");
+    }
     seen.add(key);
   }
   return {
@@ -342,13 +351,15 @@ function parseHistoricalCandles(
           timestamp,
         ) ||
         !z.iso.date().safeParse(timestamp.slice(0, 10)).success
-      )
+      ) {
         throw new Error("Invalid candle time.");
+      }
       const epoch = Date.parse(
         timestamp.replace(/([+-]\d{2})(\d{2})$/, "$1:$2"),
       );
-      if (!Number.isFinite(epoch) || epoch <= previous)
+      if (!Number.isFinite(epoch) || epoch <= previous) {
         throw new Error("Unordered or invalid candles.");
+      }
       const day = new Date(epoch + 19800000).toISOString().slice(0, 10);
       if (
         day < input.from ||
@@ -358,9 +369,12 @@ function parseHistoricalCandles(
         high < Math.max(open, close) ||
         high < low ||
         (volume !== null && volume < 0) ||
-        (openInterest != null && openInterest < 0)
-      )
+        (openInterest !== null &&
+          openInterest !== undefined &&
+          openInterest < 0)
+      ) {
         throw new Error("Invalid candle range or values.");
+      }
       previous = epoch;
       return {
         timestamp,
@@ -455,18 +469,21 @@ function parseOptionAndFuturesChain(
       }),
     })
     .parse(raw).data;
-  if (input.expiry && chain.common_data.expiryDt !== input.expiry)
+  if (input.expiry && chain.common_data.expiryDt !== input.expiry) {
     throw new Error("Chain expiry mismatch.");
+  }
   if (
     input.instrumentType === "option" &&
     (chain.common_data.expiryDt === null || chain.fut?.length)
-  )
+  ) {
     throw new Error("Unexpected option chain.");
+  }
   if (
     input.instrumentType === "fut" &&
     (chain.call.length || chain.put.length || !chain.fut)
-  )
+  ) {
     throw new Error("Unexpected futures chain.");
+  }
   for (const row of chain.fut || []) {
     const [day, month, year] = row.inst.expiryDt.split("-");
     const monthNumber =
@@ -488,30 +505,38 @@ function parseOptionAndFuturesChain(
     if (
       !z.iso.date().safeParse(expiry).success ||
       (input.expiry && expiry !== input.expiry)
-    )
+    ) {
       throw new Error("Invalid futures expiry.");
+    }
   }
   const seen = new Set<string>();
   for (const call of chain.call) {
-    if (call.instrument.optionType !== "CE")
+    if (call.instrument.optionType !== "CE") {
       throw new Error("Chain side mismatch.");
+    }
   }
   for (const put of chain.put) {
-    if (put.instrument.optionType !== "PE")
+    if (put.instrument.optionType !== "PE") {
       throw new Error("Chain side mismatch.");
+    }
   }
   const contractSymbols: string[] = [];
-  for (const call of chain.call)
+  for (const call of chain.call) {
     contractSymbols.push(call.instrument.neoSymbol);
-  for (const put of chain.put) contractSymbols.push(put.instrument.neoSymbol);
-  for (const future of chain.fut || [])
+  }
+  for (const put of chain.put) {
+    contractSymbols.push(put.instrument.neoSymbol);
+  }
+  for (const future of chain.fut || []) {
     contractSymbols.push(future.inst.neoSymbol);
+  }
   for (const symbol of contractSymbols) {
     if (
       !new RegExp(`^${input.exchange}\\|\\d{1,15}$`).test(symbol) ||
       seen.has(symbol)
-    )
+    ) {
       throw new Error("Chain token mismatch.");
+    }
     seen.add(symbol);
   }
   return {

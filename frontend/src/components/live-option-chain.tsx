@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { requestApiJson } from "@/lib/api";
 import type { PaperInstrument } from "./paper-instrument-picker";
 import { Button } from "./ui/button";
@@ -70,13 +70,16 @@ export function LiveOptionChain({
   const generation = useRef(0);
   // React strict-mode remounts and fast selections must not overlap broker operations.
   const queue = useRef<Promise<unknown>>(Promise.resolve());
-  function read(path: string, body: unknown) {
-    const next = queue.current
-      .catch(() => {})
-      .then(() => requestApiJson(path, "POST", body, csrf, 95000));
-    queue.current = next;
-    return next;
-  }
+  const read = useCallback(
+    (path: string, body: unknown) => {
+      const next = queue.current
+        .catch(() => {})
+        .then(() => requestApiJson(path, "POST", body, csrf, 95000));
+      queue.current = next;
+      return next;
+    },
+    [csrf],
+  );
 
   useEffect(() => {
     const controller = new AbortController();
@@ -89,18 +92,23 @@ export function LiveOptionChain({
           { signal: controller.signal },
         );
         const result = await response.json();
-        if (!response.ok)
+        if (!response.ok) {
           throw new Error(result.error || "Index constituents unavailable");
+        }
         if (
           result.index !== index ||
           !Array.isArray(result.symbols) ||
           !result.symbols.every((symbol: unknown) => typeof symbol === "string")
-        )
+        ) {
           throw new Error("Invalid index constituents");
-        if (!controller.signal.aborted) setMembers(result);
+        }
+        if (!controller.signal.aborted) {
+          setMembers(result);
+        }
       } catch (failure) {
-        if (!controller.signal.aborted)
+        if (!controller.signal.aborted) {
           setMemberError((failure as Error).message);
+        }
       }
     })();
     return () => controller.abort();
@@ -123,15 +131,19 @@ export function LiveOptionChain({
           query: "CE",
           offset: 0,
         });
-        if (!cancelled) setSymbols(result.underlyings);
+        if (!cancelled) {
+          setSymbols(result.underlyings);
+        }
       } catch (failure) {
-        if (!cancelled) setSearchError((failure as Error).message);
+        if (!cancelled) {
+          setSearchError((failure as Error).message);
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [csrf]);
+  }, [read]);
 
   useEffect(() => {
     const current = ++generation.current;
@@ -143,25 +155,34 @@ export function LiveOptionChain({
     setOffset(-1);
     void read("/market/option-chain", { underlying, offset: 0 })
       .then((result) => {
-        if (current !== generation.current) return;
+        if (current !== generation.current) {
+          return;
+        }
         setExpiries(result.expiries);
         setExpiry(result.expiries[0] || "");
-        if (!result.expiries.length)
+        if (!result.expiries.length) {
           setError("No current expiries found for this underlying.");
+        }
       })
       .catch((failure) => {
-        if (current === generation.current) setError(failure.message);
+        if (current === generation.current) {
+          setError(failure.message);
+        }
       })
       .finally(() => {
-        if (current === generation.current) setBusy(false);
+        if (current === generation.current) {
+          setBusy(false);
+        }
       });
     return () => {
-      generation.current++;
+      generation.current = current + 1;
     };
-  }, [underlying, csrf]);
+  }, [underlying, read]);
 
   useEffect(() => {
-    if (!expiry) return;
+    if (!expiry) {
+      return;
+    }
     const current = ++generation.current;
     setBusy(true);
     setError("");
@@ -199,8 +220,9 @@ export function LiveOptionChain({
                 (item: PaperInstrument) =>
                   (item.option?.strikePrice ?? 0) >= target,
               );
-              if (index === -1) low = page + 1;
-              else {
+              if (index === -1) {
+                low = page + 1;
+              } else {
                 start = Math.max(0, page * 50 + index - 24);
                 high = page - 1;
               }
@@ -213,7 +235,9 @@ export function LiveOptionChain({
           expiryDate: expiry,
           offset: start,
         });
-        if (current !== generation.current) return;
+        if (current !== generation.current) {
+          return;
+        }
         setDisplayedOffset(start);
         setChain(result);
         if (result.items.length) {
@@ -222,21 +246,25 @@ export function LiveOptionChain({
               instruments: result.items.map((item) => item.instrument),
             });
           } catch (failure) {
-            if (current === generation.current)
+            if (current === generation.current) {
               setFeedError((failure as Error).message);
+            }
           }
         }
       } catch (failure) {
-        if (current === generation.current)
+        if (current === generation.current) {
           setError((failure as Error).message);
+        }
       } finally {
-        if (current === generation.current) setBusy(false);
+        if (current === generation.current) {
+          setBusy(false);
+        }
       }
     })();
     return () => {
-      generation.current++;
+      generation.current = current + 1;
     };
-  }, [underlying, expiry, offset, csrf]);
+  }, [underlying, expiry, offset, positionStrikes, read]);
 
   useEffect(() => {
     setChain((previous) =>
@@ -257,7 +285,8 @@ export function LiveOptionChain({
                     ...item,
                     price: tick.ltp,
                     volume:
-                      tick.volume != null &&
+                      tick.volume !== null &&
+                      tick.volume !== undefined &&
                       Number.isSafeInteger(Number(tick.volume))
                         ? Number(tick.volume)
                         : item.volume,
@@ -289,7 +318,9 @@ export function LiveOptionChain({
 
   const pairs = new Map<number, { call?: Contract; put?: Contract }>();
   for (const item of chain?.items ?? []) {
-    if (!item.option) continue;
+    if (!item.option) {
+      continue;
+    }
     const pair = pairs.get(item.option.strikePrice) ?? {};
     pair[item.option.right] = item;
     pairs.set(item.option.strikePrice, pair);
@@ -502,7 +533,11 @@ export function LiveOptionChain({
         </span>
         <Button
           variant="secondary"
-          disabled={busy || chain?.nextOffset == null}
+          disabled={
+            busy ||
+            chain?.nextOffset === null ||
+            chain?.nextOffset === undefined
+          }
           onClick={() => setOffset(chain!.nextOffset!)}
         >
           Next strikes

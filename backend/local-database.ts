@@ -24,7 +24,9 @@ interface LocalPostgresConfiguration {
 
 /** Read the private local connection file without ever logging its passwords. */
 export function readLocalPostgresConfiguration(): LocalPostgresConfiguration | null {
-  if (!existsSync(configurationPath)) return null;
+  if (!existsSync(configurationPath)) {
+    return null;
+  }
   const config = JSON.parse(
     readFileSync(configurationPath, "utf8"),
   ) as LocalPostgresConfiguration;
@@ -33,8 +35,9 @@ export function readLocalPostgresConfiguration(): LocalPostgresConfiguration | n
     !config.applicationUrl ||
     !config.applicationPassword ||
     !Number.isInteger(config.port)
-  )
+  ) {
     throw new Error("Invalid local PostgreSQL configuration.");
+  }
   return config;
 }
 /** Resolve installed PostgreSQL tools; PG_BIN can point at another local PostgreSQL installation. */
@@ -45,10 +48,11 @@ function postgresBinaryDirectory(): string {
     "/usr/local/opt/postgresql@17/bin",
     "/usr/lib/postgresql/17/bin",
   ].find((path) => path && existsSync(resolve(path, "pg_ctl")));
-  if (!directory)
+  if (!directory) {
     throw new Error(
       "Install PostgreSQL 17 (macOS: brew install postgresql@17), or set PG_BIN.",
     );
+  }
   return directory;
 }
 /** Run a PostgreSQL utility without shell interpolation. Optional passwords travel via stdin only. */
@@ -59,10 +63,11 @@ function runPostgresUtility(name: string, args: string[], input?: string) {
     timeout: 45000,
     maxBuffer: 1024 * 1024,
   });
-  if (result.error || result.status !== 0)
+  if (result.error || result.status !== 0) {
     throw new Error(
       `PostgreSQL ${name} failed. Check .runtime/postgres.log and that port 55432 is available.`,
     );
+  }
 }
 /** Start only this project's cluster and create its app database if missing; return private settings.
  * PostgreSQL keeps running after the app exits. Use make db-stop to explicitly stop this cluster.
@@ -108,7 +113,7 @@ export async function ensureLocalPostgres(): Promise<LocalPostgresConfiguration>
     ["-D", clusterDirectory, "status"],
     { stdio: "ignore" },
   );
-  if (status.status !== 0)
+  if (status.status !== 0) {
     runPostgresUtility("pg_ctl", [
       "-D",
       clusterDirectory,
@@ -121,6 +126,7 @@ export async function ensureLocalPostgres(): Promise<LocalPostgresConfiguration>
       "30",
       "start",
     ]);
+  }
   const adminUrl = new URL(config.adminUrl);
   adminUrl.pathname = "/postgres";
   const client = new pg.Client({
@@ -135,8 +141,9 @@ export async function ensureLocalPostgres(): Promise<LocalPostgresConfiguration>
           "SELECT datname FROM pg_database WHERE datname='nralgo'",
         )
       ).rows.length
-    )
+    ) {
       await client.query("CREATE DATABASE nralgo");
+    }
   } finally {
     await client.end();
   }
@@ -144,7 +151,7 @@ export async function ensureLocalPostgres(): Promise<LocalPostgresConfiguration>
 }
 /** Stop the known project cluster only; never stop another PostgreSQL service on the machine. */
 export function stopLocalPostgres() {
-  if (existsSync(resolve(clusterDirectory, "PG_VERSION")))
+  if (existsSync(resolve(clusterDirectory, "PG_VERSION"))) {
     runPostgresUtility("pg_ctl", [
       "-D",
       clusterDirectory,
@@ -153,14 +160,16 @@ export function stopLocalPostgres() {
       "-w",
       "stop",
     ]);
+  }
 }
 
 /** Defer CLI execution until both database modules finish loading. The migration adapter
  * reads local settings from this module, so awaiting its import during evaluation deadlocks.
  */
 async function runLocalDatabaseCommand() {
-  if (process.argv.includes("--stop")) stopLocalPostgres();
-  else {
+  if (process.argv.includes("--stop")) {
+    stopLocalPostgres();
+  } else {
     const config = await ensureLocalPostgres();
     const { openDatabaseStore, runDatabaseMigrations } =
       await import("./database.js");
@@ -172,7 +181,7 @@ async function runLocalDatabaseCommand() {
     } finally {
       await database.close();
     }
-    console.log("Local PostgreSQL ready on 127.0.0.1:55432.");
+    console.debug("Local PostgreSQL ready on 127.0.0.1:55432.");
   }
 }
 

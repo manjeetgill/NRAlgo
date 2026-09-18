@@ -37,10 +37,14 @@ export function AccountPanel({
     let active = true;
     void requestAuthenticatedJson("/auth/mfa", csrf)
       .then((data) => {
-        if (active) setMfaEnabled(data.enabled);
+        if (active) {
+          setMfaEnabled(data.enabled);
+        }
       })
       .catch((e) => {
-        if (active) setError(e.message);
+        if (active) {
+          setError(e.message);
+        }
       });
     return () => {
       active = false;

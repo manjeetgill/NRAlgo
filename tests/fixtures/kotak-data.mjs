@@ -10,11 +10,12 @@ export const fakeKotakLogin = {
 export function fakeKotakData(calls = [], socketFactory) {
   return new KotakMarketDataClient(async (url, init) => {
     calls.push({ url, method: init.method });
-    if (url.endsWith("/tradeApiLogin"))
+    if (url.endsWith("/tradeApiLogin")) {
       return {
         data: { status: "success", kType: "View", token: "view", sid: "sid" },
       };
-    if (url.endsWith("/tradeApiValidate"))
+    }
+    if (url.endsWith("/tradeApiValidate")) {
       return {
         data: {
           status: "success",
@@ -27,9 +28,11 @@ export function fakeKotakData(calls = [], socketFactory) {
             : {}),
         },
       };
-    if (!url.startsWith("https://e43.kotaksecurities.com/"))
+    }
+    if (!url.startsWith("https://e43.kotaksecurities.com/")) {
       throw new Error("Unexpected fake host");
-    if (url.endsWith("/masterscrip/file-paths"))
+    }
+    if (url.endsWith("/masterscrip/file-paths")) {
       return {
         data: {
           filesPaths: [
@@ -41,7 +44,8 @@ export function fakeKotakData(calls = [], socketFactory) {
           ),
         },
       };
-    if (url.includes("/quotes/"))
+    }
+    if (url.includes("/quotes/")) {
       return decodeURIComponent(url.split("/neosymbol/")[1].split("/")[0])
         .split(",")
         .map((pair) => {
@@ -56,6 +60,7 @@ export function fakeKotakData(calls = [], socketFactory) {
             depth: { buy: [{ price: "100" }], sell: [{ price: "102" }] },
           };
         });
+    }
     if (url.includes("/watchlist/expiries?")) {
       const query = new URL(url).searchParams;
       return {
@@ -116,7 +121,7 @@ export function fakeKotakData(calls = [], socketFactory) {
         },
       };
     }
-    if (url.endsWith("/quick/user/positions"))
+    if (url.endsWith("/quick/user/positions")) {
       return {
         stat: "ok",
         stCode: 200,
@@ -124,18 +129,21 @@ export function fakeKotakData(calls = [], socketFactory) {
           { trdSym: "REAL-KOTAK", qty: "-25", exSeg: "nse_fo", prod: "NRML" },
         ],
       };
-    if (url.endsWith("/portfolio/v1/holdings"))
+    }
+    if (url.endsWith("/portfolio/v1/holdings")) {
       return {
         data: [
           { displaySymbol: "REAL-HOLDING", quantity: 7, averagePrice: 100 },
         ],
       };
-    if (url.endsWith("/quick/user/limits"))
+    }
+    if (url.endsWith("/quick/user/limits")) {
       return { stat: "Ok", Net: "12345", MarginUsed: "20" };
+    }
     if (
       url.endsWith("/quick/user/orders") ||
       url.endsWith("/quick/user/trades")
-    )
+    ) {
       return {
         stat: "Ok",
         data: [
@@ -152,14 +160,16 @@ export function fakeKotakData(calls = [], socketFactory) {
           },
         ],
       };
+    }
     throw new Error("Unexpected broker endpoint: " + new URL(url).pathname);
   }, socketFactory);
 }
 
 /** Browser smoke feed: asynchronous protocol events only, with no real WebSocket construction. */
 export function fakeIndexFeedSocket(url) {
-  if (url !== "wss://e43.kotaksecurities.com/apifeed")
+  if (url !== "wss://e43.kotaksecurities.com/apifeed") {
     throw new Error("Unexpected fake feed host.");
+  }
   return new (class extends EventTarget {
     binaryType = "arraybuffer";
     closed = false;
@@ -189,9 +199,12 @@ export function fakeIndexFeedSocket(url) {
           row.event,
         ) ||
         row.inputtoken !== "nse_cm|Nifty 50"
-      )
+      ) {
         throw new Error("Unexpected fake feed control.");
-      if (row.event === "unsubscribeIndices") return;
+      }
+      if (row.event === "unsubscribeIndices") {
+        return;
+      }
       const packet = Buffer.alloc(87);
       packet.writeUInt16LE(87);
       packet.writeUInt16LE(7207, 2);
@@ -200,12 +213,13 @@ export function fakeIndexFeedSocket(url) {
       packet.writeInt32LE(2400000, 17);
       packet.write("Nifty 50", 66);
       queueMicrotask(() => {
-        if (!this.closed)
+        if (!this.closed) {
           this.dispatchEvent(
             new MessageEvent("message", {
               data: Uint8Array.from(packet).buffer,
             }),
           );
+        }
       });
     }
     /** Mark closed without opening any external connection. */

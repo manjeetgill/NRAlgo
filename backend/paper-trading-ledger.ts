@@ -39,20 +39,26 @@ export function paperInstrumentKey(
   input: Pick<PaperInput, "instrument" | "option">,
 ) {
   const optionContract = input.option;
-  if (!optionContract) return input.instrument;
+  if (!optionContract) {
+    return input.instrument;
+  }
   return `OPTION:${input.instrument}:${optionContract.expiryDate}:${optionContract.right}:${optionContract.strikePrice}`;
 }
 /** Enforce whole declared lots and stop trading expired contracts; no invented expiry settlement. */
 function validatePaperContract(input: PaperInput, now: number) {
-  if (!input.option) return;
-  if (input.quantity % input.option.lotSize !== 0)
+  if (!input.option) {
+    return;
+  }
+  if (input.quantity % input.option.lotSize !== 0) {
     throw new Error(
       "Options quantity must be a multiple of the declared lot size.",
     );
-  if (input.option.expiryDate < paperTradingDay(now))
+  }
+  if (input.option.expiryDate < paperTradingDay(now)) {
     throw new Error(
       "Option contract has expired. Settlement is not simulated.",
     );
+  }
 }
 export interface PaperQuote {
   instrument: string;
@@ -126,7 +132,7 @@ export function expirePaperOrders(ledger: PaperLedger, now: number) {
   const minutes =
     new Date(now + 19800000).getUTCHours() * 60 +
     new Date(now + 19800000).getUTCMinutes();
-  for (const order of ledger.orders)
+  for (const order of ledger.orders) {
     if (
       order.state === "open" &&
       (paperTradingDay(order.createdAt) !== paperTradingDay(now) ||
@@ -135,26 +141,32 @@ export function expirePaperOrders(ledger: PaperLedger, now: number) {
       order.state = "expired";
       order.updatedAt = now;
     }
+  }
 }
 /** Reserve buy notional+fees and sell units across all open orders, preventing double spending. */
 export function validatePaperReservations(ledger: PaperLedger) {
   let reserved = 0;
   const selling: Record<string, number> = {};
-  for (const order of ledger.orders)
+  for (const order of ledger.orders) {
     if (order.state === "open") {
-      if (order.side === "buy")
+      if (order.side === "buy") {
         reserved += order.quantity * order.limitPaise + paperFeePaise;
-      else
+      } else {
         selling[paperInstrumentKey(order)] =
           (selling[paperInstrumentKey(order)] || 0) + order.quantity;
+      }
     }
-  if (reserved > ledger.cashPaise)
+  }
+  if (reserved > ledger.cashPaise) {
     throw new Error("Insufficient unreserved virtual cash.");
-  for (const [symbol, quantity] of Object.entries(selling))
-    if (quantity > (ledger.positions[symbol]?.quantity || 0))
+  }
+  for (const [symbol, quantity] of Object.entries(selling)) {
+    if (quantity > (ledger.positions[symbol]?.quantity || 0)) {
       throw new Error(
         "Insufficient unreserved units. Paper short selling is disabled.",
       );
+    }
+  }
   return reserved;
 }
 /** Idempotency binds a key to its original content, even after modification, fill or cancellation. */
@@ -165,24 +177,28 @@ export function placePaperOrder(
 ) {
   const existing = ledger.orders.find((order) => order.key === input.key);
   if (existing) {
-    if (JSON.stringify(existing.original) !== JSON.stringify(input))
+    if (JSON.stringify(existing.original) !== JSON.stringify(input)) {
       throw new Error("Order key already used with different content.");
+    }
     return existing;
   }
-  if (!paperMarketOpen(now))
+  if (!paperMarketOpen(now)) {
     throw new Error(
       "Paper DAY orders require weekday market hours, 09:15–15:30 IST.",
     );
+  }
   validatePaperContract(input, now);
   const prior = ledger.orders.find(
     (order) => paperInstrumentKey(order) === paperInstrumentKey(input),
   );
-  if (prior?.option && prior.option.lotSize !== input.option?.lotSize)
+  if (prior?.option && prior.option.lotSize !== input.option?.lotSize) {
     throw new Error(
       "Declared lot size cannot change for an existing paper contract.",
     );
-  if (ledger.orders.length >= 1000)
+  }
+  if (ledger.orders.length >= 1000) {
     throw new Error("Paper account history limit reached (1000 orders).");
+  }
   const order: PaperOrder = {
     ...input,
     original: { ...input },
@@ -208,8 +224,9 @@ export function modifyPaperOrder(
   now: number,
 ) {
   const order = ledger.orders.find((item) => item.key === key);
-  if (!order || order.state !== "open")
+  if (!order || order.state !== "open") {
     throw new Error("Only an open paper order can be modified.");
+  }
   const before = { ...order };
   validatePaperContract({ ...order, quantity, limitPaise }, now);
   Object.assign(order, { quantity, limitPaise, updatedAt: now });
@@ -227,7 +244,9 @@ export function cancelPaperOrder(
   now: number,
 ) {
   const order = ledger.orders.find((item) => item.key === key);
-  if (!order) throw new Error("Paper order not found.");
+  if (!order) {
+    throw new Error("Paper order not found.");
+  }
   if (order.state === "open") {
     order.state = "cancelled";
     order.updatedAt = now;
@@ -248,28 +267,35 @@ export function matchPaperOrders(
       (k) => ledger.positions[k].quantity,
     ),
   ]);
-  for (const symbol of Object.keys(ledger.marks))
-    if (!retained.has(symbol)) delete ledger.marks[symbol];
+  for (const symbol of Object.keys(ledger.marks)) {
+    if (!retained.has(symbol)) {
+      delete ledger.marks[symbol];
+    }
+  }
   for (const quote of quotes) {
     if (!freshPaperQuote(quote, now)) {
       delete ledger.marks[quote.instrument];
       continue;
     }
     ledger.marks[quote.instrument] = quote;
-    if (!paperMarketOpen(now)) continue;
+    if (!paperMarketOpen(now)) {
+      continue;
+    }
     for (const order of ledger.orders) {
       if (
         order.state !== "open" ||
         paperInstrumentKey(order) !== quote.instrument ||
         (order.option && order.option.expiryDate < paperTradingDay(now)) ||
         quote.receivedAt < order.updatedAt
-      )
+      ) {
         continue;
+      }
       if (
         (order.side === "buy" && quote.ask > order.limitPaise) ||
         (order.side === "sell" && quote.bid < order.limitPaise)
-      )
+      ) {
         continue;
+      }
       const price =
         order.side === "buy"
           ? Math.min(order.limitPaise, Math.ceil(quote.ask * 1.0005))
@@ -280,12 +306,16 @@ export function matchPaperOrders(
       };
       if (order.side === "buy") {
         const debit = price * order.quantity + paperFeePaise;
-        if (debit > ledger.cashPaise) continue;
+        if (debit > ledger.cashPaise) {
+          continue;
+        }
         ledger.cashPaise -= debit;
         position.costPaise += debit;
         position.quantity += order.quantity;
       } else {
-        if (position.quantity < order.quantity) continue;
+        if (position.quantity < order.quantity) {
+          continue;
+        }
         const cost =
           order.quantity === position.quantity
             ? position.costPaise
@@ -293,7 +323,9 @@ export function matchPaperOrders(
                 (position.costPaise * order.quantity) / position.quantity,
               );
         const credit = price * order.quantity - paperFeePaise;
-        if (ledger.cashPaise + credit < 0) continue;
+        if (ledger.cashPaise + credit < 0) {
+          continue;
+        }
         ledger.cashPaise += credit;
         ledger.realizedPaise += credit - cost;
         position.quantity -= order.quantity;
@@ -314,7 +346,7 @@ export function paperSummary(ledger: PaperLedger, now: number) {
   let marked = 0,
     cost = 0,
     complete = true;
-  for (const [symbol, position] of Object.entries(ledger.positions))
+  for (const [symbol, position] of Object.entries(ledger.positions)) {
     if (position.quantity) {
       const quote = ledger.marks[symbol];
       const expired = ledger.orders.some(
@@ -323,10 +355,14 @@ export function paperSummary(ledger: PaperLedger, now: number) {
           order.option &&
           order.option.expiryDate < paperTradingDay(now),
       );
-      if (expired || !quote || !freshPaperQuote(quote, now)) complete = false;
-      else marked += quote.bid * position.quantity;
+      if (expired || !quote || !freshPaperQuote(quote, now)) {
+        complete = false;
+      } else {
+        marked += quote.bid * position.quantity;
+      }
       cost += position.costPaise;
     }
+  }
   return {
     ...ledger,
     settlementRequired: Object.keys(ledger.positions).filter(

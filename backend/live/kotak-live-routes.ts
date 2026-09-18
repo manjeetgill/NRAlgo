@@ -23,13 +23,11 @@ export function registerKotakLiveRoutes(
           return;
         }
         const safe = error as { status?: number; detail?: string };
-        res
-          .status(safe.status ?? 409)
-          .json({
-            detail:
-              safe.detail ??
-              "Live action blocked. Check connection, current contract master, risk limits and reconciliation status. No automatic order retry.",
-          });
+        res.status(safe.status ?? 409).json({
+          detail:
+            safe.detail ??
+            "Live action blocked. Check connection, current contract master, risk limits and reconciliation status. No automatic order retry.",
+        });
       }
     };
   app.get(

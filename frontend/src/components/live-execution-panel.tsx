@@ -391,8 +391,11 @@ export function LiveExecutionPanel({ csrf }: { csrf: string }) {
                           setMessage(
                             `Order status: ${result.state}. Check broker reconciliation for final fills.`,
                           );
-                          if (["unknown", "submitting"].includes(result.state))
+                          if (
+                            ["unknown", "submitting"].includes(result.state)
+                          ) {
                             setUncertain(true);
+                          }
                           invalidate();
                           await refresh();
                         } catch (e) {

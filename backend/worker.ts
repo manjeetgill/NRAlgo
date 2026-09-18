@@ -25,8 +25,9 @@ export async function refreshWorkerLease(store: Store, instanceId: string) {
       row &&
       row.instance_id !== instanceId &&
       Date.now() / 1000 - row.heartbeat < 30
-    )
+    ) {
       throw new Error("Another worker holds the execution lease.");
+    }
     await query(
       "INSERT INTO worker_health VALUES (1,$1,$2) ON CONFLICT(id) DO UPDATE SET instance_id=$1,heartbeat=$2",
       [instanceId, Date.now() / 1000],
@@ -38,7 +39,9 @@ async function assertLease(
   query: import("./database.js").Query,
   instanceId?: string,
 ) {
-  if (!instanceId) return;
+  if (!instanceId) {
+    return;
+  }
   const [row] = await query<{ instance_id: string; heartbeat: number }>(
     "SELECT * FROM worker_health WHERE id=1",
   );
@@ -46,8 +49,9 @@ async function assertLease(
     !row ||
     row.instance_id !== instanceId ||
     Date.now() / 1000 - row.heartbeat >= 30
-  )
+  ) {
     throw new Error("Worker lease lost.");
+  }
 }
 /** Requeue interrupted synthetic jobs only after taking over the worker lease.
  * Never reuse this replay recovery model for live orders, which need broker reconciliation.
@@ -74,9 +78,12 @@ export async function processNextPaperJob(store: Store, instanceId?: string) {
       "SELECT j.* FROM jobs j JOIN user_settings s ON j.user_id=s.user_id WHERE j.status='queued' AND s.halted=$1 ORDER BY j.created_at LIMIT 1",
       [false],
     );
-    if (!job) return null;
-    if ((await lockWorkspaceSettings(query, store, job.user_id)).halted)
+    if (!job) {
       return null;
+    }
+    if ((await lockWorkspaceSettings(query, store, job.user_id)).halted) {
+      return null;
+    }
     await query("UPDATE jobs SET status='running',updated_at=$1 WHERE id=$2", [
       now(),
       job.id,
@@ -90,7 +97,9 @@ export async function processNextPaperJob(store: Store, instanceId?: string) {
     );
     return { job, strategy };
   });
-  if (!work) return false;
+  if (!work) {
+    return false;
+  }
   try {
     const { job, strategy } = work;
     const result = simulateSyntheticStrategy(
@@ -106,7 +115,9 @@ export async function processNextPaperJob(store: Store, instanceId?: string) {
       const [current] = await query("SELECT status FROM jobs WHERE id=$1", [
         job.id,
       ]);
-      if (settings.halted || current.status !== "running") return;
+      if (settings.halted || current.status !== "running") {
+        return;
+      }
       await query(
         "UPDATE jobs SET status='completed',result=$1,updated_at=$2 WHERE id=$3",
         [JSON.stringify(result), now(), job.id],
@@ -133,7 +144,9 @@ export async function processNextPaperJob(store: Store, instanceId?: string) {
       const [job] = await query("SELECT status FROM jobs WHERE id=$1", [
         work.job.id,
       ]);
-      if (job.status !== "running") return;
+      if (job.status !== "running") {
+        return;
+      }
       await query("UPDATE jobs SET status='failed' WHERE id=$1", [work.job.id]);
       await query("UPDATE strategies SET status='failed' WHERE id=$1", [
         work.strategy.id,
@@ -157,7 +170,9 @@ if (isEntryPoint(import.meta.url)) {
           "SELECT heartbeat FROM worker_health WHERE id=1",
         ),
       );
-      if (!row || Date.now() / 1000 - row.heartbeat >= 30) process.exitCode = 1;
+      if (!row || Date.now() / 1000 - row.heartbeat >= 30) {
+        process.exitCode = 1;
+      }
     } catch {
       process.exitCode = 1;
     } finally {
@@ -166,17 +181,22 @@ if (isEntryPoint(import.meta.url)) {
   } else {
     const instanceId = randomUUID();
     let stopping = false;
-    for (const signal of ["SIGINT", "SIGTERM"])
+    for (const signal of ["SIGINT", "SIGTERM"]) {
       process.on(signal, () => {
         stopping = true;
       });
+    }
     try {
       await refreshWorkerLease(store, instanceId);
       await recoverInterruptedPaperJobs(store, instanceId);
-      console.log("Node.js paper replay worker ready. Run exactly one worker.");
+      console.debug(
+        "Node.js paper replay worker ready. Run exactly one worker.",
+      );
       while (!stopping) {
         await refreshWorkerLease(store, instanceId);
-        if (!(await processNextPaperJob(store, instanceId))) await delay(1000);
+        if (!(await processNextPaperJob(store, instanceId))) {
+          await delay(1000);
+        }
       }
     } finally {
       await store

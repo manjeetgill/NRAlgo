@@ -73,12 +73,13 @@ export class BrokerRequestCoordinator {
   private usersWithActiveRequests = new Set<string>();
 
   /** Reject overlapping operations and release the guard even when a request fails. */
-  async runExclusiveForUser<T>(
+  public async runExclusiveForUser<T>(
     userId: string,
     operation: () => Promise<T>,
   ): Promise<T> {
-    if (this.usersWithActiveRequests.has(userId))
+    if (this.usersWithActiveRequests.has(userId)) {
       fail(409, "Another broker operation is in progress.");
+    }
     this.usersWithActiveRequests.add(userId);
     try {
       return await operation();

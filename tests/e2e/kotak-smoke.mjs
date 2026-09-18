@@ -48,8 +48,11 @@ try {
   );
   for (let i = 0; ; i++) {
     try {
-      if ((await fetch(frontendUrl, { signal: AbortSignal.timeout(1000) })).ok)
+      if (
+        (await fetch(frontendUrl, { signal: AbortSignal.timeout(1000) })).ok
+      ) {
         break;
+      }
     } catch {}
     assert.ok(i < 40, "Frontend failed to start");
     await delay(500);
@@ -92,8 +95,9 @@ try {
     "Kotak TOTP": "totp",
     "Kotak MPIN": "mpin",
   };
-  for (const [label, key] of Object.entries(inputs))
+  for (const [label, key] of Object.entries(inputs)) {
     await page.getByLabel(label, { exact: true }).fill(fakeKotakLogin[key]);
+  }
   await page
     .getByRole("button", { name: "Connect Kotak data", exact: true })
     .click();
@@ -355,7 +359,7 @@ try {
     ),
   );
   assert.deepEqual(errors, []);
-  console.log(
+  console.debug(
     "Kotak browser smoke passed: cash/options paper fills, portfolio, research, market-data APIs, native feed controls, MFA and mobile. No real broker calls.",
   );
 } finally {

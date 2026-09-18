@@ -81,7 +81,7 @@ function managerFor(
   feedUrl = "https://e43.kotaksecurities.com/apifeed",
 ) {
   return new KotakMarketDataClient(async (url, init, maxBytes) => {
-    if (url.endsWith("tradeApiLogin"))
+    if (url.endsWith("tradeApiLogin")) {
       return {
         data: {
           status: "success",
@@ -90,7 +90,8 @@ function managerFor(
           sid: "view-sid",
         },
       };
-    if (url.endsWith("tradeApiValidate"))
+    }
+    if (url.endsWith("tradeApiValidate")) {
       return {
         data: {
           status: "success",
@@ -101,6 +102,7 @@ function managerFor(
           feedUrl,
         },
       };
+    }
     assert.equal(init.method, "GET");
     assert.equal(init.headers.Authorization, fakeKotakLogin.accessToken);
     assert.equal(init.headers["Content-Type"], "application/json");
@@ -127,8 +129,9 @@ test("market queries cover all filters/intervals and reject unsafe or excessive 
       buildKotakMarketDataPath(input).includes("Nifty%2050%2Cbse_cm%7CSENSEX"),
     );
   }
-  for (const interval of historyIntervals)
+  for (const interval of historyIntervals) {
     assert.ok(marketRequestSchema.safeParse({ ...history, interval }).success);
+  }
   for (const bad of [
     { ...history, to: "2026-10-20" },
     { ...history, from: "2026-09-03" },
@@ -146,8 +149,9 @@ test("market queries cover all filters/intervals and reject unsafe or excessive 
       operation: "quotes",
       instruments: [{ exchange: "nse_fo", instrument: "NIFTY" }],
     },
-  ])
+  ]) {
     assert.equal(marketRequestSchema.safeParse(bad).success, false);
+  }
 });
 
 test("all seven master file types are returned without arbitrary URLs or duplicates", () => {
@@ -319,7 +323,7 @@ test("history preserves volume/OI and rejects untrusted ranges, prices and order
     [candle, candle],
     [[...candle.slice(0, 2), 98, ...candle.slice(3)]],
     [["2026-08-31T09:15:00+0530", ...candle.slice(1)]],
-  ])
+  ]) {
     assert.throws(() =>
       parseKotakMarketDataResponse(history, {
         status: "success",
@@ -327,6 +331,7 @@ test("history preserves volume/OI and rejects untrusted ranges, prices and order
         data: { candles },
       }),
     );
+  }
   assert.throws(() =>
     parseKotakMarketDataResponse(history, {
       status: "ERROR",
@@ -478,8 +483,9 @@ test("feed rejects fallback/auth failure, validates targets, and never leaks raw
     "https://e43.kotaksecurities.com/apifeed?sid=x",
     "https://e43.kotaksecurities.com:443/apifeed",
     "https://e43.kotaksecurities.com/../apifeed",
-  ])
+  ]) {
     assert.throws(() => validateKotakFeedUrl(url));
+  }
   assert.equal(
     validateKotakFeedUrl(undefined),
     "wss://sfeed.kotaksecurities.com/apifeed",
@@ -632,8 +638,9 @@ test("market diagnostics preserve bounded broker errors while stripping all sess
       fakeKotakLogin.accessToken,
       "feed-secret",
       "trade-secret",
-    ])
+    ]) {
       assert.ok(!error.detail.includes(secret));
+    }
     return true;
   });
   manager.close();
@@ -698,10 +705,13 @@ test("market routes enforce login, CSRF, owner isolation and shared budget", asy
         },
         ...(body ? { body: JSON.stringify(body) } : {}),
       });
-      if (response.headers.get("set-cookie"))
+      if (response.headers.get("set-cookie")) {
         cookie = response.headers.get("set-cookie").split(";")[0];
+      }
       const data = await response.json();
-      if (data.csrf) csrf = data.csrf;
+      if (data.csrf) {
+        csrf = data.csrf;
+      }
       return { status: response.status, data };
     };
   }

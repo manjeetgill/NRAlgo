@@ -51,14 +51,16 @@ export class KotakLiveManager {
     private readonly vault: ReturnType<typeof credentialVault>,
   ) {
     this.enabled = env.LIVE_TRADING_ENABLED === "true";
-    if (this.enabled && env.KOTAK_STATIC_IP_CONFIRMED !== "true")
+    if (this.enabled && env.KOTAK_STATIC_IP_CONFIRMED !== "true") {
       throw new Error(
         "Live trading requires KOTAK_STATIC_IP_CONFIRMED=true after Kotak IP registration",
       );
+    }
   }
   private requireEnabled() {
-    if (!this.enabled || this.closed)
+    if (!this.enabled || this.closed) {
       fail(409, "Live execution is disabled on this server.");
+    }
   }
   private serial<T>(entry: Entry, action: () => Promise<T>): Promise<T> {
     const work = entry.tail.catch(() => {}).then(action);
@@ -67,8 +69,9 @@ export class KotakLiveManager {
   }
   private async authorize(query: Query, entry: Entry) {
     this.requireEnabled();
-    if (entry.revoked || !entry.connection.isCurrent())
+    if (entry.revoked || !entry.connection.isCurrent()) {
       fail(409, "Reconnect Kotak and explicitly arm live execution again.");
+    }
     const [permission] = await query<{
       armed_until: number;
       trading_day: string;
@@ -85,8 +88,9 @@ export class KotakLiveManager {
       !validSession.length ||
       permission.armed_until <= Date.now() ||
       permission.trading_day !== paperTradingDay(Date.now())
-    )
+    ) {
       fail(409, "Live permission expired or revoked. Reconcile and arm again.");
+    }
   }
   private async entry(
     session: LoginSession,
@@ -99,8 +103,9 @@ export class KotakLiveManager {
       !current.revoked &&
       current.session.token_hash === session.token_hash &&
       current.connection.isCurrent()
-    )
+    ) {
       return current;
+    }
     if (current) {
       current.revoked = true;
       clearTimeout(current.timer);
@@ -127,7 +132,7 @@ export class KotakLiveManager {
       session.token_hash,
     );
     const id = await this.store.transaction(async (query) => {
-      if (limits)
+      if (limits) {
         await query(
           "INSERT INTO live_accounts(id,user_id,broker_binding,halt_reason,limits) VALUES($1,$2,$3,$4,$5) ON CONFLICT(broker_binding) DO NOTHING",
           [
@@ -138,15 +143,17 @@ export class KotakLiveManager {
             JSON.stringify(riskLimitsSchema.parse(limits)),
           ],
         );
+      }
       const [account] = await query<{ id: string }>(
         "SELECT id FROM live_accounts WHERE user_id=$1 AND broker_binding=$2 FOR UPDATE",
         [session.user_id, connection.accountBinding],
       );
-      if (!account)
+      if (!account) {
         fail(
           409,
           "Configure live risk limits first. A broker account cannot be shared across app users.",
         );
+      }
       await query("DELETE FROM live_permissions WHERE account_id=$1", [
         account.id,
       ]);
@@ -208,7 +215,9 @@ export class KotakLiveManager {
     return entry;
   }
   private schedule(entry: Entry) {
-    if (this.closed || entry.revoked) return;
+    if (this.closed || entry.revoked) {
+      return;
+    }
     entry.timer = setTimeout(() => {
       void this.serial(entry, async () => {
         try {
@@ -230,8 +239,9 @@ export class KotakLiveManager {
           if (
             !status.halted ||
             status.orders.some((o) => !terminalStates.has(o.state))
-          )
+          ) {
             await entry.service.reconcile();
+          }
         } catch {
           await this.store
             .transaction(async (q) => {
@@ -254,14 +264,15 @@ export class KotakLiveManager {
     }, 2000);
     entry.timer.unref();
   }
-  async configure(session: LoginSession, limits: RiskLimits) {
+  public async configure(session: LoginSession, limits: RiskLimits) {
     const entry = await this.entry(session, limits);
     return this.status(session, entry);
   }
-  async instruments(session: LoginSession, input: InstrumentSearch) {
+  public async instruments(session: LoginSession, input: InstrumentSearch) {
     this.requireEnabled();
-    if (!this.client.isConnected(session.user_id, session.token_hash))
+    if (!this.client.isConnected(session.user_id, session.token_hash)) {
       fail(409, "Connect Kotak first.");
+    }
     if (!this.catalog.isFresh("kotak", input.market)) {
       const url = await this.client.getInstrumentMasterUrl(
         session.user_id,
@@ -272,14 +283,15 @@ export class KotakLiveManager {
     }
     return this.catalog.search("kotak", input);
   }
-  async status(session: LoginSession, existing?: Entry) {
-    if (!this.enabled)
+  public async status(session: LoginSession, existing?: Entry) {
+    if (!this.enabled) {
       return {
         enabled: false,
         armed: false,
         halted: true,
         reason: "Live execution disabled",
       };
+    }
     const entry = existing ?? (await this.entry(session));
     const status = await entry.service.status();
     const [account] = await this.store.transaction((q) =>
@@ -311,11 +323,11 @@ export class KotakLiveManager {
       })),
     };
   }
-  async reconcile(session: LoginSession) {
+  public async reconcile(session: LoginSession) {
     const entry = await this.entry(session);
     return this.serial(entry, () => entry.service.reconcile());
   }
-  async arm(session: LoginSession, token: string) {
+  public async arm(session: LoginSession, token: string) {
     const entry = await this.entry(session);
     return this.serial(entry, async () => {
       // Validate MFA before any broker work, then grant short-lived, boot/session-bound permission.
@@ -325,16 +337,20 @@ export class KotakLiveManager {
           "SELECT enabled FROM user_security WHERE user_id=$1",
           [session.user_id],
         );
-        if (!security?.enabled)
+        if (!security?.enabled) {
           fail(409, "Enable authenticator MFA before live trading.");
+        }
         await verifySecondFactor(query, this.vault, session.user_id, token);
       });
-      if (!(await entry.service.reconcile()).clean)
+      if (!(await entry.service.reconcile()).clean) {
         fail(
           409,
           "Broker reconciliation failed. Review live status; no orders enabled.",
         );
-      if (entry.revoked) fail(409, "Live arming cancelled.");
+      }
+      if (entry.revoked) {
+        fail(409, "Live arming cancelled.");
+      }
       await entry.service.resumeAfterReconciliation();
       const armedUntil = Math.min(
         Date.now() + 5 * 60000,
@@ -342,8 +358,9 @@ export class KotakLiveManager {
       );
       try {
         await this.store.transaction(async (query) => {
-          if (entry.revoked || !entry.connection.isCurrent())
+          if (entry.revoked || !entry.connection.isCurrent()) {
             fail(409, "Broker session changed while arming.");
+          }
           await query(
             "INSERT INTO live_permissions(account_id,session_hash,armed_until,trading_day) VALUES($1,$2,$3,$4) ON CONFLICT(account_id) DO UPDATE SET session_hash=EXCLUDED.session_hash,armed_until=EXCLUDED.armed_until,trading_day=EXCLUDED.trading_day",
             [
@@ -371,14 +388,15 @@ export class KotakLiveManager {
       return { armed: true, armedUntil };
     });
   }
-  async preview(session: LoginSession, input: Omit<OrderIntent, "key">) {
+  public async preview(session: LoginSession, input: Omit<OrderIntent, "key">) {
     const entry = await this.entry(session);
     return this.serial(entry, async () => {
       await this.store.transaction((q) => this.authorize(q, entry));
       const intent = orderIntentSchema.parse({ ...input, key: randomUUID() });
       const contract = entry.adapter.validateIntent(intent);
-      if (!Number.isSafeInteger(intent.quantity * intent.limitPaise))
+      if (!Number.isSafeInteger(intent.quantity * intent.limitPaise)) {
         fail(422, "Order notional exceeds safe arithmetic.");
+      }
       const quote = await withBrokerDeadline(
         (s) => entry.adapter.getQuote(intent.instrument, intent.side, s),
         3000,
@@ -386,8 +404,9 @@ export class KotakLiveManager {
       if (
         Math.abs(intent.limitPaise - quote.pricePaise) / quote.pricePaise >
         0.05
-      )
+      ) {
         fail(422, "Limit price must be within 5% of the current broker quote.");
+      }
       const id = randomUUID(),
         expires = Date.now() + 30000;
       await this.store.transaction(async (q) => {
@@ -414,7 +433,7 @@ export class KotakLiveManager {
       };
     });
   }
-  async submit(session: LoginSession, previewId: string) {
+  public async submit(session: LoginSession, previewId: string) {
     const entry = await this.entry(session);
     return this.serial(entry, async () => {
       const intent = await this.store.transaction(async (q) => {
@@ -423,15 +442,18 @@ export class KotakLiveManager {
           "SELECT intent,expires FROM live_previews WHERE id=$1 AND account_id=$2 AND session_hash=$3",
           [previewId, entry.id, entry.permissionKey],
         );
-        if (!preview || preview.expires <= Date.now())
+        if (!preview || preview.expires <= Date.now()) {
           fail(409, "Order preview expired. Review a new preview.");
+        }
         return orderIntentSchema.parse(JSON.parse(preview.intent));
       });
       // A repeated confirmation resolves the SAME durable intent; no second broker call.
       const prior = (await entry.service.status()).orders.find(
         (o) => o.intent_key === intent.key,
       );
-      if (prior && prior.state !== "reserved") return prior;
+      if (prior && prior.state !== "reserved") {
+        return prior;
+      }
       entry.adapter.validateIntent(intent);
       const quote = await withBrokerDeadline(
         (s) => entry.adapter.getQuote(intent.instrument, intent.side, s),
@@ -440,18 +462,20 @@ export class KotakLiveManager {
       if (
         Math.abs(intent.limitPaise - quote.pricePaise) / quote.pricePaise >
         0.05
-      )
+      ) {
         fail(
           409,
           "Price moved outside the preview guard; review a fresh preview.",
         );
-      if (!(await entry.service.reconcile()).clean)
+      }
+      if (!(await entry.service.reconcile()).clean) {
         fail(409, "Reconciliation failed; order not submitted.");
+      }
       const order = await entry.service.reserveIntent(intent);
       return entry.service.submitReservedOrder(order.id);
     });
   }
-  async halt(session: LoginSession) {
+  public async halt(session: LoginSession) {
     const entry = await this.entry(session);
     entry.revoked = true;
     clearTimeout(entry.timer);
@@ -463,9 +487,11 @@ export class KotakLiveManager {
       "User halted live execution; cancellation requested, positions are not flattened",
     );
   }
-  revoke(userId: string) {
+  public revoke(userId: string) {
     const entry = this.entries.get(userId);
-    if (!entry) return;
+    if (!entry) {
+      return;
+    }
     entry.revoked = true;
     clearTimeout(entry.timer);
     // Synchronous memory gate blocks dispatch immediately. Durable halt follows best effort.
@@ -482,7 +508,7 @@ export class KotakLiveManager {
       })
       .catch(() => {});
   }
-  async close() {
+  public async close() {
     this.closed = true;
     await Promise.all(
       [...this.entries.values()].map(async (entry) => {

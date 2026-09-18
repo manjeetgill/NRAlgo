@@ -3,7 +3,7 @@
  * Cash symbols load after connection; searches are owner-authenticated and CSRF protected.
  * No broker secrets enter React.
  */
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { requestApiJson } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 export interface PaperInstrument {
@@ -53,6 +53,37 @@ export function KotakCashSymbolSelect({
     [busy, setBusy] = useState(false),
     [offset, setOffset] = useState(0);
   const generation = useRef(0);
+  const load = useCallback(
+    async (search: string, nextOffset: number) => {
+      const current = ++generation.current;
+      setBusy(true);
+      setError("");
+      setResult(null);
+      try {
+        const data = await requestApiJson(
+          "/paper/kotak/instruments",
+          "POST",
+          { market: "cash", query: search, offset: nextOffset },
+          csrf,
+          60000,
+        );
+        if (current === generation.current) {
+          setResult(data);
+          setOffset(nextOffset);
+          setAppliedQuery(search);
+        }
+      } catch (failure) {
+        if (current === generation.current) {
+          setError((failure as Error).message);
+        }
+      } finally {
+        if (current === generation.current) {
+          setBusy(false);
+        }
+      }
+    },
+    [csrf],
+  );
   /** Invalidate old fetches on disconnect/unmount; wallet refreshes do not re-download symbols. */
   useEffect(() => {
     if (connected) {
@@ -63,34 +94,11 @@ export function KotakCashSymbolSelect({
       setError("");
       setBusy(false);
     }
+    const cleanupGeneration = generation.current + 1;
     return () => {
-      generation.current++;
+      generation.current = cleanupGeneration;
     };
-  }, [connected, csrf]);
-  async function load(search: string, nextOffset: number) {
-    const current = ++generation.current;
-    setBusy(true);
-    setError("");
-    setResult(null);
-    try {
-      const data = await requestApiJson(
-        "/paper/kotak/instruments",
-        "POST",
-        { market: "cash", query: search, offset: nextOffset },
-        csrf,
-        60000,
-      );
-      if (current === generation.current) {
-        setResult(data);
-        setOffset(nextOffset);
-        setAppliedQuery(search);
-      }
-    } catch (failure) {
-      if (current === generation.current) setError((failure as Error).message);
-    } finally {
-      if (current === generation.current) setBusy(false);
-    }
-  }
+  }, [connected, load]);
   const items = result?.items || [];
   return (
     <section
@@ -130,7 +138,9 @@ export function KotakCashSymbolSelect({
             const item = items.find(
               (row) => row.masterToken === event.target.value,
             );
-            if (item) onSelect(item);
+            if (item) {
+              onSelect(item);
+            }
           }}
         >
           <option value="">
@@ -244,7 +254,9 @@ export function PaperInstrumentPicker({
         );
       }
     } finally {
-      if (current === generation.current) setBusy(false);
+      if (current === generation.current) {
+        setBusy(false);
+      }
     }
   }
   return (

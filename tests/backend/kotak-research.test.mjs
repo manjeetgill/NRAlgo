@@ -38,11 +38,12 @@ test("Kotak-only discovery, quotes, replay and account reports", async (t) => {
   const calls = [];
   const kotak = new KotakMarketDataClient(async (url, init) => {
     calls.push({ url, init });
-    if (url.endsWith("tradeApiLogin"))
+    if (url.endsWith("tradeApiLogin")) {
       return {
         data: { status: "success", kType: "View", token: "view", sid: "sid" },
       };
-    if (url.endsWith("tradeApiValidate"))
+    }
+    if (url.endsWith("tradeApiValidate")) {
       return {
         data: {
           status: "success",
@@ -52,8 +53,9 @@ test("Kotak-only discovery, quotes, replay and account reports", async (t) => {
           baseUrl: "https://e43.kotaksecurities.com",
         },
       };
+    }
     assert.ok(url.startsWith("https://e43.kotaksecurities.com/"));
-    if (url.endsWith("masterscrip/file-paths"))
+    if (url.endsWith("masterscrip/file-paths")) {
       return {
         data: {
           filesPaths: [
@@ -65,7 +67,8 @@ test("Kotak-only discovery, quotes, replay and account reports", async (t) => {
           ),
         },
       };
-    if (url.includes("/quotes/"))
+    }
+    if (url.includes("/quotes/")) {
       return decodeURIComponent(url.split("/neosymbol/")[1].split("/all")[0])
         .split(",")
         .map((pair) => {
@@ -80,6 +83,7 @@ test("Kotak-only discovery, quotes, replay and account reports", async (t) => {
             depth: { buy: [{ price: "100" }], sell: [{ price: "102" }] },
           };
         });
+    }
     if (url.includes("/historical/details?")) {
       const params = new URL(url).searchParams,
         day = params.get("fromdate");
@@ -115,7 +119,7 @@ test("Kotak-only discovery, quotes, replay and account reports", async (t) => {
         token: "DO_NOT_LEAK",
       };
     }
-    if (url.endsWith("/orders") || url.endsWith("/trades"))
+    if (url.endsWith("/orders") || url.endsWith("/trades")) {
       return {
         stat: "Ok",
         stCode: 200,
@@ -131,6 +135,7 @@ test("Kotak-only discovery, quotes, replay and account reports", async (t) => {
           },
         ],
       };
+    }
     throw new Error("Unexpected endpoint");
   });
   const app = createApiApplication(
@@ -162,10 +167,13 @@ test("Kotak-only discovery, quotes, replay and account reports", async (t) => {
           body: body === undefined ? undefined : JSON.stringify(body),
         },
       );
-      if (response.headers.get("set-cookie"))
+      if (response.headers.get("set-cookie")) {
         cookie = response.headers.get("set-cookie").split(";")[0];
+      }
       const data = await response.json();
-      if (data.csrf) csrf = data.csrf;
+      if (data.csrf) {
+        csrf = data.csrf;
+      }
       return { status: response.status, data };
     };
   }

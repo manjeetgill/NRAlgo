@@ -37,10 +37,11 @@ export function openDatabaseStore(
       ? readLocalPostgresConfiguration()?.applicationUrl
       : undefined),
 ): Store {
-  if (!url || !/^postgres(?:ql)?:\/\//.test(url))
+  if (!url || !/^postgres(?:ql)?:\/\//.test(url)) {
     throw new Error(
       "A PostgreSQL DATABASE_URL is required. Run make run to initialize local PostgreSQL.",
     );
+  }
   const pool = new pg.Pool({
     connectionString: url,
     max: 5,
@@ -122,8 +123,9 @@ export async function runDatabaseMigrations(
         "CREATE TABLE IF NOT EXISTS strategies (id VARCHAR(36) PRIMARY KEY, name VARCHAR(60) NOT NULL, symbol VARCHAR(20) NOT NULL, fast INTEGER NOT NULL, slow INTEGER NOT NULL, capital INTEGER NOT NULL, status VARCHAR(20) NOT NULL, pnl DOUBLE PRECISION NOT NULL, created_at VARCHAR(40) NOT NULL)",
         "CREATE TABLE IF NOT EXISTS jobs (id VARCHAR(36) PRIMARY KEY, strategy_id VARCHAR(36) NOT NULL, status VARCHAR(20) NOT NULL, result TEXT NOT NULL, created_at VARCHAR(40) NOT NULL, updated_at VARCHAR(40) NOT NULL)",
         "CREATE TABLE IF NOT EXISTS events (id SERIAL PRIMARY KEY, message TEXT NOT NULL, created_at VARCHAR(40) NOT NULL)",
-      ])
+      ]) {
         await query(sql);
+      }
       await query(
         "INSERT INTO settings (id,halted) VALUES (1,$1) ON CONFLICT (id) DO NOTHING",
         [false],
@@ -158,8 +160,9 @@ export async function runDatabaseMigrations(
         await query(
           `ALTER TABLE ${table} ADD COLUMN user_id VARCHAR(36) REFERENCES users(id)`,
         );
-        if (owners.length)
+        if (owners.length) {
           await query(`UPDATE ${table} SET user_id=$1`, ["legacy-owner"]);
+        }
         await query(`CREATE INDEX ${table}_user_idx ON ${table}(user_id)`);
       }
       await query("DROP TABLE owners");
@@ -251,19 +254,21 @@ export async function runDatabaseMigrations(
   // The migration container owns DDL; API/worker use a separate non-superuser role.
   if (options.runtimePassword) {
     const password = options.runtimePassword;
-    if (!/^[a-f0-9]{64}$/i.test(password))
+    if (!/^[a-f0-9]{64}$/i.test(password)) {
       throw new Error(
         "APP_DATABASE_PASSWORD must be 64 random hex characters.",
       );
+    }
     await store.transaction(async (query) => {
       await query("SELECT pg_advisory_xact_lock(684201)");
       if (
         !(await query("SELECT rolname FROM pg_roles WHERE rolname='nexus_app'"))
           .length
-      )
+      ) {
         await query(
           "CREATE ROLE nexus_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE",
         );
+      }
       // Restricted hex input above is necessary because role passwords cannot be SQL parameters.
       await query(`ALTER ROLE nexus_app PASSWORD '${password}'`);
       await query("GRANT USAGE ON SCHEMA public TO nexus_app");
@@ -275,26 +280,29 @@ export async function runDatabaseMigrations(
       );
     });
   }
-  if (options.backupPassword)
+  if (options.backupPassword) {
     await provisionBackupRole(store, options.backupPassword);
+  }
 }
 
 /** Only the migration administrator provisions this dedicated dump reader. */
 export async function provisionBackupRole(store: Store, password: string) {
-  if (!/^[a-f0-9]{64}$/i.test(password))
+  if (!/^[a-f0-9]{64}$/i.test(password)) {
     throw new Error(
       "BACKUP_DATABASE_PASSWORD must be 64 random hex characters.",
     );
+  }
   await store.transaction(async (query) => {
     await query("SELECT pg_advisory_xact_lock(684201)");
     if (
       !(
         await query("SELECT rolname FROM pg_roles WHERE rolname='nexus_backup'")
       ).length
-    )
+    ) {
       await query(
         "CREATE ROLE nexus_backup LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS",
       );
+    }
     await query(
       `ALTER ROLE nexus_backup WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD '${password}'`,
     );
@@ -356,7 +364,7 @@ if (isEntryPoint(import.meta.url)) {
         process.env.APP_DATABASE_PASSWORD || local?.applicationPassword,
       backupPassword: process.env.BACKUP_DATABASE_PASSWORD,
     });
-    console.log("Database migration complete.");
+    console.debug("Database migration complete.");
   } finally {
     await store.close();
   }

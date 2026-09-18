@@ -25,20 +25,23 @@ export interface KotakExecutionSession {
 }
 type Row = Record<string, unknown>;
 function record(raw: unknown): Row {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw))
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     throw new Error("Invalid Kotak report");
+  }
   return raw as Row;
 }
 function success(raw: unknown) {
   const row = record(raw);
-  if (String(row.stat).toLowerCase() !== "ok" || Number(row.stCode) !== 200)
+  if (String(row.stat).toLowerCase() !== "ok" || Number(row.stCode) !== 200) {
     throw new Error("Kotak did not confirm success");
+  }
   return row;
 }
 function rows(raw: unknown) {
   const result = success(raw);
-  if (!Array.isArray(result.data) || result.data.length >= 10000)
+  if (!Array.isArray(result.data) || result.data.length >= 10000) {
     throw new Error("Incomplete Kotak book");
+  }
   return result.data.map(record);
 }
 function numeric(value: unknown) {
@@ -46,21 +49,24 @@ function numeric(value: unknown) {
     (typeof value !== "number" && typeof value !== "string") ||
     String(value).trim() === "" ||
     !Number.isFinite(Number(value))
-  )
+  ) {
     throw new Error("Missing broker numeric field");
+  }
   return Number(value);
 }
 function units(value: unknown) {
   const n = numeric(value);
-  if (!Number.isSafeInteger(n) || n < 0)
+  if (!Number.isSafeInteger(n) || n < 0) {
     throw new Error("Invalid broker quantity");
+  }
   return n;
 }
 function paise(value: unknown) {
   const n = numeric(value) * 100,
     rounded = Math.round(n);
-  if (!Number.isSafeInteger(rounded) || Math.abs(n - rounded) > 0.0001)
+  if (!Number.isSafeInteger(rounded) || Math.abs(n - rounded) > 0.0001) {
     throw new Error("Invalid broker money precision");
+  }
   return rounded;
 }
 export const kotakOrderTag = (key: string) =>
@@ -71,10 +77,12 @@ function identity(row: Row) {
   if (
     (segment !== "nse_cm" || product !== "CNC") &&
     (segment !== "nse_fo" || product !== "NRML")
-  )
+  ) {
     throw new Error("Account contains an unsupported execution product");
-  if (!/^[1-9]\d{0,14}$/.test(String(row.tok)))
+  }
+  if (!/^[1-9]\d{0,14}$/.test(String(row.tok))) {
     throw new Error("Invalid broker instrument");
+  }
   return `kotak:${segment === "nse_cm" ? "cash" : "options"}:${row.tok}`;
 }
 
@@ -92,7 +100,7 @@ export class KotakLiveAdapter implements ExecutionBrokerAdapter {
     this.accountBinding = session.accountBinding;
   }
 
-  validateIntent(raw: OrderIntent) {
+  public validateIntent(raw: OrderIntent) {
     const intent = orderIntentSchema.parse(raw),
       contract = this.resolve(intent.instrument);
     if (
@@ -100,17 +108,19 @@ export class KotakLiveAdapter implements ExecutionBrokerAdapter {
       !contract.tickPaise ||
       intent.quantity % contract.lotSize ||
       intent.limitPaise % contract.tickPaise
-    )
+    ) {
       throw new Error(
         "Use the exact master contract, whole lots and tick-aligned limit price",
       );
-    if (intent.side === "sell" && !intent.reduceOnly)
+    }
+    if (intent.side === "sell" && !intent.reduceOnly) {
       throw new Error(
         "Opening short positions is disabled; sells must reduce a tracked long position",
       );
+    }
     return contract;
   }
-  async placeOrder(intent: OrderIntent, signal: AbortSignal) {
+  public async placeOrder(intent: OrderIntent, signal: AbortSignal) {
     const contract = this.validateIntent(intent);
     const raw = success(
       await this.session.request(
@@ -134,8 +144,9 @@ export class KotakLiveAdapter implements ExecutionBrokerAdapter {
         signal,
       ),
     );
-    if (typeof raw.nOrdNo !== "string" || !/^\d{1,30}$/.test(raw.nOrdNo))
+    if (typeof raw.nOrdNo !== "string" || !/^\d{1,30}$/.test(raw.nOrdNo)) {
       throw new Error("Missing Kotak order acknowledgement");
+    }
     // The placement response acknowledges receipt, not a fill. Durable reconciliation
     // subsequently verifies GuiOrdId, token, product, side, quantity and cumulative fills.
     return brokerOrderSchema.parse({
@@ -155,17 +166,22 @@ export class KotakLiveAdapter implements ExecutionBrokerAdapter {
     verifyTerms = true,
   ): BrokerOrder {
     const id = String(row.nOrdNo ?? "");
-    if (!/^\d{1,30}$/.test(id)) throw new Error("Missing order ID");
+    if (!/^\d{1,30}$/.test(id)) {
+      throw new Error("Missing order ID");
+    }
     const matches = known.filter((i) => kotakOrderTag(i.key) === row.GuiOrdId);
-    if (matches.length > 1) throw new Error("Ambiguous order tag");
+    if (matches.length > 1) {
+      throw new Error("Ambiguous order tag");
+    }
     if (
       matches[0] &&
       verifyTerms &&
       (row.prcTp !== "L" ||
         row.vldt !== "DAY" ||
         paise(row.prc) !== matches[0].limitPaise)
-    )
+    ) {
       throw new Error("Broker order terms changed outside the live OMS");
+    }
     const quantity = units(row.qty),
       filled = units(row.fldQty);
     const state = String(row.ordSt).toLowerCase().trim();
@@ -181,27 +197,36 @@ export class KotakLiveAdapter implements ExecutionBrokerAdapter {
         "cancel pending",
         "trigger pending",
       ].includes(state)
-    )
+    ) {
       status =
         filled === 0
           ? "open"
           : filled === quantity
             ? "filled"
             : "partially_filled";
-    else if (state === "complete" || state === "traded" || state === "filled")
+    } else if (
+      state === "complete" ||
+      state === "traded" ||
+      state === "filled"
+    ) {
       status = "filled";
-    else if (state === "cancelled" || state === "canceled")
+    } else if (state === "cancelled" || state === "canceled") {
       status = "cancelled";
-    else if (state === "rejected") status = "rejected";
-    else throw new Error("Unknown broker order status");
+    } else if (state === "rejected") {
+      status = "rejected";
+    } else {
+      throw new Error("Unknown broker order status");
+    }
     if (
       filled > quantity ||
       (status === "filled" && filled !== quantity) ||
       (status === "rejected" && filled !== 0)
-    )
+    ) {
       throw new Error("Contradictory fill status");
-    if (row.trnsTp !== "B" && row.trnsTp !== "S")
+    }
+    if (row.trnsTp !== "B" && row.trnsTp !== "S") {
       throw new Error("Unknown side");
+    }
     return brokerOrderSchema.parse({
       brokerOrderId: id,
       clientOrderKey: matches[0]?.key ?? `external:${id}`,
@@ -213,7 +238,7 @@ export class KotakLiveAdapter implements ExecutionBrokerAdapter {
       cashDeltaPaise: null,
     });
   }
-  async getCancellationOrders(signal: AbortSignal) {
+  public async getCancellationOrders(signal: AbortSignal) {
     const known = await this.knownIntents();
     const book = rows(
       await this.session.request("/quick/user/orders", undefined, signal),
@@ -232,10 +257,11 @@ export class KotakLiveAdapter implements ExecutionBrokerAdapter {
         ),
       );
   }
-  async cancelOrder(brokerOrderId: string, signal: AbortSignal) {
+  public async cancelOrder(brokerOrderId: string, signal: AbortSignal) {
     const owned = await this.getCancellationOrders(signal);
-    if (!owned.some((o) => o.brokerOrderId === brokerOrderId))
+    if (!owned.some((o) => o.brokerOrderId === brokerOrderId)) {
       throw new Error("Order not managed by this account");
+    }
     success(
       await this.session.request(
         "/quick/order/cancel",
@@ -244,7 +270,7 @@ export class KotakLiveAdapter implements ExecutionBrokerAdapter {
       ),
     );
   }
-  async getQuote(
+  public async getQuote(
     instrument: string,
     _side: OrderIntent["side"],
     signal: AbortSignal,
@@ -258,11 +284,12 @@ export class KotakLiveAdapter implements ExecutionBrokerAdapter {
       !Number.isSafeInteger(result.observedAt) ||
       result.observedAt > Date.now() ||
       Date.now() - result.observedAt > 5000
-    )
+    ) {
       throw new Error("Fresh broker quote required");
+    }
     return result;
   }
-  async getSnapshot(signal: AbortSignal) {
+  public async getSnapshot(signal: AbortSignal) {
     const started = Date.now();
     const [orderRaw, positionRaw, limitRaw, known] = await Promise.all([
       this.session.request("/quick/user/orders", undefined, signal),
@@ -287,20 +314,25 @@ export class KotakLiveAdapter implements ExecutionBrokerAdapter {
         units(row.flBuyQty) -
         units(row.cfSellQty) -
         units(row.flSellQty);
-      if (instrument in positions) throw new Error("Duplicate position row");
+      if (instrument in positions) {
+        throw new Error("Duplicate position row");
+      }
       positions[instrument] = quantity;
       if (quantity) {
-        if (quantity < 0)
+        if (quantity < 0) {
           throw new Error("Short exposure requires operator review");
+        }
         for (const field of [
           "multiplier",
           "genNum",
           "genDen",
           "prcNum",
           "prcDen",
-        ])
-          if (numeric(row[field]) !== 1)
+        ]) {
+          if (numeric(row[field]) !== 1) {
             throw new Error("Unsupported contract multiplier");
+          }
+        }
         const quote = await this.getQuote(instrument, "sell", signal);
         const cost = Math.abs(
           paise(row.cfBuyAmt) +
@@ -315,8 +347,9 @@ export class KotakLiveAdapter implements ExecutionBrokerAdapter {
       signal.aborted ||
       !this.session.isCurrent() ||
       Date.now() - started > 5000
-    )
+    ) {
       throw new Error("Broker snapshot stale");
+    }
     // RMS Net is buying power. Neither Net nor MTM is a cash-ledger balance.
     return brokerSnapshotSchema.parse({
       capturedAt: started,

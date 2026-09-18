@@ -44,43 +44,50 @@ export const researchStrategySchema = z
       strategy.entryTime < "09:15" ||
       strategy.exitTime > "15:25" ||
       strategy.entryTime >= strategy.exitTime
-    )
+    ) {
       invalid("Use an entry before exit within 09:15–15:25 IST.");
+    }
     if (
       strategy.market === "cash" &&
       (strategy.legs.length !== 1 || strategy.legs[0].side !== "buy")
-    )
+    ) {
       invalid("Cash research supports one long-only leg.");
+    }
     if (
       strategy.market === "options" &&
       strategy.legs.some(
         (leg) => !leg.expiryDate || !leg.right || !leg.strikePrice,
       )
-    )
+    ) {
       invalid("Every options leg needs expiry, call/put and strike.");
+    }
     if (
       strategy.market === "cash" &&
       strategy.legs.some(
         (leg) => leg.expiryDate || leg.right || leg.strikePrice,
       )
-    )
+    ) {
       invalid("Cash legs cannot contain option fields.");
+    }
     if (
       strategy.market === "options" &&
       strategy.legs.some((leg) => leg.side === "sell") &&
       strategy.marginReserve <= 0
-    )
+    ) {
       invalid(
         "Short-option research requires an explicit assumed margin reserve.",
       );
-    if (strategy.marginReserve > strategy.capital)
+    }
+    if (strategy.marginReserve > strategy.capital) {
       invalid("Assumed margin exceeds capital.");
+    }
     const identities = strategy.legs.map(
       (leg) =>
         `${leg.stockCode}:${leg.expiryDate}:${leg.right}:${leg.strikePrice}`,
     );
-    if (new Set(identities).size !== identities.length)
+    if (new Set(identities).size !== identities.length) {
       invalid("Combine duplicate contracts into one leg.");
+    }
   });
 export type ResearchStrategy = z.infer<typeof researchStrategySchema>;
 export type ResearchLeg = z.infer<typeof researchLegSchema>;
@@ -120,12 +127,14 @@ export function normalizeHistoricalCandles(
   day: string,
   intervalMinutes: number,
 ): HistoricalCandle[] {
-  if (!Array.isArray(raw) || raw.length < 2 || raw.length >= 1000)
+  if (!Array.isArray(raw) || raw.length < 2 || raw.length >= 1000) {
     throw new Error("History is empty or potentially truncated.");
+  }
   const candles = raw
     .map((item) => {
-      if (!item || typeof item !== "object")
+      if (!item || typeof item !== "object") {
         throw new Error("Invalid historical candle.");
+      }
       const text = String(item.datetime);
       const time = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}$/.test(text)
         ? Date.parse(text.replace(" ", "T") + "+05:30")
@@ -144,10 +153,11 @@ export function normalizeHistoricalCandles(
         ) ||
         values[1] < Math.max(values[0], values[2], values[3]) ||
         values[2] > Math.min(values[0], values[1], values[3])
-      )
+      ) {
         throw new Error(
           "Invalid OHLC values or a candle outside the requested IST session.",
         );
+      }
       return {
         time,
         open: values[0],
@@ -157,11 +167,13 @@ export function normalizeHistoricalCandles(
       };
     })
     .sort((a, b) => a.time - b.time);
-  for (let i = 1; i < candles.length; i++)
-    if (candles[i].time - candles[i - 1].time !== intervalMinutes * 60000)
+  for (let i = 1; i < candles.length; i++) {
+    if (candles[i].time - candles[i - 1].time !== intervalMinutes * 60000) {
       throw new Error(
         "Historical candles contain duplicate timestamps or gaps. Choose another interval/session.",
       );
+    }
+  }
   return candles;
 }
 
@@ -178,8 +190,9 @@ export function simulateHistoricalBasket(
   if (
     histories.length !== strategy.legs.length ||
     histories.some((bars) => !bars.length)
-  )
+  ) {
     throw new Error("Missing leg history.");
+  }
   const timeline = histories[0];
   if (
     histories.some(
@@ -187,16 +200,19 @@ export function simulateHistoricalBasket(
         bars.length !== timeline.length ||
         bars.some((bar, i) => bar.time !== timeline[i].time),
     )
-  )
+  ) {
     throw new Error(
       "All legs must have the same candle timeline; incomplete baskets are refused.",
     );
+  }
   const entryAt = sessionTimestamp(day, strategy.entryTime),
     exitAt = sessionTimestamp(day, strategy.exitTime);
-  if (timeline[0].time > entryAt || timeline.at(-1)!.time < exitAt)
+  if (timeline[0].time > entryAt || timeline.at(-1)!.time < exitAt) {
     throw new Error("History does not cover the requested entry and exit.");
-  if (strategy.legs.some((leg) => leg.expiryDate && leg.expiryDate < day))
+  }
+  if (strategy.legs.some((leg) => leg.expiryDate && leg.expiryDate < day)) {
     throw new Error("An options contract expired before this session.");
+  }
   let entered = false,
     open = false,
     cashDelta = 0,
@@ -234,10 +250,11 @@ export function simulateHistoricalBasket(
     if (
       !exiting &&
       Math.max(0, debit) + strategy.marginReserve > strategy.capital
-    )
+    ) {
       throw new Error(
         "Insufficient simulated capital for premium and assumed margin.",
       );
+    }
     cashDelta -= debit;
     totalFees += proposed.reduce((sum, fill) => sum + fill.fee, 0);
     fills.push(...proposed);
@@ -266,16 +283,18 @@ export function simulateHistoricalBasket(
     drawdown = Math.max(drawdown, peak - pnl);
     points.push({ time: bar.time, pnl, prices, open });
     if (open && !exitReason) {
-      if (pnl <= -strategy.stopLoss)
+      if (pnl <= -strategy.stopLoss) {
         exitReason = "stop observed at previous close";
-      else if (pnl >= strategy.targetProfit)
+      } else if (pnl >= strategy.targetProfit) {
         exitReason = "target observed at previous close";
+      }
     }
   });
-  if (!entered || open)
+  if (!entered || open) {
     throw new Error(
       "Requested entry/exit cannot be completed with this history.",
     );
+  }
   return {
     source: strategy.broker,
     model: "scheduled-basket-v1",
@@ -326,7 +345,9 @@ export interface BacktestBatchSummary {
 export function summarizeBacktestBatch(
   results: BacktestResult[],
 ): BacktestBatchSummary {
-  if (!results.length) throw new Error("No completed sessions to summarize.");
+  if (!results.length) {
+    throw new Error("No completed sessions to summarize.");
+  }
   const sessions = results.map((result) => ({
     day: result.day,
     pnl: result.pnl,

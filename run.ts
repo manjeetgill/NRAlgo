@@ -26,27 +26,38 @@ try {
 } finally {
   await store.close();
 }
-if (localPostgres) process.env.DATABASE_URL = localPostgres.applicationUrl;
+if (localPostgres) {
+  process.env.DATABASE_URL = localPostgres.applicationUrl;
+}
 const children: ChildProcess[] = [];
 let stopping = false;
 /** Stop the entire development stack once; escalate to SIGKILL only for our unresponsive children. */
 function stop(code = 0) {
-  if (stopping) return;
+  if (stopping) {
+    return;
+  }
   stopping = true;
   process.exitCode = code;
   for (const child of children) {
-    if (child.exitCode !== null) continue;
+    if (child.exitCode !== null) {
+      continue;
+    }
     try {
-      if (child.pid) process.kill(-child.pid, "SIGTERM");
+      if (child.pid) {
+        process.kill(-child.pid, "SIGTERM");
+      }
     } catch {}
   }
   setTimeout(() => {
-    for (const child of children)
+    for (const child of children) {
       if (child.exitCode === null) {
         try {
-          if (child.pid) process.kill(-child.pid, "SIGKILL");
+          if (child.pid) {
+            process.kill(-child.pid, "SIGKILL");
+          }
         } catch {}
       }
+    }
   }, 30000).unref();
 }
 const commands: [string, string[], string][] = [
@@ -68,8 +79,10 @@ for (const [command, args, cwd] of commands) {
     }
   });
 }
-for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => stop());
-console.log("NRAlgo: http://localhost:3000");
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.on(signal, () => stop());
+}
+console.debug("NRAlgo: http://localhost:3000");
 if (process.env.NEXUS_NO_BROWSER !== "1") {
   for (let i = 0; i < 90 && !stopping; i++) {
     try {
@@ -91,7 +104,7 @@ if (process.env.NEXUS_NO_BROWSER !== "1") {
           { stdio: "ignore" },
         );
         opener.on("error", () =>
-          console.log("Open http://localhost:3000 in your browser."),
+          console.debug("Open http://localhost:3000 in your browser."),
         );
         break;
       }

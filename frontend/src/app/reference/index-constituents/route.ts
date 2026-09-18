@@ -27,17 +27,22 @@ async function download(index: keyof typeof INDEX_FILES): Promise<Membership> {
       Referer: "https://www.niftyindices.com/",
     },
   });
-  if (!response.ok || !response.body)
+  if (!response.ok || !response.body) {
     throw new Error("Constituent source unavailable");
+  }
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
   try {
     while (true) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done) {
+        break;
+      }
       size += value.length;
-      if (size > 250000) throw new Error("Constituent source too large");
+      if (size > 250000) {
+        throw new Error("Constituent source too large");
+      }
       chunks.push(value);
     }
   } finally {
@@ -60,11 +65,13 @@ export async function GET(request: Request) {
   }
   const headers = { "Cache-Control": "no-store" };
   const cached = cache.get(index);
-  if (cached && cached.until > Date.now())
+  if (cached && cached.until > Date.now()) {
     return Response.json(cached.value, { headers });
+  }
   try {
-    if ((failures.get(index) ?? 0) > Date.now())
+    if ((failures.get(index) ?? 0) > Date.now()) {
       throw new Error("Source cooling down");
+    }
     let job = pending.get(index);
     if (!job) {
       job = download(index as keyof typeof INDEX_FILES)
