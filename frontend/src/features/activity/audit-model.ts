@@ -14,6 +14,33 @@ export interface AuditEvent {
   created_at: string;
 }
 
+/** Deduplicate immutable IDs, then order by server occurrence time with an ID tie-break.
+ * Invalid timestamps sort last; duplicate delivery cannot multiply Overview or Audit rows. */
+export function orderAuditEvents(events: AuditEvent[]): AuditEvent[] {
+  const unique = new Map<number, AuditEvent>();
+  for (const event of events) {
+    if (!unique.has(event.id)) {
+      unique.set(event.id, event);
+    }
+  }
+  /** Treat malformed timestamps as unknown, not browser arrival time. */
+  function timestamp(event: AuditEvent) {
+    const value = Date.parse(event.created_at);
+    return Number.isFinite(value) ? value : -Infinity;
+  }
+  return [...unique.values()].sort(
+    /** Keep stable order even when event timestamps are identical. */ (
+      a,
+      b,
+    ) =>
+      timestamp(a) === timestamp(b)
+        ? b.id - a.id
+        : timestamp(a) > timestamp(b)
+          ? -1
+          : 1,
+  );
+}
+
 /** Prefer security and execution context before broker names appearing in an order message. */
 export function categorizeAuditEvent(
   message: string,
@@ -52,7 +79,7 @@ export function filterAuditEvents(
   search: string,
 ): AuditEvent[] {
   const query = search.trim().toLowerCase();
-  return events.filter(
+  return orderAuditEvents(events).filter(
     (event) =>
       (category === "All" ||
         categorizeAuditEvent(event.message) === category) &&
