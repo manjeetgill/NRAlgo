@@ -10,29 +10,12 @@ import { OptionChainPicker } from "@/components/option-chain-picker";
 import { InstrumentPicker } from "@/components/instrument-picker";
 import { summarizePayoff } from "@/features/spread-builder/spread-payoff";
 
-export type ResearchLeg = {
-  stockCode: string;
-  side: "buy" | "sell";
-  quantity: number;
-  expiryDate?: string;
-  right?: "call" | "put";
-  strikePrice?: number;
-};
-type Leg = ResearchLeg;
-type Definition = {
-  broker: "kotak";
-  name: string;
-  market: "cash" | "options";
-  legs: Leg[];
-  capital: number;
-  marginReserve: number;
-  entryTime: string;
-  exitTime: string;
-  stopLoss: number;
-  targetProfit: number;
-  slippageBps: number;
-  feePerOrder: number;
-};
+import {
+  createResearchDefinition,
+  type ResearchDefinition as Definition,
+  type ResearchLeg as Leg,
+  type ResearchDraft,
+} from "./research-draft";
 type Saved = { id: string; definition: Definition };
 type Point = { time: number; pnl: number; prices: number[]; open: boolean };
 type Run = {
@@ -72,21 +55,6 @@ const timeLabel = (value: number) =>
     hour: "2-digit",
     minute: "2-digit",
   });
-const initial: Definition = {
-  broker: "kotak",
-  name: "Cash intraday basket",
-  market: "cash",
-  legs: [{ stockCode: "RELIANCE", side: "buy", quantity: 1 }],
-  capital: 100000,
-  marginReserve: 0,
-  entryTime: "09:20",
-  exitTime: "15:15",
-  stopLoss: 2000,
-  targetProfit: 4000,
-  slippageBps: 5,
-  feePerOrder: 20,
-};
-
 /** Requests are manual, bounded and same-origin. No credentials or draft orders go to storage. */
 function researchRequest(
   path: string,
@@ -139,27 +107,23 @@ export function ResearchWorkbench({
   csrf,
   initialStrategyId = "",
   initialMarket = "cash",
-  draftLegs,
-  onDraftLegsChange,
+  draft,
+  onDraftChange,
 }: {
   csrf: string;
   initialStrategyId?: string;
   initialMarket?: "cash" | "options";
-  draftLegs?: ResearchLeg[];
-  onDraftLegsChange?: (legs: ResearchLeg[]) => void;
+  draft?: ResearchDraft;
+  onDraftChange?: (draft: ResearchDraft) => void;
 }) {
+  const draftAtMount = useRef(draft);
   const [definition, setDefinition] = useState<Definition>(() =>
-      initialMarket === "options"
-        ? {
-            ...structuredClone(initial),
-            name: "",
-            market: "options",
-            legs: draftLegs ?? [],
-          }
-        : structuredClone(initial),
+      structuredClone(
+        draft?.definition ?? createResearchDefinition(initialMarket),
+      ),
     ),
     [saved, setSaved] = useState<Saved[]>([]),
-    [strategyId, setStrategyId] = useState("");
+    [strategyId, setStrategyId] = useState(draft?.savedId ?? "");
   const [runs, setRuns] = useState<
       { id: string; strategy_id: string; created_at: string }[]
     >([]),
@@ -261,8 +225,16 @@ export function ResearchWorkbench({
           const selected = (result.strategies as Saved[]).find(
             (item) => item.id === initialStrategyId,
           );
-          if (selected && selected.definition.market === initialMarket) {
+          if (
+            !draftAtMount.current &&
+            selected &&
+            selected.definition.market === initialMarket
+          ) {
             setDefinition(structuredClone(selected.definition));
+            onDraftChange?.({
+              definition: structuredClone(selected.definition),
+              savedId: selected.id,
+            });
             setStrategyId(selected.id);
           }
         }
@@ -275,7 +247,7 @@ export function ResearchWorkbench({
     return () => {
       active = false;
     };
-  }, [csrf, initialStrategyId, initialMarket]);
+  }, [csrf, initialStrategyId, initialMarket, onDraftChange]);
   /** Quote freshness needs a clock only while its view is visible; editing a basket needs no per-second render. */
   useEffect(() => {
     if (tab !== "quotes" || !quotes.length) {
@@ -311,8 +283,10 @@ export function ResearchWorkbench({
   }, [playing, run, cursor]);
   /** Any edit invalidates fetched quote identity and the saved ID before another run or draft. */
   function edit(next: Definition) {
+    // A late saved-library response must not overwrite a newer user edit.
+    draftAtMount.current = { definition: next, savedId: "" };
     if (initialMarket === "options") {
-      onDraftLegsChange?.(next.legs);
+      onDraftChange?.({ definition: next, savedId: "" });
     }
     setKotakPolling(false);
     setDefinition(next);
@@ -349,8 +323,11 @@ export function ResearchWorkbench({
   }
   /** Templates are editable research starting points, not recommended trades or valid lot sizes. */
   function template(kind: string) {
+    if ((kind === "cash") !== (initialMarket === "cash")) {
+      return;
+    }
     if (kind === "cash") {
-      edit(structuredClone(initial));
+      edit(createResearchDefinition("cash"));
       return;
     }
     const leg: Leg = {
@@ -362,7 +339,7 @@ export function ResearchWorkbench({
       strikePrice: 0,
     };
     edit({
-      ...initial,
+      ...createResearchDefinition("options"),
       name:
         kind === "straddle"
           ? "Long straddle research"
@@ -600,11 +577,16 @@ export function ResearchWorkbench({
               );
               if (selected) {
                 setDefinition(structuredClone(selected.definition));
+                onDraftChange?.({
+                  definition: structuredClone(selected.definition),
+                  savedId: selected.id,
+                });
                 setStrategyId(selected.id);
                 setQuotes([]);
                 setNotice("Saved definition loaded.");
               } else {
                 setStrategyId("");
+                onDraftChange?.({ definition, savedId: "" });
                 setQuotes([]);
               }
             }}
@@ -637,6 +619,7 @@ export function ResearchWorkbench({
                 "DELETE",
               );
               setStrategyId("");
+              onDraftChange?.({ definition, savedId: "" });
               setRun(null);
               setBatch(null);
               setQuotes([]);
@@ -665,27 +648,32 @@ export function ResearchWorkbench({
               </div>
             </div>
             <div className="live-actions">
-              <Button
-                variant="secondary"
-                disabled={busy}
-                onClick={() => template("cash")}
-              >
-                Cash template
-              </Button>
-              <Button
-                variant="secondary"
-                disabled={busy}
-                onClick={() => template("straddle")}
-              >
-                Long straddle
-              </Button>
-              <Button
-                variant="secondary"
-                disabled={busy}
-                onClick={() => template("spread")}
-              >
-                Bull call spread
-              </Button>
+              {initialMarket === "cash" ? (
+                <Button
+                  variant="secondary"
+                  disabled={busy}
+                  onClick={() => template("cash")}
+                >
+                  Cash template
+                </Button>
+              ) : (
+                <>
+                  <Button
+                    variant="secondary"
+                    disabled={busy}
+                    onClick={() => template("straddle")}
+                  >
+                    Long straddle
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    disabled={busy}
+                    onClick={() => template("spread")}
+                  >
+                    Bull call spread
+                  </Button>
+                </>
+              )}
             </div>
             {definition.market === "options" && (
               <OptionChainPicker
@@ -741,6 +729,10 @@ export function ResearchWorkbench({
                   );
                   setStrategyId(result.id);
                   setDefinition(result.definition);
+                  onDraftChange?.({
+                    definition: result.definition,
+                    savedId: result.id,
+                  });
                   await reloadLibrary();
                   setNotice(
                     "Saved. Choose Historical simulator or Live data preview next.",
@@ -764,14 +756,7 @@ export function ResearchWorkbench({
                   </label>
                   <label>
                     Market
-                    <select
-                      value={definition.market}
-                      onChange={(event) =>
-                        template(
-                          event.target.value === "cash" ? "cash" : "straddle",
-                        )
-                      }
-                    >
+                    <select value={definition.market} disabled>
                       <option value="cash">NSE cash — one long leg</option>
                       <option value="options">
                         NFO options — up to four legs
@@ -1129,8 +1114,9 @@ export function ResearchWorkbench({
                   costs and explicit fill assumptions.
                 </p>
                 <p>
-                  This engine evaluates scheduled entry/exit baskets.
-                  Moving-average signal strategies are not yet supported.
+                  This engine evaluates scheduled entry/exit baskets. Use
+                  Backtest studio for daily EMA, RSI and channel-breakout signal
+                  strategies.
                 </p>
               </section>
             )}

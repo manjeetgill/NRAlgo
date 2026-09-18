@@ -12,6 +12,8 @@ export function useMarketFeed(csrf: string) {
     let timer: ReturnType<typeof setTimeout>;
     /** Consume only normalized records from the existing cached feed endpoint. */
     async function readFeed() {
+      let retryDelay = 1000;
+      let stopped = false;
       try {
         if (!document.hidden) {
           const result = await requestApiJson(
@@ -28,6 +30,10 @@ export function useMarketFeed(csrf: string) {
           }
         }
       } catch (cause) {
+        const status = (cause as { status?: number }).status;
+        // A disconnected session needs user action, not a stream of rejected requests.
+        stopped = status === 401 || status === 403 || status === 409;
+        retryDelay = status === 429 ? 60000 : 5000;
         if (!controller.signal.aborted) {
           setTicks([]);
           setError(
@@ -35,8 +41,8 @@ export function useMarketFeed(csrf: string) {
           );
         }
       } finally {
-        if (!controller.signal.aborted) {
-          timer = setTimeout(readFeed, 1000);
+        if (!controller.signal.aborted && !stopped) {
+          timer = setTimeout(readFeed, retryDelay);
         }
       }
     }

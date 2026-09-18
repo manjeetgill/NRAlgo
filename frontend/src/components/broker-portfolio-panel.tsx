@@ -64,9 +64,9 @@ export function BrokerPortfolioPanel({
       <h3>Broker portfolio — read only</h3>
       {broker === "kotak" && <KotakAccountReports csrf={csrf} />}
       <p>
-        Real account positions and holdings. Never merged with paper cash, paper
-        positions or simulated P&amp;L. Connect the selected broker first;
-        live-order execution is not required.
+        Real account positions and holdings. Connect the selected broker first;
+        live-order execution is not required. These read-only snapshots cannot
+        submit an order.
       </p>
       <p>
         Kotak positions cover positions returned by its current-day trades API;

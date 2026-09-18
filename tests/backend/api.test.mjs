@@ -95,6 +95,23 @@ async function fixture(t, env = {}, options = {}) {
     owner: () => request("/api/auth/setup", "POST", creds),
   };
 }
+/** Seed legacy rows only inside an isolated test schema; no runtime enqueue capability exists. */
+async function seedLegacyJob(store, strategyId) {
+  await store.transaction(async (query) => {
+    const [saved] = await query("SELECT user_id FROM strategies WHERE id=$1", [
+      strategyId,
+    ]);
+    await query("UPDATE strategies SET status='queued' WHERE id=$1", [
+      strategyId,
+    ]);
+    const stamp = new Date().toISOString();
+    await query(
+      "INSERT INTO jobs (id,strategy_id,status,result,created_at,updated_at,user_id) VALUES ($1,$2,'queued','{}',$3,$3,$4)",
+      [crypto.randomUUID(), strategyId, stamp, saved.user_id],
+    );
+  });
+}
+
 const strategy = {
   name: "Momentum test",
   symbol: "NIFTY",
@@ -218,19 +235,18 @@ test("validation and live orders disabled", async (t) => {
   }
   assert.equal((await request("/api/health")).data.live_enabled, false);
 });
-test("replay end-to-end, duplicate prevention and login persistence", async (t) => {
+test("retired replay API cannot enqueue generated prices; legacy records remain readable", async (t) => {
   const { request, owner, store } = await fixture(t);
   await owner();
   const {
     data: { id },
   } = await request("/api/strategies", "POST", strategy);
-  const statuses = await Promise.all(
-    [1, 2].map(
-      async () =>
-        (await request(`/api/strategies/${id}/run`, "POST", {})).status,
-    ),
+  assert.equal(
+    (await request(`/api/strategies/${id}/run`, "POST", {})).status,
+    410,
   );
-  assert.deepEqual(statuses.sort(), [202, 409]);
+  assert.equal((await request("/api/workspace")).data.jobs.length, 0);
+  await seedLegacyJob(store, id);
   assert.equal(await processNextPaperJob(store), true);
   const data = (await request("/api/workspace")).data;
   assert.equal(data.jobs[0].status, "completed");
@@ -253,7 +269,7 @@ test("pause cancels work, blocks new work and can resume", async (t) => {
   const {
     data: { id },
   } = await request("/api/strategies", "POST", strategy);
-  await request(`/api/strategies/${id}/run`, "POST", {});
+  await seedLegacyJob(store, id);
   await request("/api/controls", "POST", { halted: true });
   assert.equal(await processNextPaperJob(store), false);
   assert.equal(
@@ -262,12 +278,12 @@ test("pause cancels work, blocks new work and can resume", async (t) => {
   );
   assert.equal(
     (await request(`/api/strategies/${id}/run`, "POST", {})).status,
-    409,
+    410,
   );
   await request("/api/controls", "POST", { halted: false });
   assert.equal(
     (await request(`/api/strategies/${id}/run`, "POST", {})).status,
-    202,
+    410,
   );
 });
 test("login throttles by source and username, not by victim account", async (t) => {
@@ -418,10 +434,10 @@ test("two accounts isolate strategies, jobs, pause state and audit events", asyn
   });
   assert.equal(
     (await bob(`/api/strategies/${a.data.id}/run`, "POST", {})).status,
-    404,
+    410,
   );
-  await alice(`/api/strategies/${a.data.id}/run`, "POST", {});
-  await bob(`/api/strategies/${b.data.id}/run`, "POST", {});
+  await seedLegacyJob(store, a.data.id);
+  await seedLegacyJob(store, b.data.id);
   await alice("/api/controls", "POST", { halted: true });
   assert.equal(await processNextPaperJob(store), true);
   const aw = (await alice("/api/workspace")).data,
@@ -490,16 +506,16 @@ test("password changes revoke existing sessions and preserve current session", a
     200,
   );
 });
-test("readiness and worker lease detect missing, duplicate and stale workers", async (t) => {
+test("readiness is independent of retired workers; legacy leases still fence stale processing", async (t) => {
   const { request, store } = await fixture(t);
-  assert.equal((await request("/api/ready")).status, 503);
+  assert.equal((await request("/api/ready")).status, 200);
   await refreshWorkerLease(store, "worker-a");
   assert.equal((await request("/api/ready")).status, 200);
   await assert.rejects(refreshWorkerLease(store, "worker-b"), /Another worker/);
   await store.transaction((query) =>
     query("UPDATE worker_health SET heartbeat=0"),
   );
-  assert.equal((await request("/api/ready")).status, 503);
+  assert.equal((await request("/api/ready")).status, 200);
   await refreshWorkerLease(store, "worker-b");
   await assert.rejects(processNextPaperJob(store, "worker-a"), /lease lost/);
 });
@@ -585,7 +601,7 @@ test("restart recovery requeues interrupted jobs", async (t) => {
   const {
     data: { id },
   } = await request("/api/strategies", "POST", strategy);
-  await request(`/api/strategies/${id}/run`, "POST", {});
+  await seedLegacyJob(store, id);
   await store.transaction((query) => query("UPDATE jobs SET status='running'"));
   await recoverInterruptedPaperJobs(store);
   assert.equal(await processNextPaperJob(store), true);

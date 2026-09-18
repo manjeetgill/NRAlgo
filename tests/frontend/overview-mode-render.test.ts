@@ -61,7 +61,7 @@ test("live Overview markup contains no paper UI, virtual balance, replay card or
 test("paper Overview markup restores the simulator without live-account controls", /** The enabled setting must still expose the complete paper orientation screen. */ () => {
   const markup = renderOverview(true);
   assert.match(markup, /Paper P&amp;L/);
-  assert.match(markup, /Running replays/);
+  assert.doesNotMatch(markup, /Running replays|sample-data|synthetic/i);
   assert.match(markup, /Available virtual cash/);
   assert.match(markup, /Paper workspace initialized/);
   assert.doesNotMatch(

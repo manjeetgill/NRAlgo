@@ -128,163 +128,159 @@ export function AccountScreen({
     }
   }
   return (
-    <section className="screen-stack broker-settings">
-      <div className="panel-heading">
-        <div>
-          <h3>Account security</h3>
-          <p>
-            Your workspace and broker credentials belong only to your account.
-          </p>
-        </div>
-      </div>
+    <section className="screen-stack broker-settings account-security-screen">
       {error && (
         <div className="error" role="alert">
           {error}
         </div>
       )}
       {message && <p role="status">{message}</p>}
-      <article className="panel screen-card">
-        <h2>Profile</h2>
-        <label>
-          Username
-          <input readOnly value={username} />
-        </label>
-        <Button
-          variant="secondary"
-          disabled={mfaEnabled === null}
-          onClick={() => passwordDialog.current?.showModal()}
-        >
-          Change password
-        </Button>
-      </article>
-      <dialog
-        ref={passwordDialog}
-        className="workspace-dialog"
-        aria-labelledby="change-password-title"
-        onClose={(event) => event.currentTarget.querySelector("form")?.reset()}
-      >
-        <div className="screen-toolbar">
-          <h2 id="change-password-title">Change password</h2>
+      <div className="screen-two-columns">
+        <article className="panel screen-card">
+          <h2>Profile</h2>
+          <label>
+            Username
+            <input readOnly value={username} />
+          </label>
           <Button
             variant="secondary"
-            disabled={busy}
-            onClick={() => passwordDialog.current?.close()}
+            disabled={mfaEnabled === null}
+            onClick={() => passwordDialog.current?.showModal()}
           >
-            Close password form
+            Change password
           </Button>
-        </div>
-        {error && <p role="alert">{error}</p>}
-        <form onSubmit={changePassword}>
-          <label>
-            Current password
-            <input
-              name="current_password"
-              type="password"
-              autoComplete="current-password"
-              required
-              maxLength={128}
-            />
-          </label>
-          <label>
-            New password
-            <input
-              name="new_password"
-              type="password"
-              autoComplete="new-password"
-              required
-              minLength={12}
-              maxLength={128}
-            />
-          </label>
-          {mfaEnabled && (
-            <label>
-              Authenticator or recovery code
-              <input
-                name="token"
-                autoComplete="one-time-code"
-                required
-                maxLength={32}
-              />
-            </label>
-          )}
-          <Button disabled={busy}>Change password</Button>
-        </form>
-      </dialog>
-      <div className="panel screen-card">
-        <h2>
-          Two-factor authentication ·{" "}
-          {mfaEnabled === null
-            ? "Unknown"
-            : mfaEnabled
-              ? "Enabled"
-              : "Not enabled"}
-        </h2>
-        <p>
-          Required for broker connections on the cloud server. Add NRIAlgo to
-          your authenticator app using a setup key (time-based, 6 digits).
-        </p>
-        {enrollmentSecret && (
-          <label>
-            One-time setup key
-            <input
-              readOnly
-              value={enrollmentSecret}
-              aria-label="Authenticator setup key"
-            />
-            <small>Keep this private. Setup expires after 10 minutes.</small>
-          </label>
-        )}
-        <form onSubmit={updateMfa}>
-          {!enrollmentSecret && (
+        </article>
+        <dialog
+          ref={passwordDialog}
+          className="workspace-dialog"
+          aria-labelledby="change-password-title"
+          onClose={(event) =>
+            event.currentTarget.querySelector("form")?.reset()
+          }
+        >
+          <div className="screen-toolbar">
+            <h2 id="change-password-title">Change password</h2>
+            <Button
+              variant="secondary"
+              disabled={busy}
+              onClick={() => passwordDialog.current?.close()}
+            >
+              Close password form
+            </Button>
+          </div>
+          {error && <p role="alert">{error}</p>}
+          <form onSubmit={changePassword}>
             <label>
               Current password
               <input
+                name="current_password"
                 type="password"
-                name="password"
                 autoComplete="current-password"
                 required
+                maxLength={128}
               />
             </label>
-          )}
-          {(enrollmentSecret || mfaEnabled) && (
             <label>
-              {mfaEnabled
-                ? "Fresh authenticator or unused recovery code"
-                : "6-digit authenticator code"}
+              New password
               <input
-                name="token"
-                autoComplete="one-time-code"
+                name="new_password"
+                type="password"
+                autoComplete="new-password"
                 required
-                maxLength={32}
+                minLength={12}
+                maxLength={128}
               />
             </label>
-          )}
-          <Button
-            disabled={busy || mfaEnabled === null}
-            value={
-              enrollmentSecret ? "confirm" : mfaEnabled ? "disable" : "setup"
-            }
-          >
-            {enrollmentSecret
-              ? "Verify & enable MFA"
+            {mfaEnabled && (
+              <label>
+                Authenticator or recovery code
+                <input
+                  name="token"
+                  autoComplete="one-time-code"
+                  required
+                  maxLength={32}
+                />
+              </label>
+            )}
+            <Button disabled={busy}>Change password</Button>
+          </form>
+        </dialog>
+        <div className="panel screen-card">
+          <h2>
+            Two-factor authentication ·{" "}
+            {mfaEnabled === null
+              ? "Unknown"
               : mfaEnabled
-                ? "Disable MFA"
-                : "Set up authenticator"}
-          </Button>
-        </form>
-        {!!recoveryCodes.length && (
-          <div role="status">
-            <h4>Recovery codes — shown once</h4>
-            <p>
-              Each code works once. Store them in your password manager; do not
-              share them.
-            </p>
-            <pre>{recoveryCodes.join("\n")}</pre>
-            <Button variant="secondary" onClick={() => setRecoveryCodes([])}>
-              I saved these codes
+                ? "Enabled"
+                : "Not enabled"}
+          </h2>
+          <p>
+            Required for broker connections on the cloud server. Add NRIAlgo to
+            your authenticator app using a setup key (time-based, 6 digits).
+          </p>
+          {enrollmentSecret && (
+            <label>
+              One-time setup key
+              <input
+                readOnly
+                value={enrollmentSecret}
+                aria-label="Authenticator setup key"
+              />
+              <small>Keep this private. Setup expires after 10 minutes.</small>
+            </label>
+          )}
+          <form onSubmit={updateMfa}>
+            {!enrollmentSecret && (
+              <label>
+                Current password
+                <input
+                  type="password"
+                  name="password"
+                  autoComplete="current-password"
+                  required
+                />
+              </label>
+            )}
+            {(enrollmentSecret || mfaEnabled) && (
+              <label>
+                {mfaEnabled
+                  ? "Fresh authenticator or unused recovery code"
+                  : "6-digit authenticator code"}
+                <input
+                  name="token"
+                  autoComplete="one-time-code"
+                  required
+                  maxLength={32}
+                />
+              </label>
+            )}
+            <Button
+              disabled={busy || mfaEnabled === null}
+              value={
+                enrollmentSecret ? "confirm" : mfaEnabled ? "disable" : "setup"
+              }
+            >
+              {enrollmentSecret
+                ? "Verify & enable MFA"
+                : mfaEnabled
+                  ? "Disable MFA"
+                  : "Set up authenticator"}
             </Button>
-          </div>
-        )}
+          </form>
+          {!!recoveryCodes.length && (
+            <div role="status">
+              <h4>Recovery codes — shown once</h4>
+              <p>
+                Each code works once. Store them in your password manager; do
+                not share them.
+              </p>
+              <pre>{recoveryCodes.join("\n")}</pre>
+              <Button variant="secondary" onClick={() => setRecoveryCodes([])}>
+                I saved these codes
+              </Button>
+            </div>
+          )}
+        </div>
       </div>
       <AccountSessions csrf={csrf} />
     </section>

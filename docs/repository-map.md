@@ -26,7 +26,7 @@ Screens call feature hooks/adapters → same-origin API → authenticated applic
 
 | File | Responsibility / boundary |
 | --- | --- |
-| [run.ts](../run.ts) | Local development supervisor: starts private PostgreSQL, API, worker and Next; owns child-process shutdown. |
+| [run.ts](../run.ts) | Local development supervisor: starts private PostgreSQL, API and Next; owns child-process shutdown. |
 | [package.json](../package.json) | Backend/runtime dependencies and complete check/build/dev commands. |
 | [package-lock.json](../package-lock.json) | Exact root dependency graph for reproducible installation; never hand-upgrade transitive versions. |
 | [tsconfig.json](../tsconfig.json) | Strict backend TypeScript compilation and output boundary. |
@@ -60,7 +60,7 @@ Screens call feature hooks/adapters → same-origin API → authenticated applic
 | [backend/mfa.ts](../backend/mfa.ts) | Encrypted TOTP enrollment, verification/replay rejection, recovery codes and revocation. |
 | [backend/backup.ts](../backend/backup.ts) | Encrypted PostgreSQL backup, optional off-server upload, health and explicit restore/decrypt tooling. |
 | [backend/import-legacy-sqlite.ts](../backend/import-legacy-sqlite.ts) | Offline legacy import into PostgreSQL; retained migration tool, not a runtime database dependency. |
-| [backend/worker.ts](../backend/worker.ts) | Leased synthetic replay jobs and heartbeat; never a real-order worker. |
+| [backend/worker.ts](../backend/worker.ts) | Retired legacy replay helpers, importable for isolated migration tests; standalone startup is disabled. |
 | [backend/simulator.ts](../backend/simulator.ts) | Pure deterministic educational EMA simulation on synthetic prices. |
 
 ## Backend: data, virtual execution and research
@@ -145,16 +145,15 @@ Screens call feature hooks/adapters → same-origin API → authenticated applic
 | [frontend/src/features/overview/load-overview-snapshot.ts](../frontend/src/features/overview/load-overview-snapshot.ts) | Reads only the selected live or virtual account domain. |
 | [frontend/src/features/overview/broker-registry.ts](../frontend/src/features/overview/broker-registry.ts) | Enabled UI account-adapter registration; no implicit unsupported broker fallback. |
 | [frontend/src/features/overview/providers/kotak-account-adapter.ts](../frontend/src/features/overview/providers/kotak-account-adapter.ts) | Kotak account/price-cache normalization behind the Overview adapter interface. |
-| [frontend/src/features/strategies/strategies-screen.tsx](../frontend/src/features/strategies/strategies-screen.tsx) | Mode-aware strategy destination; live uses research, paper uses the synthetic EMA screen. |
-| [frontend/src/features/strategies/paper-strategies-screen.tsx](../frontend/src/features/strategies/paper-strategies-screen.tsx) | Local synthetic strategy form/modal, bounded table and explicit replay actions. |
+| [frontend/src/features/strategies/strategies-screen.tsx](../frontend/src/features/strategies/strategies-screen.tsx) | Actual saved research library, search/filter and cash/spread editor navigation. |
 | [frontend/src/features/strategy-lab/strategy-lab-screen.tsx](../frontend/src/features/strategy-lab/strategy-lab-screen.tsx) | Research basket editor, quotes, payoff and historical playback; no automatic live execution. |
 | [frontend/src/features/paper-trading/paper-trading-screen.tsx](../frontend/src/features/paper-trading/paper-trading-screen.tsx) | Separate virtual wallet, paper order form and optional quote-driven matching. |
 | [frontend/src/features/market-data/market-data-screen.tsx](../frontend/src/features/market-data/market-data-screen.tsx) | Read-only Kotak diagnostic tools and shared feed controls; provider wire fields stay at this boundary. |
-| [frontend/src/features/orders/orders-screen.tsx](../frontend/src/features/orders/orders-screen.tsx) | Chooses live OMS history or synthetic replay fills according to presentation mode. |
+| [frontend/src/features/orders/orders-screen.tsx](../frontend/src/features/orders/orders-screen.tsx) | Chooses actual live OMS history or the separate virtual-ledger order records. |
 | [frontend/src/features/orders/live-orders-screen.tsx](../frontend/src/features/orders/live-orders-screen.tsx) | Read-only app-managed live order/fill table with unavailable states. |
 | [frontend/src/features/orders/live-orders-api.ts](../frontend/src/features/orders/live-orders-api.ts) | Loads and interprets live OMS status, never a virtual fallback ledger. |
 | [frontend/src/features/orders/use-live-orders.ts](../frontend/src/features/orders/use-live-orders.ts) | Entry/manual history reads with generation fencing; no automatic order polling. |
-| [frontend/src/features/orders/paper-orders-screen.tsx](../frontend/src/features/orders/paper-orders-screen.tsx) | Memoized synthetic replay-fill projection with clear source labeling. |
+| [frontend/src/features/orders/paper-orders-screen.tsx](../frontend/src/features/orders/paper-orders-screen.tsx) | Actual virtual-ledger order history, explicit reads and safe exports. |
 | [frontend/src/features/brokers/brokers-screen.tsx](../frontend/src/features/brokers/brokers-screen.tsx) | Broker-neutral connection screen delegating protocol/auth behavior to an adapter. |
 | [frontend/src/features/brokers/broker-connection-adapter.ts](../frontend/src/features/brokers/broker-connection-adapter.ts) | Connection field metadata, wallet-independent status/login and safe credential boundaries. |
 | [frontend/src/features/brokers/use-broker-connection.ts](../frontend/src/features/brokers/use-broker-connection.ts) | Connection request state, duplicate-submit lock and stale-result fencing. |
@@ -163,6 +162,7 @@ Screens call feature hooks/adapters → same-origin API → authenticated applic
 | [frontend/src/features/account/account-screen.tsx](../frontend/src/features/account/account-screen.tsx) | App password/MFA/session management; not broker credential configuration. |
 | [frontend/src/features/activity/activity-screen.tsx](../frontend/src/features/activity/activity-screen.tsx) | Escaped audit text and presentation-mode filtering; stored audit records are retained. |
 | [frontend/src/features/activity/audit-model.ts](../frontend/src/features/activity/audit-model.ts) | Pure derived audit categories, bounded search and explicit IST timestamp formatting. |
+| [frontend/src/features/research/research-draft.ts](../frontend/src/features/research/research-draft.ts) | Full in-memory spread parameters and saved identity, preserved across chain/builder navigation. |
 | [frontend/src/features/learning/learning-screen.tsx](../frontend/src/features/learning/learning-screen.tsx) | Static architecture/learning guide with no trading side effects. |
 
 ## Tests: retain in Git, exclude from production runtime

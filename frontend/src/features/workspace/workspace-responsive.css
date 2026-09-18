@@ -86,6 +86,17 @@
   grid-template-columns: 1fr 1fr;
   gap: 22px;
 }
+/* Security mirrors the reference's profile/MFA split; all cards retain mobile containment. */
+.account-security-screen {
+  padding: 0;
+}
+.screen-two-columns > *,
+.screen-stack > * {
+  min-width: 0;
+}
+.account-security-screen .screen-card > .button {
+  margin-top: 16px;
+}
 @media (max-width: 700px) {
   .screen-two-columns {
     grid-template-columns: 1fr;
@@ -97,11 +108,13 @@
 }
 @media (max-width: 880px) {
   .app-shell .sidebar {
+    visibility: hidden;
     transform: translateX(-100%);
     width: 238px;
     padding: 25px 16px;
   }
   .app-shell.navigation-open .sidebar {
+    visibility: visible;
     transform: translateX(0);
   }
   .app-shell .main-shell {

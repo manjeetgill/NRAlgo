@@ -40,6 +40,33 @@ export const workspacePageLabels: Partial<Record<WorkspacePage, string>> = {
   "Activity log": "Audit log",
 };
 
+/** Screen-specific guidance follows the reference's hierarchy without fictional operating states. */
+export const workspacePageDescriptions: Partial<Record<WorkspacePage, string>> =
+  {
+    Strategies: "Manage saved strategies and continue your research.",
+    "Strategy library":
+      "Explore transparent rules before configuring a historical backtest.",
+    "Backtest studio":
+      "Validate signal strategies against your historical OHLC data.",
+    "Strategy lab":
+      "Build and replay scheduled strategies using broker historical candles.",
+    "Spread builder":
+      "Select option contracts and evaluate the risk of your basket.",
+    "Broker paper":
+      "Review quote-driven orders in your separate virtual account.",
+    "Option chain":
+      "Explore listed contracts and prices from the shared market feed.",
+    "Orders & trades":
+      "Search and inspect records from the selected account domain.",
+    Brokers:
+      "Manage broker connections independently from execution permission.",
+    "Live trading":
+      "Track open exposure and review explicitly authorized execution.",
+    "Account & security":
+      "Manage your workspace profile, authentication and active sessions.",
+    "Activity log": "A readable history of actions recorded in your workspace.",
+  };
+
 /** Use one label for the sidebar, breadcrumb and page heading. */
 export function getWorkspacePageLabel(page: WorkspacePage): string {
   return workspacePageLabels[page] ?? page;

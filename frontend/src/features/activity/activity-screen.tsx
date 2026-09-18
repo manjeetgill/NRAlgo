@@ -93,7 +93,7 @@ export function ActivityScreen({
           </Button>
         </div>
       </div>
-      <section className="screen-card">
+      <section className="panel screen-card">
         <div className="tabs" aria-label="Audit categories">
           {AUDIT_CATEGORIES.map((item) => (
             <button

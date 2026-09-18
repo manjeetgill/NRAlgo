@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   Activity,
-  ArrowUpRight,
   ChevronRight,
   CircleHelp,
   LockKeyhole,
@@ -18,13 +17,17 @@ import {
   getWorkspacePageHash,
   getWorkspacePageLabel,
   workspaceNavigation,
+  workspacePageDescriptions,
 } from "./workspace-navigation";
 import { WorkspaceContent } from "./workspace-content";
 import { ScreenErrorBoundary } from "./screen-error-boundary";
 import type { WorkspacePage, WorkspaceSnapshot } from "./workspace-types";
 import "./workspace-responsive.css";
 import type { TemplateId } from "@/features/strategy-library/strategy-templates";
-import type { ResearchLeg } from "@/features/research/research-workbench";
+import {
+  createResearchDefinition,
+  type ResearchDraft,
+} from "@/features/research/research-draft";
 import type { ChainContract } from "@/components/live-option-chain";
 /** Preserve navigation after a screen failure and remount private state after account/mode changes. */
 export function WorkspaceShell({
@@ -44,7 +47,7 @@ export function WorkspaceShell({
   const [menuOpen, setMenuOpen] = useState(false);
   const [researchStrategyId, setResearchStrategyId] = useState("");
   const [templateId, setTemplateId] = useState<TemplateId>("ema");
-  const [spreadLegs, setSpreadLegs] = useState<ResearchLeg[]>([]);
+  const [spreadDraft, setSpreadDraft] = useState<ResearchDraft>();
   const [marketInitialTool, setMarketInitialTool] = useState<
     "quotes" | "chain"
   >("quotes");
@@ -95,7 +98,7 @@ export function WorkspaceShell({
     (id: string, market: "cash" | "options") => {
       setResearchStrategyId(id);
       if (market === "options") {
-        setSpreadLegs([]);
+        setSpreadDraft(undefined);
       }
       onNavigate(market === "options" ? "Spread builder" : "Strategy lab");
     },
@@ -104,6 +107,7 @@ export function WorkspaceShell({
   /** Add exact master metadata to an account-scoped, in-memory draft; never create orders. */
   const onAddSpreadLeg = useCallback(
     (contract: ChainContract, side: "buy" | "sell") => {
+      const spreadLegs = spreadDraft?.definition.legs ?? [];
       if (!contract.option) {
         return "Select a listed option contract.";
       }
@@ -122,22 +126,28 @@ export function WorkspaceShell({
       ) {
         return "This contract is already in your draft. Edit its units in the builder.";
       }
-      setSpreadLegs([
-        ...spreadLegs,
-        {
-          stockCode: contract.symbol,
-          expiryDate: option.expiryDate,
-          right: option.right,
-          strikePrice: option.strikePrice,
-          side,
-          quantity: contract.lotSize,
+      setSpreadDraft({
+        savedId: "",
+        definition: {
+          ...(spreadDraft?.definition ?? createResearchDefinition("options")),
+          legs: [
+            ...spreadLegs,
+            {
+              stockCode: contract.symbol,
+              expiryDate: option.expiryDate,
+              right: option.right,
+              strikePrice: option.strikePrice,
+              side,
+              quantity: contract.lotSize,
+            },
+          ],
         },
-      ]);
+      });
       setResearchStrategyId("");
       onNavigate("Spread builder");
       return "";
     },
-    [spreadLegs, onNavigate],
+    [spreadDraft, onNavigate],
   );
   /** Template selection changes research parameters only, not broker execution state. */
   const onConfigureTemplate = useCallback(
@@ -207,29 +217,16 @@ export function WorkspaceShell({
             )}
         </nav>
         <div className="sidebar-bottom">
-          <div className="build-card">
-            <span className="tiny-label">BUILT TO LEARN</span>
-            <strong>Your ideas, in JavaScript.</strong>
-            <p>Explore the tools behind your workspace.</p>
-            <button
-              onClick={
-                /** Open documentation without starting research work. */ () =>
-                  onNavigate("Learn the stack")
-              }
-            >
-              Explore the stack <ArrowUpRight size={14} />
-            </button>
-          </div>
           <button
             className="learn-link"
-            aria-label="Learning guide"
+            aria-label="Workspace guide"
             onClick={
               /** Accessible guide shortcut. */ () =>
                 onNavigate("Learn the stack")
             }
           >
             <CircleHelp size={17} />
-            <span>Learning guide</span>
+            <span>Workspace guide</span>
           </button>
           <div className="profile">
             <span className="avatar">
@@ -274,14 +271,10 @@ export function WorkspaceShell({
           {page !== "Overview" && (
             <div className="heading">
               <div>
-                <p className="eyebrow">YOUR TRADING COMMAND CENTER</p>
                 <h1>{getWorkspacePageLabel(page)}</h1>
                 <p>
-                  {page === "Strategies" || page === "Strategy lab"
-                    ? "Build and validate your ideas. Live execution requires separate authorization."
-                    : page === "Orders & trades"
-                      ? "Records from the selected account domain."
-                      : "Your account. Your private workspace."}
+                  {workspacePageDescriptions[page] ??
+                    "Your account. Your private workspace."}
                 </p>
               </div>
               <Button variant="secondary" disabled={busy} onClick={onRefresh}>
@@ -306,8 +299,8 @@ export function WorkspaceShell({
               onOpenStrategy={onOpenStrategy}
               templateId={templateId}
               onConfigureTemplate={onConfigureTemplate}
-              spreadLegs={spreadLegs}
-              onDraftLegsChange={setSpreadLegs}
+              spreadDraft={spreadDraft}
+              onDraftChange={setSpreadDraft}
               onAddSpreadLeg={onAddSpreadLeg}
             />
           </ScreenErrorBoundary>
@@ -317,7 +310,7 @@ export function WorkspaceShell({
                 <LockKeyhole size={12} /> Personal workspace ·{" "}
                 {tradingMode === "paper" ? "Paper trading" : "Live trading"}
               </span>
-              <span>Next.js + Node.js · Built to grow with you</span>
+              <span>Account-scoped data · Explicit execution approval</span>
             </footer>
           )}
         </main>

@@ -1,10 +1,7 @@
-/** Durable synthetic-replay worker. A renewable database lease prevents two active workers.
- * The API only queues work; this process executes and commits it after rechecking pause/lease state.
+/** Retired replay implementation retained for isolated legacy-record regression tests only.
+ * Public enqueue and standalone startup are disabled; this never drives application screens.
  */
-import { setTimeout as delay } from "node:timers/promises";
-import { randomUUID } from "node:crypto";
 import {
-  openDatabaseStore,
   isEntryPoint,
   now,
   audit,
@@ -161,50 +158,9 @@ export async function processNextPaperJob(store: Store, instanceId?: string) {
   }
   return true;
 }
+/** Importable only for legacy migration tests; normal startup cannot consume generated-price jobs. */
 if (isEntryPoint(import.meta.url)) {
-  const store = openDatabaseStore();
-  if (process.argv.includes("--healthcheck")) {
-    try {
-      const [row] = await store.transaction((query) =>
-        query<{ heartbeat: number }>(
-          "SELECT heartbeat FROM worker_health WHERE id=1",
-        ),
-      );
-      if (!row || Date.now() / 1000 - row.heartbeat >= 30) {
-        process.exitCode = 1;
-      }
-    } catch {
-      process.exitCode = 1;
-    } finally {
-      await store.close();
-    }
-  } else {
-    const instanceId = randomUUID();
-    let stopping = false;
-    for (const signal of ["SIGINT", "SIGTERM"]) {
-      process.on(signal, () => {
-        stopping = true;
-      });
-    }
-    try {
-      await refreshWorkerLease(store, instanceId);
-      await recoverInterruptedPaperJobs(store, instanceId);
-      console.debug(
-        "Node.js paper replay worker ready. Run exactly one worker.",
-      );
-      while (!stopping) {
-        await refreshWorkerLease(store, instanceId);
-        if (!(await processNextPaperJob(store, instanceId))) {
-          await delay(1000);
-        }
-      }
-    } finally {
-      await store
-        .transaction((query) =>
-          query("DELETE FROM worker_health WHERE instance_id=$1", [instanceId]),
-        )
-        .catch(() => {});
-      await store.close();
-    }
-  }
+  throw new Error(
+    "Legacy replay worker retired. Use real historical research APIs.",
+  );
 }

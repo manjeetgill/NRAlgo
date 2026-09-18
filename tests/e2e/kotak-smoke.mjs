@@ -90,7 +90,12 @@ try {
   await page
     .getByRole("button", { name: "Create account", exact: true })
     .click();
-  await page.getByRole("button", { name: "Brokers", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Broker connections", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Connect broker", exact: true })
+    .click();
   const inputs = {
     "API access token": "accessToken",
     "Mobile (+91…)": "mobileNumber",
@@ -104,8 +109,24 @@ try {
   await page
     .getByRole("button", { name: "Connect Kotak Neo", exact: true })
     .click();
-  await page.getByText("Connected", { exact: true }).waitFor();
-  await page.getByRole("button", { name: "Broker paper", exact: true }).click();
+  await page
+    .getByRole("status")
+    .filter({ hasText: /^Connected$/ })
+    .waitFor();
+  await page
+    .getByRole("button", { name: "View broker portfolio", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Refresh broker portfolio", exact: true })
+    .click();
+  await page
+    .getByRole("cell", { name: "REAL-KOTAK", exact: true })
+    .first()
+    .waitFor();
+  await page
+    .getByRole("button", { name: "Paper trading", exact: true })
+    .click();
+  await page.getByRole("button", { name: "New order", exact: true }).click();
   const symbols = page.getByLabel("Kotak NSE cash token (pSymbol)", {
     exact: true,
   });
@@ -115,26 +136,41 @@ try {
   await symbols.selectOption("kotak:cash:123");
   await page.getByLabel("Paper limit (₹)", { exact: true }).fill("120");
   await page
-    .getByRole("button", { name: "Place paper order", exact: true })
+    .getByRole("button", { name: "Review paper order", exact: true })
+    .click();
+  await page
+    .getByLabel("I have reviewed the contract, units and limit.")
+    .check();
+  await page
+    .getByRole("button", { name: "Confirm paper order", exact: true })
     .click();
   await page.getByRole("cell", { name: "open", exact: true }).waitFor();
   await page
     .getByRole("button", { name: "Refresh paper quotes", exact: true })
     .click();
   await page.getByRole("cell", { name: "filled", exact: true }).waitFor();
+  await page.getByRole("button", { name: "New order", exact: true }).click();
   await page.getByLabel("Paper limit (₹)", { exact: true }).fill("50");
   await page
-    .getByRole("button", { name: "Place paper order", exact: true })
+    .getByRole("button", { name: "Review paper order", exact: true })
+    .click();
+  await page
+    .getByLabel("I have reviewed the contract, units and limit.")
+    .check();
+  await page
+    .getByRole("button", { name: "Confirm paper order", exact: true })
     .click();
   await page.getByRole("button", { name: "Modify", exact: true }).click();
   await page.getByLabel("Modified limit (₹)").fill("40");
   await page
     .getByRole("button", { name: "Save paper modification", exact: true })
     .click();
+  page.once("dialog", (dialog) => dialog.accept());
   await page
     .getByRole("button", { name: "Cancel paper order", exact: true })
     .click();
   await page.getByRole("cell", { name: "cancelled", exact: true }).waitFor();
+  await page.getByRole("button", { name: "New order", exact: true }).click();
   await page.getByLabel("Paper market").selectOption("options");
   const chain = page.getByRole("region", {
     name: "Kotak option chain",
@@ -160,7 +196,13 @@ try {
   );
   await page.getByLabel("Paper limit (₹)", { exact: true }).fill("120");
   await page
-    .getByRole("button", { name: "Place paper order", exact: true })
+    .getByRole("button", { name: "Review paper order", exact: true })
+    .click();
+  await page
+    .getByLabel("I have reviewed the contract, units and limit.")
+    .check();
+  await page
+    .getByRole("button", { name: "Confirm paper order", exact: true })
     .click();
   await page.getByRole("cell", { name: "open", exact: true }).waitFor();
   await page
@@ -184,17 +226,7 @@ try {
     fullPage: true,
   });
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page
-    .getByRole("button", { name: "View broker portfolio", exact: true })
-    .click();
-  await page
-    .getByRole("button", { name: "Refresh broker portfolio", exact: true })
-    .click();
-  await page
-    .getByRole("cell", { name: "REAL-KOTAK", exact: true })
-    .first()
-    .waitFor();
-  await page.getByRole("button", { name: "Strategy lab", exact: true }).click();
+  await page.getByRole("button", { name: "Algo lab", exact: true }).click();
   await page
     .getByLabel("Research name", { exact: true })
     .fill("Kotak cash research");
@@ -350,7 +382,9 @@ try {
   await form.getByLabel("Current password").fill("browser-password-long");
   await page.getByRole("button", { name: "Set up authenticator" }).click();
   await page.getByRole("button", { name: "Verify & enable MFA" }).waitFor();
-  const secret = await page.locator("input[readonly]").inputValue();
+  const secret = await page
+    .getByLabel("Authenticator setup key", { exact: true })
+    .inputValue();
   await page
     .getByLabel("6-digit authenticator code", { exact: true })
     .fill(new TOTP({ secret }).generate());
@@ -365,7 +399,7 @@ try {
   );
   assert.deepEqual(errors, []);
   console.debug(
-    "Kotak browser smoke passed: cash/options paper fills, portfolio, research, market-data APIs, native feed controls, MFA and mobile. No real broker calls.",
+    "Kotak browser smoke passed: cash/options paper fills, research, market-data APIs, native feed controls, MFA and mobile. No real broker calls.",
   );
 } finally {
   await browser?.close();

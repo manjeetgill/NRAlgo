@@ -4,7 +4,7 @@ import dynamic from "next/dynamic";
 import { OverviewScreen } from "@/features/overview/overview-screen";
 import type { WorkspacePage, WorkspaceSnapshot } from "./workspace-types";
 import type { TemplateId } from "@/features/strategy-library/strategy-templates";
-import type { ResearchLeg } from "@/features/research/research-workbench";
+import type { ResearchDraft } from "@/features/research/research-draft";
 import type { ChainContract } from "@/components/live-option-chain";
 /** Option-chain pricing is shared data, not an order ticket. */
 const OptionChainScreen = dynamic(
@@ -125,8 +125,8 @@ export function WorkspaceContent({
   onOpenStrategy,
   templateId,
   onConfigureTemplate,
-  spreadLegs,
-  onDraftLegsChange,
+  spreadDraft,
+  onDraftChange,
   onAddSpreadLeg,
 }: {
   page: WorkspacePage;
@@ -139,8 +139,8 @@ export function WorkspaceContent({
   onOpenStrategy: (id: string, market: "cash" | "options") => void;
   templateId: TemplateId;
   onConfigureTemplate: (id: TemplateId) => void;
-  spreadLegs: ResearchLeg[];
-  onDraftLegsChange: (legs: ResearchLeg[]) => void;
+  spreadDraft?: ResearchDraft;
+  onDraftChange: (draft: ResearchDraft) => void;
   onAddSpreadLeg: (contract: ChainContract, side: "buy" | "sell") => string;
 }) {
   switch (page) {
@@ -183,15 +183,15 @@ export function WorkspaceContent({
         <SpreadBuilderScreen
           csrf={workspace.csrf}
           initialStrategyId={researchStrategyId}
-          draftLegs={spreadLegs}
-          onDraftLegsChange={onDraftLegsChange}
+          draft={spreadDraft}
+          onDraftChange={onDraftChange}
         />
       );
     case "Option chain":
       return (
         <OptionChainScreen
           csrf={workspace.csrf}
-          legCount={spreadLegs.length}
+          legCount={spreadDraft?.definition.legs.length ?? 0}
           onAddLeg={onAddSpreadLeg}
           onOpenBuilder={() => onNavigate("Spread builder")}
         />

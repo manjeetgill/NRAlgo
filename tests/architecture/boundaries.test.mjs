@@ -65,6 +65,10 @@ test("Next route is composition only and each destination owns a screen file", (
     "paper-trading/paper-trading",
     "strategies/strategies",
     "strategy-lab/strategy-lab",
+    "strategy-library/strategy-library",
+    "backtest-studio/backtest-studio",
+    "spread-builder/spread-builder",
+    "option-chain/option-chain",
   ]) {
     assert.ok(existsSync(`frontend/src/features/${screen}-screen.tsx`), screen);
   }

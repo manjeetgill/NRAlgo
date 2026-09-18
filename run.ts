@@ -1,4 +1,4 @@
-/** Local-only launcher: runDatabaseMigrations first, start API/worker/Next.js, then open a healthy browser page.
+/** Local-only launcher: runDatabaseMigrations first, start API/Next.js, then open a healthy browser page.
  * Child processes share the environment but remain independently stoppable process groups.
  */
 import { spawn, type ChildProcess } from "node:child_process";
@@ -62,7 +62,6 @@ function stop(code = 0) {
 }
 const commands: [string, string[], string][] = [
   [process.execPath, ["--import", "tsx", "backend/main.ts"], root],
-  [process.execPath, ["--import", "tsx", "backend/worker.ts"], root],
   ["npm", ["run", "dev"], `${root}frontend`],
 ];
 for (const [command, args, cwd] of commands) {

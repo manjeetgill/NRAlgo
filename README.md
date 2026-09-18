@@ -12,21 +12,24 @@ make install
 make run
 ```
 
-Open http://localhost:3000. The launcher starts this project's PostgreSQL on 127.0.0.1:55432, applies migrations, starts the API/web/worker, and opens the browser. Ctrl+C stops the app; `make db-stop` stops the database. `NEXUS_NO_BROWSER=1 make run` skips browser opening.
+Open http://localhost:3000. The launcher starts this project's PostgreSQL on 127.0.0.1:55432, applies migrations, starts the API/web, and opens the browser. Ctrl+C stops the app; `make db-stop` stops the database. `NEXUS_NO_BROWSER=1 make run` skips browser opening.
 
-Create an app account, then open **Brokers** and connect Kotak with your API access token, registered mobile, UCC, current TOTP and MPIN. Credentials are sent only to the server; Kotak tokens stay in session-bound memory. Reconnect after logout or restart. Never put credentials in chat, Git, or frontend environment variables.
+Create an app account, then open **Broker connections** and connect Kotak with your API access token, registered mobile, UCC, current TOTP and MPIN. Credentials are sent only to the server; Kotak tokens stay in session-bound memory. Reconnect after logout or restart. Never put credentials in chat, Git, or frontend environment variables.
 
 Existing local data is preserved. Never reset a database as part of a normal upgrade; back up first and apply the reviewed migrations.
 
 ## What works
 
-- **Broker paper:** searchable current NSE cash symbols, option contracts and paginated option-chain snapshots. Paper fills and P&L use broker bid/ask data with freshness checks and virtual funds. They never reach a real order endpoint.
+- **Paper trading (when enabled):** searchable current NSE cash symbols, option contracts and paginated option-chain snapshots. Paper fills and P&L use broker bid/ask data with freshness checks and virtual funds. They never reach a real order endpoint.
 - **Broker portfolio:** separate read-only positions, holdings, funds, order book and trade book. Real account assets are never copied into the paper balance. Missing data stays unavailable.
-- **Strategy lab:** saved cash/options baskets, live snapshots, optional 15-second polling, single-session and batch historical replay. Historical fills are assumptions, not actual broker fills.
+- **Algo lab / Spread builder:** saved cash/options baskets, live snapshots, optional 15-second polling, single-session and batch historical replay. Historical fills are assumptions, not actual broker fills.
 - **Market data:** all documented market-data API families: seven master files, eight quote filters, expiries, native option/futures chains, nine candle intervals and server-side native-batch WebSocket controls. Validated results can be downloaded as JSON. This explorer is read-only; broader data coverage does not enable futures paper orders.
 - **Overview:** live mode reads broker funds/positions once and revalues them from the shared price cache. Missing values remain unavailable. Paper mode uses its separate virtual ledger. `PAPER_TRADING_ENABLED=false` hides only paper features, not research or other screens.
-- **Strategies:** live mode opens the research editor, not an automatic execution engine. Paper mode exposes the separate, explicitly synthetic EMA worker.
-- **Orders & trades / Live trading:** read-only app-managed OMS history is separate from explicit configure, arm, preview, submit, reconcile and halt controls. Supported real orders are bounded NSE EQ CNC and long NSE option NRML LIMIT/DAY orders; unsupported products fail closed.
+- **Strategies:** actual saved research in both modes, with search, market filters and dedicated cash/spread editors. No automatic strategy deployment is claimed.
+- **Strategy library / Backtest studio:** versioned EMA, RSI and channel-breakout rules; validated user-provided daily OHLC CSV; next-open signals, explicit stop/target, fees and slippage. No generated-price fallback.
+- **Option chain:** real contract metadata, shared streamed marks and contract detail drawers; selected legs preserve the complete in-memory spread draft.
+- **Audit log:** bounded owner-event search, derived categories, event details and filtered safe CSV export.
+- **Orders & trades / Live positions:** read-only app-managed OMS history is separate from explicit configure, arm, preview, submit, reconcile and halt controls. Supported real orders are bounded NSE EQ CNC and long NSE option NRML LIMIT/DAY orders; unsupported products fail closed.
 - **Account & security:** per-user authentication, CSRF protection, MFA, recovery codes and session revocation.
 
 Live execution requires server activation, the registered static-IP prerequisite, an authenticated Kotak session, app MFA, risk configuration, fresh reconciliation and explicit time-limited arming. Keep `LIVE_TRADING_ENABLED=false` and `KOTAK_STATIC_IP_CONFIRMED=false` while developing. The paper setting never grants live permission. Read [the live execution contract and limitations](docs/development-guide.md#kotak-live-execution-disabled-by-default) before considering activation.
@@ -72,7 +75,7 @@ Private local state lives under `.runtime/`, including PostgreSQL settings and t
 
 ## Deploy on a single AWS Lightsail server
 
-Keep API, worker, web, PostgreSQL, Caddy and backup service together initially. Use a Linux host
+Keep API, web, PostgreSQL, Caddy and backup service together initially. Use a Linux host
 with Docker Engine/Compose, a domain and a static IPv4. Allow 80/443; restrict SSH to trusted
 administration access. Do not expose 3000, 8000 or 5432. Check IPv6 rules too.
 
@@ -107,14 +110,14 @@ sudo make status
 sudo make logs
 ```
 
-The migration container uses database administrator credentials; API/worker use a restricted
+The migration container uses database administrator credentials; the API uses a restricted
 non-superuser role. Backups use a separate SELECT-only `nexus_backup` role; set the new
 `BACKUP_DATABASE_PASSWORD` before deploying this revision. Migration grants read access to current
 and future public-schema tables created by the migration owner. Caddy overwrites the trusted client-IP header used for throttling. The API
-must remain private when `TRUST_EDGE_IP=true`. Only deploy one API and one paper worker:
+must remain private when `TRUST_EDGE_IP=true`. Only deploy one API:
 multiple API replicas require shared request limits and a shared broker-session registry.
 
-`/api/health` checks database access. `/api/ready` additionally requires a fresh worker heartbeat.
+`/api/health` checks database access. `/api/ready` checks database schema readiness. Generated-price replay is retired: its public run route returns HTTP 410 and no worker starts locally or in Compose. Legacy regression helpers and stored rows are preserved, but never feed dashboard values.
 Configure an external uptime alert against `/api/ready`, plus disk/memory/backup alerts. Docker
 marks a hung process unhealthy but does not restart it merely because it is unhealthy.
 
@@ -154,6 +157,6 @@ Decryption verifies integrity and refuses to overwrite an existing destination. 
 plaintext restore dumps once verified. Keep both encryption keys separate from the archives.
 CI includes a disposable encrypted-backup restore test; actual server restoration must also pass.
 
-For upgrades: back up, stop Caddy/web/API/worker, update to a reviewed commit and run `make deploy`.
+For upgrades: back up, stop Caddy/web/API, update to a reviewed commit and run `make deploy`.
 Schema migration rollback requires a matching backup and application revision. Never run
 `docker compose down -v` on production: that deletes database, certificates and backup volumes.

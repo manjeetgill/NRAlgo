@@ -7,7 +7,7 @@ import type { AuthStatus, WorkspaceSnapshot } from "./workspace-types";
 import { createLatestRequest } from "@/lib/latest-request";
 import { parseAuthStatus, parseWorkspaceSnapshot } from "./workspace-api";
 
-/** Manage account entry/exit, abortable reads and bounded polling of active synthetic jobs only. */
+/** Manage account entry/exit, abortable reads and explicit snapshot refreshes. */
 export function useWorkspaceSession() {
   const [workspace, setWorkspace] = useState<WorkspaceSnapshot | null>(null);
   const [auth, setAuth] = useState<AuthStatus | null>(null);
@@ -81,48 +81,24 @@ export function useWorkspaceSession() {
   /** Mount one initial read; cleanup invalidates both workspace and nested auth-policy promises. */
   useEffect(() => {
     mounted.current = true;
-    void onRefresh(); // All request failures are handled within onRefresh.
+    let initialReadStarted = false;
+    /** Background tabs must not fan out account/report reads during a development reload. */
+    function loadWhenVisible() {
+      if (!document.hidden && !initialReadStarted) {
+        initialReadStarted = true;
+        void onRefresh(); // All request failures are handled within onRefresh.
+      }
+    }
+    loadWhenVisible();
+    document.addEventListener("visibilitychange", loadWhenVisible);
     const gate = readGate.current;
     /** Abort network reads on unmount; mutations are never retried or assumed undone. */
     return () => {
       mounted.current = false;
+      document.removeEventListener("visibilitychange", loadWhenVisible);
       gate.invalidate();
     };
   }, [onRefresh]);
-
-  const hasRunningJobs = Boolean(
-    workspace?.paper_trading_enabled &&
-    workspace.jobs.some(
-      /** Only queued/running research jobs require periodic workspace reads. */
-      (job) => job.status === "queued" || job.status === "running",
-    ),
-  );
-  /** Poll sequentially only while work is active and the document is visible; never overlap intervals. */
-  useEffect(() => {
-    if (!hasRunningJobs) {
-      return;
-    }
-    let stopped = false;
-    let timer: ReturnType<typeof setTimeout>;
-    /** Schedule after completion, so a slow request cannot accumulate more pending requests. */
-    async function poll() {
-      if (stopped) {
-        return;
-      }
-      if (!document.hidden && !mutationPending.current) {
-        await onRefresh();
-      }
-      if (!stopped) {
-        timer = setTimeout(poll, 3000);
-      }
-    }
-    timer = setTimeout(poll, 3000);
-    /** Stop future work on navigation/session/job completion. */
-    return () => {
-      stopped = true;
-      clearTimeout(timer);
-    };
-  }, [hasRunningJobs, onRefresh]);
 
   /** Guard double submits synchronously and fence responses from an earlier authentication attempt. */
   const onAuthenticate = useCallback(

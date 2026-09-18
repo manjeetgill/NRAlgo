@@ -1,4 +1,4 @@
-# One host, one worker. Only Caddy publishes public ports.
+# One host, one API. Only Caddy publishes public ports.
 x-service: &service
   restart: unless-stopped
   logging:
@@ -72,22 +72,6 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
-  worker:
-    <<: *app
-    build:
-      context: .
-      target: backend
-    command: [node, dist/backend/worker.js]
-    environment: *database
-    healthcheck:
-      test: [CMD, node, dist/backend/worker.js, --healthcheck]
-      interval: 15s
-      timeout: 8s
-      retries: 3
-      start_period: 40s
-    depends_on:
-      api:
-        condition: service_healthy
   web:
     <<: *app
     build:
@@ -95,8 +79,6 @@ services:
       target: web
     depends_on:
       api:
-        condition: service_healthy
-      worker:
         condition: service_healthy
     healthcheck:
       test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]

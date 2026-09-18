@@ -1,15 +1,23 @@
 "use client";
-/** Authentication-only broker screen: no virtual cash, simulated orders or execution ticket is mounted. */
+/** Broker connection and explicitly opened read-only reports; no execution ticket is mounted. */
 import { useRef, useState, type FormEvent } from "react";
 import { brokerConnectionAdapters } from "@/features/brokers/broker-connection-adapter";
 import { useBrokerConnection } from "@/features/brokers/use-broker-connection";
 import { Button } from "@/components/ui/button";
+import dynamic from "next/dynamic";
+/** Broker reports are an explicit, separately loaded read-only tool; connecting never fetches them. */
+const BrokerPortfolioPanel = dynamic(() =>
+  import("@/components/broker-portfolio-panel").then(
+    (module) => module.BrokerPortfolioPanel,
+  ),
+);
 
 /** Render implemented provider login fields and leave async/session management to the connection hook. */
 export function BrokersScreen({ csrf }: { csrf: string }) {
   const adapter = brokerConnectionAdapters[0];
   const connection = useBrokerConnection(adapter, csrf);
   const [credentials, setCredentials] = useState<Record<string, string>>({});
+  const [showPortfolio, setShowPortfolio] = useState(false);
   const connectDialog = useRef<HTMLDialogElement>(null);
   const disconnectDialog = useRef<HTMLDialogElement>(null);
 
@@ -107,7 +115,17 @@ export function BrokersScreen({ csrf }: { csrf: string }) {
           Session checks report server connection state; they do not place an
           order or verify every market-data permission.
         </p>
+        <Button
+          variant="secondary"
+          disabled={!connection.connected}
+          onClick={() => setShowPortfolio(!showPortfolio)}
+        >
+          {showPortfolio ? "Hide broker portfolio" : "View broker portfolio"}
+        </Button>
       </article>
+      {showPortfolio && connection.connected && (
+        <BrokerPortfolioPanel broker="kotak" csrf={csrf} />
+      )}
       <article className="panel screen-card">
         <h2>Connection health and execution permission are separate</h2>
         <p>

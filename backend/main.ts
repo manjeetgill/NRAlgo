@@ -36,7 +36,7 @@ import { KotakMarketDataClient } from "./kotak-market-data-client.js";
 import { registerMfaRoutes, verifySecondFactor } from "./mfa.js";
 import { KotakLiveManager } from "./live/kotak-live-manager.js";
 import { registerKotakLiveRoutes } from "./live/kotak-live-routes.js";
-import type { User, LoginSession, Job, Strategy, Settings } from "./types.js";
+import type { User, LoginSession, Job, Settings } from "./types.js";
 
 declare global {
   namespace Express {
@@ -210,41 +210,37 @@ export function createApiApplication(
     });
     return { csrf };
   }
-  // Liveness checks the database, while readiness below also requires a fresh worker lease.
+  /** Readiness checks the schema; real historical research needs no generated-price worker. */
+  async function databaseReady() {
+    return store.transaction(async (query) =>
+      Boolean((await query("SELECT id FROM settings WHERE id=1")).length),
+    );
+  }
   app.get("/api/health", async (req, res) => {
     try {
-      const worker = await store.transaction(async (query) => {
-        if (!(await query("SELECT id FROM settings WHERE id=1")).length) {
-          throw new Error();
-        }
-        const [row] = await query<{ heartbeat: number }>(
-          "SELECT heartbeat FROM worker_health WHERE id=1",
-        );
-        return Boolean(row && seconds() - row.heartbeat < 30);
-      });
+      if (!(await databaseReady())) {
+        throw new Error("Database not ready");
+      }
       res.json({
         status: "ok",
         service: "nexus-node",
         live_enabled: liveManager.enabled,
         live_capability: liveManager.enabled
           ? "kotak-limit-orders-explicit-arm"
-          : "disabled-paper-only",
-        worker: worker ? "healthy" : "unavailable",
+          : "disabled",
+        worker: "not-required",
       });
     } catch {
       res.status(503).json({ detail: "Database not ready" });
     }
   });
   app.get("/api/ready", async (req, res) => {
-    const [row] = await store.transaction((query) =>
-      query<{ heartbeat: number }>(
-        "SELECT heartbeat FROM worker_health WHERE id=1",
-      ),
-    );
-    const ready = Boolean(row && seconds() - row.heartbeat < 30);
-    res
-      .status(ready ? 200 : 503)
-      .json({ ready, worker: ready ? "healthy" : "unavailable" });
+    try {
+      const ready = await databaseReady();
+      res.status(ready ? 200 : 503).json({ ready, worker: "not-required" });
+    } catch {
+      res.status(503).json({ ready: false, detail: "Database not ready" });
+    }
   });
   app.get("/api/auth/status", async (req, res) =>
     res.json(
@@ -619,43 +615,13 @@ export function createApiApplication(
     });
     res.status(201).json({ id });
   });
-  app.post(
-    "/api/strategies/:id/run",
-    rateLimit(20, 60000, (req) => req.res!.locals.session.user_id),
-    async (req, res) => {
-      const id = randomUUID(),
-        userId = res.locals.session.user_id;
-      await store.transaction(async (query) => {
-        if ((await lockWorkspaceSettings(query, store, userId)).halted) {
-          fail(409, "Workspace is paused. Resume before starting a replay.");
-        }
-        const [strategy] = await query<Strategy>(
-          "SELECT * FROM strategies WHERE id=$1 AND user_id=$2",
-          [String(req.params.id), userId],
-        );
-        if (!strategy) {
-          fail(404, "Strategy not found.");
-        }
-        if (["queued", "running"].includes(strategy.status)) {
-          fail(409, "Strategy already queued/running.");
-        }
-        await query(
-          "UPDATE strategies SET status='queued' WHERE id=$1 AND user_id=$2",
-          [strategy.id, userId],
-        );
-        await query(
-          "INSERT INTO jobs (id,strategy_id,status,result,created_at,updated_at,user_id) VALUES ($1,$2,'queued','{}',$3,$4,$5)",
-          [id, strategy.id, now(), now(), userId],
-        );
-        await audit(
-          query,
-          `Queued sample-data replay for ${strategy.name}.`,
-          userId,
-        );
-      });
-      res.status(202).json({ id });
-    },
-  );
+  /** Retired generated-price entry point: research callers must supply actual historical data. */
+  app.post("/api/strategies/:id/run", (req, res) => {
+    res.status(410).json({
+      detail:
+        "This replay endpoint is retired. Use Algo lab or Backtest studio with historical market data.",
+    });
+  });
   // This pauses only the caller's synthetic jobs, not exchange orders or other users' work.
   app.post("/api/controls", async (req, res) => {
     const { halted } = z.object({ halted: z.boolean() }).parse(req.body),

@@ -42,7 +42,7 @@ jobs:
       - run: npm --prefix frontend audit --omit=dev --audit-level=high
       - name: Build and start production containers
         run: docker compose up -d --build --wait --wait-timeout 180
-      - name: Test HTTPS, owner setup and PostgreSQL worker
+      - name: Test HTTPS, owner setup and real-data readiness
         run: |
           node --input-type=module <<'JS'
           import https from 'node:https';
@@ -83,12 +83,8 @@ jobs:
           assert.match(setup.headers['set-cookie'][0], /Secure/);
           const strategy = await request('/api/strategies', { name: 'CI replay', capital: 100000 });
           assert.equal(strategy.status, 201);
-          assert.equal((await request(`/api/strategies/${strategy.data.id}/run`, {})).status, 202);
-          for (let i = 0; ; i++) {
-            const job = (await request('/api/workspace')).data.jobs[0];
-            if (job.status === 'completed') { assert.equal(job.result.source, 'synthetic'); break; }
-            assert.notEqual(job.status, 'failed'); assert.ok(i < 30, 'Worker timeout'); await delay(1000);
-          }
+          assert.equal((await request(`/api/strategies/${strategy.data.id}/run`, {})).status, 410);
+          assert.equal((await request('/api/workspace')).data.jobs.length, 0);
           JS
       - name: Verify encrypted backup restoration into a disposable database
         run: |

@@ -53,10 +53,6 @@ export function OverviewScreen({
     ) ?? availableBrokers[0];
   const account = useOverviewAccount(broker, workspace.csrf, mode);
   const snapshot = mode === "paper" ? account.paper : account.live;
-  const runningJobs = workspace.jobs.filter(
-    /** Count actual running research jobs rather than treating saved strategies as deployments. */
-    (job) => job.status === "running",
-  ).length;
   const recentEvents = [...workspace.events]
     .filter(
       /** Keep simulated history out of the live view without changing stored audit records. */ (
@@ -222,18 +218,6 @@ export function OverviewScreen({
                 : account.connected
                   ? "Refresh snapshot to load broker positions"
                   : "Connect your broker to view"}
-            </p>
-          </article>
-        )}
-        {mode === "paper" && (
-          <article className={styles.metric} aria-label="Running replay jobs">
-            <div>
-              Running replays <Activity size={17} />
-            </div>
-            <strong>{runningJobs}</strong>
-            <p>
-              {workspace.strategies.length} strategies saved ·{" "}
-              {workspace.halted ? "paper workspace paused" : "paper mode"}
             </p>
           </article>
         )}

@@ -99,7 +99,7 @@ those numbers are part of the protocol and must not be changed for stylistic rea
 ## Debug in VS Code
 
 Stop an existing `make run` first so ports 3000 and 8000 are available. Select
-**Run and Debug → Debug local workspace (API and worker)**, then press F5. Open
+**Run and Debug → Debug local workspace (API and web)**, then press F5. Open
 `http://localhost:3000` manually. The configuration launches the existing TypeScript launcher
 and enables child-process attachment; see [VS Code's Node debugging guide](https://code.visualstudio.com/docs/nodejs/nodejs-debugging).
 

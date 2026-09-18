@@ -135,9 +135,7 @@ export function LiveTradingScreen({ csrf }: { csrf: string }) {
         <Button variant="secondary" disabled>
           Flatten all unavailable
         </Button>
-        <p>
-          A verified multi-position exit workflow is not implemented.
-        </p>
+        <p>A verified multi-position exit workflow is not implemented.</p>
       </section>
       <dialog
         ref={reviewDialog}
