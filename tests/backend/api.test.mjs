@@ -17,13 +17,9 @@ import {
   recoverInterruptedPaperJobs,
   refreshWorkerLease,
 } from "../../dist/backend/worker.js";
-import { BrokerManager } from "../../dist/backend/brokers.js";
 import { credentialVault } from "../../dist/backend/security.js";
 import { simulateSyntheticStrategy } from "../../dist/backend/simulator.js";
-import { createBreezeData, loadBreeze } from "../../dist/backend/breeze.js";
-import { createRequire } from "node:module";
 import { TOTP } from "otpauth";
-import { createHash } from "node:crypto";
 import { createPostgresTestStore } from "../helpers/postgres.mjs";
 
 const creds = { username: "testowner", password: "test-password-long" };
@@ -47,11 +43,10 @@ async function fixture(t, env = {}, options = {}) {
   const store = await createPostgresTestStore();
   if (options.seed) await options.seed(store);
   await runDatabaseMigrations(store, {});
-  const app = createApiApplication(
-    store,
-    { BROKER_ENCRYPTION_KEY: "ab".repeat(32), ...env },
-    options.brokers,
-  );
+  const app = createApiApplication(store, {
+    BROKER_ENCRYPTION_KEY: "ab".repeat(32),
+    ...env,
+  });
   const server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   const client = () => {
@@ -447,10 +442,12 @@ test("MFA enrollment, token replay prevention, recovery codes and broker enforce
   });
   assert.equal(
     (
-      await request("/api/brokers/icici/connect", "POST", {
-        apiKey: "fake-key",
-        apiSecret: "fake-secret",
-        sessionToken: "fake-token",
+      await request("/api/paper/kotak/connect", "POST", {
+        accessToken: "fake-kotak-token",
+        mobileNumber: "+919999999999",
+        ucc: "FAKE",
+        totp: "123456",
+        mpin: "123456",
       })
     ).status,
     403,
@@ -498,174 +495,6 @@ test("MFA enrollment, token replay prevention, recovery codes and broker enforce
   );
   assert.equal((await other("/api/workspace")).status, 401);
 });
-test("installed Breeze SDK signs v1 and sends the documented historical-v2 headers", async () => {
-  const Client = loadBreeze(),
-    sdk = new Client({ appKey: "example-app-key" });
-  sdk.secretKey = "example-secret";
-  sdk.apiSession = "exchanged-session";
-  const payload = { stock_code: "RELIND" };
-  const headers = sdk.generateHeaders(payload);
-  assert.equal(headers["X-AppKey"], "example-app-key");
-  assert.equal(headers["X-SessionToken"], "exchanged-session");
-  assert.match(headers["X-Timestamp"], /\.000Z$/);
-  assert.equal(
-    headers["X-Checksum"],
-    "token " +
-      createHash("sha256")
-        .update(
-          headers["X-Timestamp"] + JSON.stringify(payload) + "example-secret",
-        )
-        .digest("hex"),
-  );
-  const require = createRequire(import.meta.url),
-    axios = require("axios"),
-    previous = axios.defaults.adapter;
-  axios.defaults.adapter = async (config) => {
-    assert.equal(config.headers.apikey, "example-app-key");
-    assert.equal(config.headers["X-SessionToken"], "exchanged-session");
-    assert.equal(config.headers["X-Checksum"], undefined);
-    return {
-      data: { Status: 200, Success: [] },
-      status: 200,
-      statusText: "OK",
-      headers: {},
-      config,
-    };
-  };
-  try {
-    await sdk.getHistoricalDatav2({
-      interval: "1minute",
-      fromDate: "2025-01-01T09:15:00.000Z",
-      toDate: "2025-01-01T10:15:00.000Z",
-      stockCode: "RELIND",
-      exchangeCode: "NSE",
-    });
-  } finally {
-    axios.defaults.adapter = previous;
-  }
-});
-test("ICICI credentials and data are private, encrypted, removable and CSRF protected", async (t) => {
-  const brokers = new BrokerManager((creds) => ({
-    async call(method) {
-      return method === "historical"
-        ? [{ close: creds.apiKey === "alice-key" ? 101 : 202 }]
-        : { ok: true };
-    },
-    close() {},
-    snapshot() {
-      return { state: "connected", tick: null, receivedAt: null };
-    },
-  }));
-  const {
-    request: alice,
-    owner,
-    client,
-    store,
-  } = await fixture(t, {}, { brokers });
-  await owner();
-  const bob = client();
-  await bob("/api/auth/register", "POST", {
-    username: "bob",
-    password: "bob-password-long",
-  });
-  const a = {
-    apiKey: "alice-key",
-    apiSecret: "alice-secret",
-    sessionToken: "alice-token",
-  };
-  assert.equal(
-    (
-      await alice("/api/brokers/icici/connect", "POST", a, {
-        "x-csrf-token": "",
-      })
-    ).status,
-    403,
-  );
-  assert.equal(
-    (await alice("/api/brokers/icici/connect", "POST", a)).status,
-    200,
-  );
-  assert.equal((await bob("/api/brokers/icici")).data.saved, false);
-  assert.equal(
-    (await bob("/api/brokers/icici/reconnect", "POST", {})).status,
-    409,
-  );
-  assert.equal(
-    (
-      await bob("/api/brokers/icici/connect", "POST", {
-        apiKey: "bobby-key",
-        apiSecret: "bobby-secret",
-        sessionToken: "bobby-token",
-      })
-    ).status,
-    200,
-  );
-  const history = {
-    stockCode: "RELIND",
-    exchangeCode: "NSE",
-    interval: "1minute",
-    fromDate: "2025-01-01T09:15:00Z",
-    toDate: "2025-01-01T10:15:00Z",
-  };
-  assert.equal(
-    (await alice("/api/brokers/icici/historical", "POST", history)).data
-      .candles[0].close,
-    101,
-  );
-  assert.equal(
-    (await bob("/api/brokers/icici/historical", "POST", history)).data
-      .candles[0].close,
-    202,
-  );
-  const rows = await store.transaction((query) =>
-    query("SELECT * FROM broker_credentials"),
-  );
-  assert.equal(rows.length, 2);
-  assert.ok(!JSON.stringify(rows).includes("alice-secret"));
-  assert.ok(
-    !JSON.stringify((await alice("/api/brokers/icici")).data).includes(
-      "alice-key",
-    ),
-  );
-  assert.equal((await alice("/api/brokers/icici", "DELETE")).status, 200);
-  assert.equal((await bob("/api/brokers/icici")).data.saved, true);
-  assert.equal(
-    (await alice("/api/brokers/icici/historical", "POST", history)).status,
-    409,
-  );
-});
-test("real SDK can reconnect after explicit disconnect without network access", async () => {
-  const Real = loadBreeze();
-  let latest,
-    connects = 0;
-  function Mock(params) {
-    latest = new Real(params);
-    latest.generateSession = async () => {};
-    latest.connect = () => {
-      connects++;
-      latest.socket = {
-        connected: true,
-        disconnect() {
-          this.connected = false;
-        },
-      };
-    };
-    latest.subscribeFeeds = async () => ({ ok: true });
-    return latest;
-  }
-  const adapter = createBreezeData(
-    { apiKey: "fake", apiSecret: "fake", sessionToken: "fake" },
-    Mock,
-  );
-  await adapter.connect();
-  await adapter.subscribe({}, () => {});
-  adapter.disconnect();
-  await adapter.connect();
-  await adapter.subscribe({}, () => {});
-  assert.equal(connects, 2);
-  assert.equal(latest.socket.connected, true);
-  adapter.disconnect();
-});
 test("restart recovery requeues interrupted jobs", async (t) => {
   const { store, owner, request } = await fixture(t);
   await owner();
@@ -684,124 +513,70 @@ test("synthetic results deterministic and no unfunded fills", () => {
   );
   assert.deepEqual(simulateSyntheticStrategy("SENSEX", 1000, 9, 21).trades, []);
 });
-test("Breeze wrapper has no order interface and redacts SDK errors", async () => {
-  class Fake {
-    async generateSession() {}
-    async getHistoricalDatav2() {
-      return { Status: 200, Success: [{ close: 42 }] };
-    }
-  }
-  const adapter = createBreezeData(
-    { apiKey: "fake", apiSecret: "fake", sessionToken: "fake" },
-    Fake,
-  );
-  assert.equal(adapter.placeOrder, undefined);
-  await assert.rejects(adapter.historical({}), /Connect/);
-  await adapter.connect();
-  assert.deepEqual(await adapter.historical({}), [{ close: 42 }]);
-  adapter.disconnect();
-  class Failed {
-    async generateSession() {
-      throw new Error("SECRET");
-    }
-  }
-  const failed = createBreezeData(
-    { apiKey: "fake", apiSecret: "fake", sessionToken: "fake" },
-    Failed,
-  );
-  await assert.rejects(
-    failed.connect(),
-    (error) => !error.message.includes("SECRET"),
-  );
-});
-test("real SDK keeps TLS enabled and patched HTTP/CSV/ZIP dependencies load", async () => {
-  const Client = loadBreeze();
-  assert.equal(process.env.NODE_TLS_REJECT_UNAUTHORIZED, "1");
-  const require = createRequire(import.meta.url);
-  const axios = require("axios");
-  const previous = axios.defaults.adapter;
-  axios.defaults.adapter = async (config) => ({
-    data: { Status: 200, Success: [{ close: 42 }] },
-    status: 200,
-    statusText: "OK",
-    headers: {},
-    config,
-  });
-  try {
-    const sdk = new Client({ appKey: "fake" });
-    const result = await sdk.getHistoricalDatav2({
-      interval: "1minute",
-      fromDate: "2026-09-01T09:15:00.000Z",
-      toDate: "2026-09-01T09:16:00.000Z",
-      stockCode: "RELIND",
-      exchangeCode: "NSE",
-      productType: "cash",
-    });
-    assert.equal(result.Status, 200);
-    assert.equal(
-      require("csv-parse/sync").parse("a,b\n1,2", { columns: true })[0].a,
-      "1",
-    );
-    const Zip = require("adm-zip"),
-      zip = new Zip();
-    zip.addFile("test.csv", Buffer.from("a,b"));
-    assert.equal(
-      new Zip(zip.toBuffer()).getEntry("test.csv").getData().toString(),
-      "a,b",
-    );
-  } finally {
-    axios.defaults.adapter = previous;
-  }
-});
 
 test("NODE_ENV production enforces HTTPS, setup proof, MFA policy and secure cookies", async (t) => {
-  assert.throws(() => createApiApplication({}, {
-    NODE_ENV: "production", APP_ENV: "development", BROKER_ENCRYPTION_KEY: "ab".repeat(32),
-  }), /HTTPS origin/);
-  assert.throws(() => credentialVault({ NODE_ENV: "production", APP_ENV: "development" }), /BROKER_ENCRYPTION_KEY/);
+  assert.throws(
+    () =>
+      createApiApplication(
+        {},
+        {
+          NODE_ENV: "production",
+          APP_ENV: "development",
+          BROKER_ENCRYPTION_KEY: "ab".repeat(32),
+        },
+      ),
+    /HTTPS origin/,
+  );
+  assert.throws(
+    () => credentialVault({ NODE_ENV: "production", APP_ENV: "development" }),
+    /BROKER_ENCRYPTION_KEY/,
+  );
   const setupToken = "n".repeat(40);
   const { request } = await fixture(t, {
-    NODE_ENV: "production", APP_ORIGIN: "https://example.com", SETUP_TOKEN: setupToken,
+    NODE_ENV: "production",
+    APP_ORIGIN: "https://example.com",
+    SETUP_TOKEN: setupToken,
   });
-  const created = await request("/api/auth/setup", "POST", { ...creds, setup_token: setupToken });
+  const created = await request("/api/auth/setup", "POST", {
+    ...creds,
+    setup_token: setupToken,
+  });
   assert.equal(created.status, 200);
   assert.match(created.headers.get("set-cookie"), /Secure/);
-  assert.equal((await request("/api/auth/status")).data.registration_enabled, false);
-  assert.equal((await request("/api/brokers/icici/connect", "POST", {
-    apiKey: "fake-key", apiSecret: "fake-secret", sessionToken: "fake-token",
-  })).status, 403);
-});
-
-test("logout during delayed broker authentication cannot persist revoked credentials", async (t) => {
-  let release, started;
-  const waiting = new Promise(resolve => { release = resolve; });
-  const connecting = new Promise(resolve => { started = resolve; });
-  let closed = false;
-  const brokers = new BrokerManager(() => ({
-    async call() { started(); await waiting; return { ok: true }; },
-    snapshot() { return { state: closed ? "disconnected" : "connected" }; },
-    close() { closed = true; },
-  }));
-  const { owner, request, store } = await fixture(t, {}, { brokers });
-  await owner();
-  const pending = request("/api/brokers/icici/connect", "POST", {
-    apiKey: "fake-key", apiSecret: "fake-secret", sessionToken: "fake-token",
-  });
-  try {
-    await connecting;
-    assert.equal((await request("/api/auth/logout", "POST", {})).status, 200);
-  } finally {
-    release();
-  }
-  assert.notEqual((await pending).status, 200);
-  assert.equal(closed, true);
-  assert.deepEqual(await store.transaction(query => query("SELECT user_id FROM broker_credentials")), []);
+  assert.equal(
+    (await request("/api/auth/status")).data.registration_enabled,
+    false,
+  );
+  assert.equal(
+    (
+      await request("/api/paper/kotak/connect", "POST", {
+        accessToken: "fake-kotak-token",
+        mobileNumber: "+919999999999",
+        ucc: "FAKE",
+        totp: "123456",
+        mpin: "123456",
+      })
+    ).status,
+    403,
+  );
 });
 
 test("concurrent fresh migrations retain exactly one complete schema version history", async (t) => {
   const store = await createPostgresTestStore();
   t.after(() => store.close());
-  await Promise.all(Array.from({ length: 4 }, () => runDatabaseMigrations(store, {})));
-  assert.deepEqual((await store.transaction(query => query("SELECT version FROM schema_migrations ORDER BY version"))).map(row => row.version), [1, 2, 3, 4, 5, 6, 7]);
-  assert.deepEqual(await store.transaction(query => query("SELECT * FROM paper_accounts")), []);
+  await Promise.all(
+    Array.from({ length: 4 }, () => runDatabaseMigrations(store, {})),
+  );
+  assert.deepEqual(
+    (
+      await store.transaction((query) =>
+        query("SELECT version FROM schema_migrations ORDER BY version"),
+      )
+    ).map((row) => row.version),
+    [1, 2, 3, 4, 5, 6, 7],
+  );
+  assert.deepEqual(
+    await store.transaction((query) => query("SELECT * FROM paper_accounts")),
+    [],
+  );
 });

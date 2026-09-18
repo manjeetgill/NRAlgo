@@ -1,25 +1,19 @@
 /** Read-only, bounded broker instrument catalog. Downloads never receive account tokens.
- * Sources: Breeze SecurityMaster.zip and Kotak's authenticated file-path discovery response.
+ * Source: Kotak's authenticated file-path discovery response.
  * Current contract metadata is not a historical lot-size database or a quote freshness signal.
  */
-import { createRequire } from "node:module";
+import { parse } from "csv-parse/sync";
 import { z } from "zod";
 import {
   paperTradingDay,
   type PaperBroker,
   type PaperInput,
-} from "./paper-model.js";
-const require = createRequire(import.meta.url);
-const { parse } = createRequire(require.resolve("breezeconnect"))(
-  "csv-parse/sync",
-); // Resolve the pinned SDK dependency without executing the SDK.
-const AdmZip = require("adm-zip");
-export const iciciMasterUrl =
-  "https://directlink.icicidirect.com/MotherAppMaster/SecurityMaster.zip";
+} from "./paper-trading-ledger.js";
 export const instrumentSearchSchema = z
   .object({
     market: z.enum(["cash", "options"]),
-    query: z.string().trim().toUpperCase().min(2).max(40),
+    // Empty browsing is permitted only for Kotak cash by the authenticated route.
+    query: z.string().trim().toUpperCase().max(40),
     expiryDate: z.iso.date().optional(),
     underlying: z.string().trim().toUpperCase().min(1).max(40).optional(),
     right: z.enum(["call", "put"]).optional(),
@@ -74,12 +68,10 @@ export function validateKotakMasterUrl(
 }
 /** Fetch public master bytes with TLS, timeout and decompressed HTTP-body limits. */
 export async function downloadInstrumentMaster(url: string): Promise<Buffer> {
-  if (url !== iciciMasterUrl) {
-    validateKotakMasterUrl(
-      url,
-      url.endsWith("nse_cm-v1.csv") ? "cash" : "options",
-    );
-  }
+  validateKotakMasterUrl(
+    url,
+    url.endsWith("nse_cm-v1.csv") ? "cash" : "options",
+  );
   const response = await fetch(url, {
     redirect: "error",
     signal: AbortSignal.timeout(15000),
@@ -105,7 +97,7 @@ export async function downloadInstrumentMaster(url: string): Promise<Buffer> {
 }
 /** Normalize headers rather than column offsets; schema changes fail instead of shifting fields. */
 function csvRows(csv: string, required: string[]): Record<string, string>[] {
-  const rows = parse(csv, {
+  const rows = parse<Record<string, string>>(csv, {
     bom: true,
     trim: true,
     skip_empty_lines: true,
@@ -125,87 +117,43 @@ function csvRows(csv: string, required: string[]): Record<string, string>[] {
     throw new Error("Empty or oversized instrument master");
   return rows;
 }
-/** Dates in the ICICI master are English exchange dates, independent of server timezone. */
-function iciciExpiry(value: string) {
-  const match = /^(\d{2})-([A-Za-z]{3})-(\d{4})$/.exec(value),
-    months = [
-      "jan",
-      "feb",
-      "mar",
-      "apr",
-      "may",
-      "jun",
-      "jul",
-      "aug",
-      "sep",
-      "oct",
-      "nov",
-      "dec",
-    ];
-  if (!match) throw new Error("Invalid ICICI expiry");
-  return z.iso
-    .date()
-    .parse(
-      `${match[3]}-${String(months.indexOf(match[2].toLowerCase()) + 1).padStart(2, "0")}-${match[1]}`,
-    );
-}
 /** Parse only NSE equity series and listed call/put contracts. Futures/indices are not order tickets. */
 export function parseInstrumentCsv(
   broker: PaperBroker,
   market: "cash" | "options",
   csv: string,
 ): CatalogInstrument[] {
-  const required =
-    broker === "icici"
-      ? market === "cash"
-        ? ["Token", "ShortName", "Series", "CompanyName", "Lotsize"]
-        : [
-            "Token",
-            "ShortName",
-            "InstrumentName",
-            "ExpiryDate",
-            "StrikePrice",
-            "OptionType",
-            "LotSize",
-          ]
-      : [
-          "pSymbol",
-          "pExchSeg",
-          "pSymbolName",
-          "pTrdSymbol",
-          "lLotSize",
-          ...(market === "options"
-            ? [
-                "pInstType",
-                "pOptionType",
-                "lExpiryDate",
-                "dStrikePrice",
-                "lPrecision",
-              ]
-            : ["pGroup"]),
-        ];
+  const required = [
+    "pSymbol",
+    "pExchSeg",
+    "pSymbolName",
+    "pTrdSymbol",
+    "lLotSize",
+    ...(market === "options"
+      ? [
+          "pInstType",
+          "pOptionType",
+          "lExpiryDate",
+          "dStrikePrice",
+          "lPrecision",
+        ]
+      : ["pGroup"]),
+  ];
   const instruments: CatalogInstrument[] = [],
     seen = new Set<string>();
   for (const row of csvRows(csv, required)) {
-    const icici = broker === "icici",
-      options = market === "options",
-      token = icici ? row.Token : row.pSymbol;
+    const options = market === "options",
+      token = row.pSymbol;
     if (!/^[1-9]\d{0,14}$/.test(token)) continue;
-    if (!icici && row.pExchSeg !== (options ? "nse_fo" : "nse_cm"))
+    if (row.pExchSeg !== (options ? "nse_fo" : "nse_cm"))
       throw new Error("Wrong master segment");
     if (
-      options
-        ? !(icici
-            ? /^(OPTIDX|OPTSTK)$/.test(row.InstrumentName)
-            : /^(OPTIDX|OPTSTK)$/.test(row.pInstType))
-        : (icici ? row.Series : row.pGroup) !== "EQ"
+      options ? !/^(OPTIDX|OPTSTK)$/.test(row.pInstType) : row.pGroup !== "EQ"
     )
       continue;
-    const instrument = icici ? row.ShortName : token,
-      symbol = icici ? row.ShortName : row.pSymbolName;
-    const lotSize = Number(
-      icici ? (options ? row.LotSize : row.Lotsize) : row.lLotSize,
-    );
+    const instrument = token,
+      symbol = row.pSymbolName;
+    const lotSize = Number(row.lLotSize);
     if (
       !/^[A-Z0-9&_.-]{1,30}$/.test(instrument) ||
       !symbol ||
@@ -220,31 +168,24 @@ export function parseInstrumentCsv(
       masterToken: `${broker}:${market}:${token}`,
       instrument,
       symbol,
-      name: (
-        (icici ? row.CompanyName : row.pTrdSymbol || row.pDesc || symbol) ||
-        symbol
-      ).slice(0, 120),
+      name: (row.pTrdSymbol || row.pDesc || symbol).slice(0, 120),
       market,
       lotSize,
     };
     if (options) {
-      const right = icici ? row.OptionType : row.pOptionType;
+      const right = row.pOptionType;
       if (!["CE", "PE"].includes(right))
         throw new Error("Unknown option right");
       // Kotak NSE expiry is a non-Unix epoch: official docs require +315511200, then IST.
       const epoch = Number(row.lExpiryDate);
       if (
-        !icici &&
-        (!Number.isSafeInteger(epoch) ||
-          epoch <= 0 ||
-          Number(row.lPrecision) !== 2)
+        !Number.isSafeInteger(epoch) ||
+        epoch <= 0 ||
+        Number(row.lPrecision) !== 2
       )
         throw new Error("Unsupported Kotak units");
-      const expiryDate = icici
-        ? iciciExpiry(row.ExpiryDate)
-        : paperTradingDay((epoch + 315511200) * 1000);
-      const strikePrice =
-        Number(icici ? row.StrikePrice : row.dStrikePrice) / (icici ? 1 : 100);
+      const expiryDate = paperTradingDay((epoch + 315511200) * 1000);
+      const strikePrice = Number(row.dStrikePrice) / 100;
       if (
         !Number.isFinite(strikePrice) ||
         strikePrice <= 0 ||
@@ -299,46 +240,15 @@ export class InstrumentCatalog {
   /** Single-flight downloads prevent simultaneous searches from multiplying large public fetches. */
   async load(broker: PaperBroker, market: "cash" | "options", url?: string) {
     if (this.isFresh(broker, market)) return;
-    const key = broker === "icici" ? "icici" : `kotak:${market}`;
+    const key = `${broker}:${market}`;
     if (this.pending.has(key)) return this.pending.get(key);
     const work = (async () => {
-      const data = await this.download(
-        broker === "icici"
-          ? iciciMasterUrl
-          : validateKotakMasterUrl(url, market),
-      );
+      const data = await this.download(validateKotakMasterUrl(url, market));
       const fetchedAt = Date.now();
-      if (broker === "icici") {
-        const zip = new AdmZip(data),
-          parsed: { market: "cash" | "options"; rows: CatalogInstrument[] }[] =
-            [];
-        for (const segment of ["cash", "options"] as const) {
-          const name =
-              segment === "cash"
-                ? "NSEScripMaster.txt"
-                : "FONSEScripMaster.txt",
-            entry = zip.getEntry(name);
-          if (!entry || entry.header.size > 80 * 1024 * 1024)
-            throw new Error("Missing or oversized ZIP entry");
-          parsed.push({
-            market: segment,
-            rows: parseInstrumentCsv(
-              broker,
-              segment,
-              entry.getData().toString("utf8"),
-            ),
-          });
-        }
-        for (const item of parsed)
-          this.cache.set(`icici:${item.market}`, {
-            rows: item.rows,
-            fetchedAt,
-          });
-      } else
-        this.cache.set(key, {
-          rows: parseInstrumentCsv(broker, market, data.toString("utf8")),
-          fetchedAt,
-        });
+      this.cache.set(key, {
+        rows: parseInstrumentCsv(broker, market, data.toString("utf8")),
+        fetchedAt,
+      });
     })();
     this.pending.set(key, work);
     try {
@@ -360,6 +270,12 @@ export class InstrumentCatalog {
           .includes(input.query),
     );
     const underlyings = [...new Set(matching.map((row) => row.symbol))].sort();
+    if (input.market === "cash")
+      matching.sort(
+        (a, b) =>
+          a.symbol.localeCompare(b.symbol) ||
+          a.instrument.localeCompare(b.instrument),
+      );
     const scoped = matching.filter(
       (row) => !input.underlying || row.symbol === input.underlying,
     );
@@ -381,6 +297,34 @@ export class InstrumentCatalog {
       fetchedAt: data.fetchedAt,
       nextOffset: input.offset + 50 < rows.length ? input.offset + 50 : null,
     };
+  }
+  /** Selected tickets must match the cached broker contract exactly; browser metadata is not authority. */
+  /** Resolve an exact research contract; never translate broker aliases or guess a token. */
+  resolveResearch(
+    broker: PaperBroker,
+    market: "cash" | "options",
+    leg: {
+      stockCode: string;
+      expiryDate?: string;
+      right?: string;
+      strikePrice?: number;
+    },
+  ) {
+    const data = this.current(`${broker}:${market}`);
+    if (!data) throw new Error("Reload the broker instrument master first.");
+    const matches = data.rows.filter(
+      (row) =>
+        row.symbol === leg.stockCode &&
+        (market === "cash" ||
+          (row.option?.expiryDate === leg.expiryDate &&
+            row.option?.right === leg.right &&
+            row.option?.strikePrice === leg.strikePrice)),
+    );
+    if (matches.length !== 1)
+      throw new Error(
+        "Exact contract not found in the current broker master. Use that broker's symbol and a listed contract; expired token history is not guessed.",
+      );
+    return matches[0];
   }
   /** Selected tickets must match the cached broker contract exactly; browser metadata is not authority. */
   validate(

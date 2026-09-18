@@ -7,25 +7,16 @@ import {
   instrumentSearchSchema,
 } from "../../dist/backend/instrument-master.js";
 import {
-  iciciCashCsv,
-  iciciOptionCsv,
   kotakCashCsv,
   kotakOptionCsv,
   fakeInstrumentCatalog,
 } from "../fixtures/instruments.mjs";
-test("both masters resolve exact cash/option identities, lots and Kotak expiry/paise units", () => {
-  assert.equal(
-    parseInstrumentCsv("icici", "cash", iciciCashCsv)[0].name,
-    "Test, Limited",
-  );
+test("Kotak master resolves exact cash/option identities, lots and expiry/paise units", () => {
   assert.equal(
     parseInstrumentCsv("kotak", "cash", kotakCashCsv)[0].instrument,
     "123",
   );
-  for (const [broker, csv] of [
-    ["icici", iciciOptionCsv],
-    ["kotak", kotakOptionCsv],
-  ]) {
+  for (const [broker, csv] of [["kotak", kotakOptionCsv]]) {
     const rows = parseInstrumentCsv(broker, "options", csv);
     assert.equal(rows.length, 2);
     assert.deepEqual(rows[0].option, {
@@ -48,18 +39,18 @@ test("both masters resolve exact cash/option identities, lots and Kotak expiry/p
   assert.throws(
     () =>
       parseInstrumentCsv(
-        "icici",
+        "kotak",
         "options",
-        iciciOptionCsv.replace("LotSize", "WrongSize"),
+        kotakOptionCsv.replace("lLotSize", "WrongSize"),
       ),
     /columns/,
   );
   assert.throws(
     () =>
       parseInstrumentCsv(
-        "icici",
+        "kotak",
         "options",
-        iciciOptionCsv.replace(",25,", ",0,"),
+        kotakOptionCsv.replace(",25,", ",0,"),
       ),
     /lot/,
   );
@@ -93,37 +84,45 @@ test("catalog search is paged, single-flight, expires safely and rejects tampere
   try {
     const downloads = [],
       catalog = fakeInstrumentCatalog(downloads);
+    const url =
+      "https://lapi.kotaksecurities.com/wso2-scripmaster/v1/prod/2026-09-18/transformed/nse_fo.csv";
     await Promise.all([
-      catalog.load("icici", "cash"),
-      catalog.load("icici", "options"),
+      catalog.load("kotak", "options", url),
+      catalog.load("kotak", "options", url),
     ]);
     assert.equal(downloads.length, 1);
     const input = instrumentSearchSchema.parse({
         market: "options",
         query: "TEST",
       }),
-      result = catalog.search("icici", input);
+      result = catalog.search("kotak", input);
     assert.equal(result.total, 2);
     assert.deepEqual(result.expiries, ["2026-09-24"]);
     const item = result.items[0];
-    catalog.validate("icici", item, 25);
-    assert.throws(() => catalog.validate("kotak", item, 25));
+    catalog.validate("kotak", item, 25);
     assert.throws(() =>
       catalog.validate(
-        "icici",
+        "kotak",
+        { ...item, masterToken: "other:options:123" },
+        25,
+      ),
+    );
+    assert.throws(() =>
+      catalog.validate(
+        "kotak",
         { ...item, option: { ...item.option, strikePrice: 26000 } },
         25,
       ),
     );
-    assert.throws(() => catalog.validate("icici", item, 26));
-    assert.equal(catalog.search("icici", { ...input, right: "put" }).total, 1);
+    assert.throws(() => catalog.validate("kotak", item, 26));
+    assert.equal(catalog.search("kotak", { ...input, right: "put" }).total, 1);
     assert.equal(
-      catalog.search("icici", { ...input, offset: 50 }).items.length,
+      catalog.search("kotak", { ...input, offset: 50 }).items.length,
       0,
     );
     Date.now = () => Date.parse("2026-09-18T05:16Z");
-    assert.throws(() => catalog.validate("icici", item, 25));
-    await catalog.load("icici", "options");
+    assert.throws(() => catalog.validate("kotak", item, 25));
+    await catalog.load("kotak", "options", url);
     assert.equal(downloads.length, 2);
   } finally {
     Date.now = realNow;

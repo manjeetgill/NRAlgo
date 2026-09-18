@@ -1,4 +1,4 @@
-/** Durable LIVE order boundary and broker reconciliation for the ICICI control plane.
+/** Durable order boundary for future execution adapters. Not mounted by the paper-only API.
  * Offline broker fixtures exercise the same database transitions as production.
  * A submission is persisted BEFORE network I/O; uncertain outcomes never return to a queue.
  * Account locks serialize reservations/submissions/halts. Network operations have short deadlines.

@@ -27,21 +27,30 @@ export const equal = (a: unknown, b: unknown) =>
 export const fail = (status: number, detail: string): never => {
   throw Object.assign(new Error(detail), { status, detail });
 };
+// Bound native crypto work even when an HTTP client disconnects before hashing finishes.
+let activePasswordHashes = 0;
 /** Preserve the legacy scrypt format while moving expensive password work off the event loop. */
 export async function passwordHash(
   password: string,
   salt = randomBytes(16).toString("hex"),
 ): Promise<string> {
-  const key = await new Promise<Buffer>((resolve, reject) =>
-    scrypt(
-      password,
-      Buffer.from(salt, "hex"),
-      64,
-      { N: 16384, r: 8, p: 1 },
-      (err, key) => (err ? reject(err) : resolve(key)),
-    ),
-  );
-  return `${salt}:${key.toString("hex")}`;
+  if (activePasswordHashes >= 4)
+    fail(429, "Authentication busy. Try again shortly.");
+  activePasswordHashes++;
+  try {
+    const key = await new Promise<Buffer>((resolve, reject) =>
+      scrypt(
+        password,
+        Buffer.from(salt, "hex"),
+        64,
+        { N: 16384, r: 8, p: 1 },
+        (err, key) => (err ? reject(err) : resolve(key)),
+      ),
+    );
+    return `${salt}:${key.toString("hex")}`;
+  } finally {
+    activePasswordHashes--;
+  }
 }
 
 // Single API instance. A shared limiter is required before horizontal scaling.
@@ -110,7 +119,7 @@ export function credentialVault(env: NodeJS.ProcessEnv) {
     seal(userId: string, value: unknown) {
       const iv = randomBytes(12),
         cipher = createCipheriv("aes-256-gcm", key, iv);
-      cipher.setAAD(Buffer.from(`breeze:v1:${userId}`));
+      cipher.setAAD(Buffer.from(`workspace:v1:${userId}`));
       const encrypted = Buffer.concat([
         cipher.update(JSON.stringify(value), "utf8"),
         cipher.final(),
@@ -131,7 +140,7 @@ export function credentialVault(env: NodeJS.ProcessEnv) {
         key,
         Buffer.from(iv, "base64"),
       );
-      cipher.setAAD(Buffer.from(`breeze:v1:${userId}`));
+      cipher.setAAD(Buffer.from(`workspace:v1:${userId}`));
       cipher.setAuthTag(Buffer.from(tag, "base64"));
       return JSON.parse(
         Buffer.concat([

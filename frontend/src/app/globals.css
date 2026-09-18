@@ -1,5 +1,45 @@
 @import "tailwindcss";
 
+/* Bounded market-data inspector: long symbols and JSON never widen a mobile viewport. */
+.market-data-content {
+  padding: 1.25rem;
+  min-width: 0;
+}
+.market-data-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin: 1rem 0;
+}
+.market-data-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr));
+  gap: 1rem;
+  margin: 1rem 0;
+}
+.market-data-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 0;
+}
+.market-data-fields input,
+.market-data-fields select {
+  width: 100%;
+  min-width: 0;
+}
+.market-data-result {
+  max-height: 32rem;
+  max-width: 100%;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 1rem;
+  margin-top: 1rem;
+  background: #f4f6fb;
+  font-size: 0.8rem;
+}
+
 /* Shared responsive workspace styles. Broker/account panels reuse these layout and form rules. */
 
 .broker-workspace {
@@ -497,6 +537,74 @@ button {
 .environment.is-paused {
   background: #fff6ea;
   border-color: #ecd9bd;
+}
+.dashboard-mode {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 18px;
+  padding: 12px 14px;
+  border: 1px solid #dbe4f0;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+.dashboard-mode > span {
+  font-weight: 700;
+  color: #24364d;
+}
+.dashboard-mode [role="group"] {
+  display: flex;
+  gap: 8px;
+}
+.live-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+.live-summary article {
+  display: grid;
+  gap: 7px;
+  padding: 16px;
+  border: 1px solid #dbe4f0;
+  border-radius: 12px;
+  background: #fff;
+}
+.live-summary-position {
+  display: grid;
+  gap: 7px;
+  padding: 16px;
+  text-align: left;
+  border: 1px solid #dbe4f0;
+  border-radius: 12px;
+  background: #fff;
+  cursor: pointer;
+}
+.live-summary-position:hover {
+  border-color: #667eea;
+}
+.live-summary-position span,
+.live-summary-position small {
+  color: #596a81;
+}
+.live-summary-position strong {
+  font-size: 1.35rem;
+}
+.live-position-detail {
+  margin: 0 0 16px;
+}
+.live-summary span,
+.live-summary small {
+  color: #596a81;
+}
+.live-summary strong {
+  font-size: 1.35rem;
+}
+@media (max-width: 700px) {
+  .live-summary {
+    grid-template-columns: 1fr;
+  }
 }
 .metrics {
   display: grid;
@@ -1634,6 +1742,54 @@ input::placeholder {
   overflow-x: auto;
   min-width: 0;
 }
+/* Broker tables scroll within their panel; fieldsets must not impose desktop min-content widths. */
+.kotak-data-panel,
+.kotak-data-panel fieldset {
+  min-width: 0;
+  max-width: 100%;
+}
+.kotak-data-panel {
+  margin: 16px 0;
+}
+/* Keep long exchange symbol names within the ticket on narrow screens. */
+.kotak-cash-symbol-picker {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 12px;
+}
+.kotak-cash-symbol-picker select {
+  width: 100%;
+  min-width: 0;
+}
+.kotak-data-panel fieldset {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+  border: 0;
+  padding: 8px 0;
+}
+.kotak-data-panel label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.kotak-data-panel .table-wrap {
+  overflow-x: auto;
+  max-width: 100%;
+  margin: 16px 0;
+}
+.kotak-data-panel table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.kotak-data-panel th,
+.kotak-data-panel td {
+  padding: 10px;
+  text-align: left;
+  white-space: nowrap;
+  border-bottom: 1px solid #dce3ed;
+}
 .paper-table table {
   width: 100%;
   text-align: left;
@@ -1643,4 +1799,149 @@ input::placeholder {
 .paper-table th {
   padding: 10px;
   border-bottom: 1px solid #dce3ed;
+}
+/* Paired, read-only option chain. The centre strike stays distinct at all widths. */
+.live-option-chain {
+  margin-top: 24px;
+  border: 1px solid #dbe3ed;
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
+  color: #334155;
+}
+.live-option-chain header,
+.live-option-chain footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 18px 22px;
+}
+.live-option-chain h3,
+.live-option-chain header p {
+  margin: 0;
+}
+.chain-source {
+  font-size: 12px;
+  color: #64748b;
+}
+.chain-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 16px 22px;
+  background: #f8fafc;
+  border-block: 1px solid #e2e8f0;
+}
+.chain-toolbar label {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  flex: 1;
+  min-width: 160px;
+}
+.chain-toolbar input,
+.chain-toolbar select {
+  background: white;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 10px;
+  color: #334155;
+}
+.chain-scroll {
+  max-height: 560px;
+  overflow: auto;
+}
+.live-option-chain table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  min-width: 680px;
+}
+.live-option-chain th,
+.live-option-chain td {
+  padding: 9px 12px;
+  border: 1px solid #edf0f4;
+  text-align: right;
+}
+.live-option-chain thead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: white;
+}
+.live-option-chain .chain-call-heading {
+  color: #dc5261;
+  background: #fff4f5;
+  text-align: center;
+}
+.live-option-chain .chain-put-heading {
+  color: #059669;
+  background: #ecfdf5;
+  text-align: center;
+}
+.live-option-chain .chain-strike {
+  text-align: center;
+  background: #f1f5f9;
+  color: #334155;
+}
+.chain-ltp {
+  font-weight: 650;
+}
+.chain-ltp small {
+  display: block;
+  font-size: 10px;
+  font-weight: 400;
+  color: #94a3b8;
+}
+.chain-ltp.has-tick small {
+  color: #059669;
+}
+.chain-oi {
+  position: relative;
+  min-width: 100px;
+}
+.chain-oi span {
+  position: absolute;
+  left: 0;
+  top: 25%;
+  height: 50%;
+  background: #d1fae5;
+  border-radius: 0 8px 8px 0;
+}
+.chain-oi.call span {
+  background: #ffe4e6;
+}
+.chain-oi b {
+  position: relative;
+  font-weight: 400;
+}
+.chain-note,
+.live-option-chain > p {
+  padding: 0 22px;
+  font-size: 12px;
+  color: #64748b;
+}
+.live-option-chain table {
+  min-width: 1100px;
+  font-size: 12px;
+}
+.live-option-chain th,
+.live-option-chain td {
+  padding: 7px 9px;
+}
+.live-option-chain thead th,
+.live-option-chain .chain-call-heading,
+.live-option-chain .chain-put-heading {
+  background: #3c307d;
+  color: #fff;
+}
+.live-option-chain thead .chain-strike {
+  background: #302567;
+  color: #fff;
+}
+.live-option-chain tbody .chain-strike {
+  color: #304c80;
+  font-weight: 700;
 }

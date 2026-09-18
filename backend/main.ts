@@ -22,14 +22,13 @@ import {
   rateLimit,
   credentialVault,
 } from "./security.js";
-import { registerBrokerRoutes, BrokerManager } from "./brokers.js";
-import { registerResearchRoutes } from "./research-routes.js";
-import { registerPaperRoutes } from "./paper-routes.js";
+import { BrokerRequestCoordinator } from "./broker-data-access.js";
+import { registerResearchRoutes } from "./strategy-research-routes.js";
+import { registerPaperRoutes } from "./paper-trading-routes.js";
+import { registerKotakMarketDataRoutes } from "./kotak-market-data-routes.js";
 import { InstrumentCatalog } from "./instrument-master.js";
-import { KotakDataManager } from "./kotak-data.js";
+import { KotakMarketDataClient } from "./kotak-market-data-client.js";
 import { registerMfaRoutes, verifySecondFactor } from "./mfa.js";
-import { IciciLiveManager } from "./live/icici-routes.js";
-import type { IciciRpcFactory } from "./live/icici-adapter.js";
 import type { User, LoginSession, Job, Strategy, Settings } from "./types.js";
 
 declare global {
@@ -68,13 +67,11 @@ const strategyInput = z
 export function createApiApplication(
   store: Store,
   env: NodeJS.ProcessEnv = process.env,
-  brokers?: BrokerManager,
-  liveRpcFactory?: IciciRpcFactory,
-  liveTradingWindow?: () => boolean,
-  kotakData?: KotakDataManager,
+  kotakData?: KotakMarketDataClient,
   instrumentCatalog?: InstrumentCatalog,
 ) {
-  const production = env.APP_ENV === "production" || env.NODE_ENV === "production";
+  const production =
+    env.APP_ENV === "production" || env.NODE_ENV === "production";
   const origin = env.APP_ORIGIN || "http://localhost:3000",
     setupToken = env.SETUP_TOKEN || "";
   let validOrigin = false;
@@ -89,15 +86,10 @@ export function createApiApplication(
   if (env.REGISTRATION_TOKEN && env.REGISTRATION_TOKEN.length < 32)
     throw new Error("REGISTRATION_TOKEN must contain at least 32 characters.");
   const vault = credentialVault(env);
-  const brokerManager = brokers || new BrokerManager();
-  const kotakManager = kotakData || new KotakDataManager();
-  const liveManager = new IciciLiveManager(
-    store,
-    vault,
-    liveRpcFactory,
-    liveTradingWindow,
-    env.ENABLE_LIVE_TRADING === "true",
-  );
+  const brokerAccess = new BrokerRequestCoordinator();
+  const kotakClient = kotakData || new KotakMarketDataClient();
+  // Share one public catalog between paper tickets and research contract resolution.
+  const catalog = instrumentCatalog || new InstrumentCatalog();
   const openRegistration =
     env.ALLOW_PUBLIC_REGISTRATION === "true" ||
     (!production && env.ALLOW_PUBLIC_REGISTRATION !== "false");
@@ -105,9 +97,7 @@ export function createApiApplication(
     openRegistration || Boolean(env.REGISTRATION_TOKEN);
   const app = express();
   app.locals.shutdown = async () => {
-    brokerManager.close();
-    kotakManager.close();
-    await liveManager.haltAll();
+    kotakClient.close();
   };
   app.disable("x-powered-by");
   app.use((req, res, next) => {
@@ -194,10 +184,7 @@ export function createApiApplication(
         status: "ok",
         service: "nexus-node",
         live_enabled: false,
-        live_capability:
-          env.ENABLE_LIVE_TRADING === "true"
-            ? "icici-cash-confirmed-orders"
-            : "disabled-paper-only",
+        live_capability: "disabled-paper-only",
         worker: worker ? "healthy" : "unavailable",
       });
     } catch {
@@ -323,6 +310,8 @@ export function createApiApplication(
       );
     },
   );
+  // Bound session-database lookups before per-account authorization. One API instance only.
+  app.use("/api", rateLimit(600, 60000, source));
   app.use("/api", async (req, res, next) => {
     const raw =
       (req.headers.cookie || "")
@@ -330,6 +319,7 @@ export function createApiApplication(
         .map((v) => v.trim())
         .find((v) => v.startsWith("nexus_session="))
         ?.slice(14) || "";
+    if (!/^[A-Za-z0-9_-]{64}$/.test(raw)) fail(401, "Please sign in.");
     const [session] = await store.transaction((query) =>
       query<LoginSession>("SELECT * FROM sessions WHERE token_hash=$1", [
         digest(raw),
@@ -350,20 +340,15 @@ export function createApiApplication(
     60000,
     (req) => req.res!.locals.session.user_id,
   );
-  app.use("/api", (req, res, next) =>
-    req.path === "/live/icici/halt" ? next() : workspaceLimit(req, res, next),
-  );
+  app.use("/api", workspaceLimit);
   app.post("/api/auth/logout", async (req, res) => {
-    await liveManager.halt(
-      res.locals.session.user_id,
-      "Signed out; live permission revoked",
-    );
     await store.transaction(async (query) => {
       await lockWorkspaceSettings(query, store, res.locals.session.user_id);
-      await query("DELETE FROM sessions WHERE token_hash=$1", [res.locals.session.token_hash]);
+      await query("DELETE FROM sessions WHERE token_hash=$1", [
+        res.locals.session.token_hash,
+      ]);
     });
-    brokerManager.disconnect(res.locals.session.user_id);
-    kotakManager.disconnect(res.locals.session.user_id);
+    kotakClient.disconnect(res.locals.session.user_id);
     res
       .clearCookie("nexus_session", {
         path: "/",
@@ -375,13 +360,14 @@ export function createApiApplication(
   });
   app.post("/api/auth/revoke-sessions", async (req, res) => {
     const { user_id, token_hash } = res.locals.session;
-    await liveManager.halt(user_id, "Sessions revoked");
     await store.transaction(async (query) => {
       await lockWorkspaceSettings(query, store, user_id);
-      await query("DELETE FROM sessions WHERE user_id=$1 AND token_hash<>$2", [user_id, token_hash]);
+      await query("DELETE FROM sessions WHERE user_id=$1 AND token_hash<>$2", [
+        user_id,
+        token_hash,
+      ]);
     });
-    brokerManager.disconnect(user_id);
-    kotakManager.disconnect(user_id);
+    kotakClient.disconnect(user_id);
     res.json({ ok: true });
   });
   // Password changes require current-password/MFA proof and replace all existing sessions.
@@ -429,9 +415,7 @@ export function createApiApplication(
       );
       return issueSession(query, res, userId);
     });
-    brokerManager.disconnect(userId);
-    kotakManager.disconnect(userId);
-    await liveManager.halt(userId, "Password changed");
+    kotakClient.disconnect(userId);
     res.json(result);
   });
   // Browser snapshots are bounded and tenant-scoped; broker credentials never appear here.
@@ -439,15 +423,8 @@ export function createApiApplication(
     const userId = res.locals.session.user_id;
     res.json(
       await store.transaction(async (query) => ({
-        live_submission_enabled: env.ENABLE_LIVE_TRADING === "true",
-        live_configured: Boolean(
-          (
-            await query(
-              "SELECT id FROM live_accounts WHERE user_id=$1 AND broker_binding LIKE 'icici:%'",
-              [userId],
-            )
-          ).length,
-        ),
+        live_submission_enabled: false,
+        live_configured: false,
         username: (
           await query<User>("SELECT username FROM users WHERE id=$1", [userId])
         )[0].username,
@@ -576,38 +553,32 @@ export function createApiApplication(
     });
     res.json({ ok: true });
   });
-  app.use("/api/auth/mfa", async (req, res, next) => {
-    if (req.method === "POST" && req.path === "/disable")
-      await liveManager.halt(res.locals.session.user_id, "MFA disabled");
-    next();
-  });
   registerMfaRoutes(app, store, vault, (userId) => {
-    brokerManager.disconnect(userId);
-    kotakManager.disconnect(userId);
+    kotakClient.disconnect(userId);
   });
-  // Replacing/removing saved broker credentials must first revoke live authorization.
-  app.use("/api/brokers/icici", async (req, res, next) => {
-    if (
-      req.method === "DELETE" ||
-      (req.method === "POST" && ["/connect", "/reconnect"].includes(req.path))
-    )
-      await liveManager.halt(
-        res.locals.session.user_id,
-        "Broker credentials changing",
-      );
-    next();
-  });
-  registerBrokerRoutes(app, store, vault, brokerManager, production);
-  registerResearchRoutes(app, store, brokerManager, production);
+  registerResearchRoutes(
+    app,
+    store,
+    brokerAccess,
+    production,
+    kotakClient,
+    catalog,
+  );
   registerPaperRoutes(
     app,
     store,
-    brokerManager,
-    kotakManager,
+    brokerAccess,
+    kotakClient,
     production,
-    instrumentCatalog,
+    catalog,
   );
-  liveManager.register(app);
+  registerKotakMarketDataRoutes(
+    app,
+    store,
+    brokerAccess,
+    kotakClient,
+    production,
+  );
   app.use((req, res) => res.status(404).json({ detail: "Not found" }));
   const errorHandler: ErrorRequestHandler = (err: unknown, req, res, next) => {
     const error = err as {

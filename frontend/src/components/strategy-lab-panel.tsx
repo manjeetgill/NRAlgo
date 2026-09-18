@@ -1,14 +1,13 @@
 "use client";
 
 /** Research workbench: saved cash/options baskets, real-history replay and read-only quote feeds.
- * This component has no order-submission endpoint. A cash draft only pre-fills the separately
- * guarded Live trading ticket, where MFA, fresh risk checks and explicit confirmation still apply.
+ * This component has no order-submission endpoint. Quotes and history are read-only.
  */
 import { useEffect, useState } from "react";
 import { requestApiJson } from "@/lib/api";
 import { Button } from "./ui/button";
 import { OptionChainPicker } from "./option-chain-picker";
-import type { LiveOrderDraft } from "./live-trading-panel";
+import { PaperInstrumentPicker } from "./paper-instrument-picker";
 
 type Leg = {
   stockCode: string;
@@ -19,6 +18,7 @@ type Leg = {
   strikePrice?: number;
 };
 type Definition = {
+  broker: "kotak";
   name: string;
   market: "cash" | "options";
   legs: Leg[];
@@ -71,9 +71,10 @@ const timeLabel = (value: number) =>
     minute: "2-digit",
   });
 const initial: Definition = {
+  broker: "kotak",
   name: "Cash intraday basket",
   market: "cash",
-  legs: [{ stockCode: "RELIND", side: "buy", quantity: 1 }],
+  legs: [{ stockCode: "RELIANCE", side: "buy", quantity: 1 }],
   capital: 100000,
   marginReserve: 0,
   entryTime: "09:20",
@@ -85,7 +86,12 @@ const initial: Definition = {
 };
 
 /** Requests are manual, bounded and same-origin. No credentials or draft orders go to storage. */
-function researchRequest(path: string, csrf: string, method = "GET", body?: unknown) {
+function researchRequest(
+  path: string,
+  csrf: string,
+  method = "GET",
+  body?: unknown,
+) {
   return requestApiJson(`/research${path}`, method, body, csrf, 95000);
 }
 
@@ -127,13 +133,7 @@ function ResearchChart({ values, label }: { values: number[]; label: string }) {
 }
 
 /** Manage an immutable saved definition separately from editable form state and fetched prices. */
-export function StrategyLabPanel({
-  csrf,
-  onLiveDraft,
-}: {
-  csrf: string;
-  onLiveDraft: (draft: LiveOrderDraft) => void;
-}) {
+export function StrategyLabPanel({ csrf }: { csrf: string }) {
   const [definition, setDefinition] = useState<Definition>(
       structuredClone(initial),
     ),
@@ -170,73 +170,51 @@ export function StrategyLabPanel({
     [cursor, setCursor] = useState(0),
     [playing, setPlaying] = useState(false),
     [clock, setClock] = useState(Date.now());
-  const [stream, setStream] = useState<{
-    streamId: string;
-    strategyId: string;
-    state: string;
-  } | null>(null);
-  /** Poll only our backend's coalesced cache, never broker REST. Leaving this view or hiding
-   * the page stops heartbeats and requests an exact-generation stop; the worker has a lease
-   * expiry if the browser disappears before its cleanup request can complete.
+  const [kotakPolling, setKotakPolling] = useState(false);
+  /** Kotak live preview is explicit, bounded REST polling, not a claimed socket stream.
+   * Stop on hidden tab, navigation, editing or failure; never start an order worker.
    */
   useEffect(() => {
-    if (!stream) return;
-    if (tab !== "quotes" || stream.strategyId !== strategyId) {
-      setStream(null);
-      setQuotes([]);
+    if (!kotakPolling) return;
+    if (tab !== "quotes" || !strategyId || definition.broker !== "kotak") {
+      setKotakPolling(false);
       return;
     }
     let active = true,
       pending = false;
-    const read = async () => {
-      if (pending) return;
+    const refresh = async () => {
+      if (pending || document.hidden) return;
       pending = true;
       try {
-        const result = await researchRequest(
-          `/stream?strategyId=${stream.strategyId}&streamId=${stream.streamId}`,
-          csrf,
-        );
-        if (!active) return;
-        if (["stopped", "expired", "replaced"].includes(result.state)) {
-          setStream(null);
-          setQuotes([]);
-          setNotice("Research feed ended. Start streaming to subscribe again.");
-          return;
-        }
-        setQuotes(result.quotes);
-        setStream((current) =>
-          current && current.streamId === result.streamId
-            ? { ...current, state: result.state }
-            : current,
-        );
+        const result = await researchRequest("/quotes", csrf, "POST", {
+          strategyId,
+        });
+        if (active) setQuotes(result.quotes);
       } catch (failure) {
         if (active) {
           setQuotes([]);
-          setStream(null);
           setError((failure as Error).message);
+          setKotakPolling(false);
         }
       } finally {
         pending = false;
       }
     };
-    void read();
-    const timer = setInterval(() => void read(), 3000);
-    const hidden = () => {
+    void refresh();
+    const timer = setInterval(() => void refresh(), 15000);
+    const stopHidden = () => {
       if (document.hidden) {
-        setStream(null);
+        setKotakPolling(false);
         setQuotes([]);
       }
     };
-    document.addEventListener("visibilitychange", hidden);
+    document.addEventListener("visibilitychange", stopHidden);
     return () => {
       active = false;
       clearInterval(timer);
-      document.removeEventListener("visibilitychange", hidden);
-      void researchRequest("/stream/stop", csrf, "POST", {
-        streamId: stream.streamId,
-      }).catch(() => {});
+      document.removeEventListener("visibilitychange", stopHidden);
     };
-  }, [stream?.streamId, strategyId, tab, csrf]);
+  }, [kotakPolling, strategyId, tab, definition.broker, csrf]);
   /** Reload owner-scoped library metadata; large replay histories load only on selection. */
   async function reloadLibrary() {
     const result = await researchRequest("", csrf);
@@ -280,7 +258,7 @@ export function StrategyLabPanel({
   }, [playing, run]);
   /** Any edit invalidates fetched quote identity and the saved ID before another run or draft. */
   function edit(next: Definition) {
-    setStream(null);
+    setKotakPolling(false);
     setDefinition(next);
     setStrategyId("");
     setQuotes([]);
@@ -339,27 +317,6 @@ export function StrategyLabPanel({
       ],
     });
   }
-  /** Cash handoff is not a submission: the live panel fetches a fresh quote and checks its own gate. */
-  function handoffCashDraft() {
-    const quote = quotes[0];
-    if (
-      definition.market !== "cash" ||
-      !strategyId ||
-      !quote ||
-      quote.stale ||
-      (quote.receivedAt !== undefined && clock - quote.receivedAt > 30000) ||
-      !quote.observedAt ||
-      clock - quote.observedAt > 60000 ||
-      quote.ask <= 0
-    )
-      return;
-    onLiveDraft({
-      stockCode: definition.legs[0].stockCode,
-      side: "buy",
-      quantity: definition.legs[0].quantity,
-      limitPaise: Math.round(quote.ask * 100),
-    });
-  }
   const allFresh =
     quotes.length === definition.legs.length &&
     quotes.every(
@@ -407,8 +364,8 @@ export function StrategyLabPanel({
         <div>
           <strong>Research lab · Cash & options</strong>
           <span>
-            ICICI historical candles · Saved baskets · Separate real-money
-            confirmation
+            Selected broker historical candles · Saved baskets · Separate
+            real-money confirmation
           </span>
         </div>
         <span className="badge">NO AUTO EXECUTION</span>
@@ -542,6 +499,27 @@ export function StrategyLabPanel({
               }}
             />
           )}
+          <p>Research data broker: Kotak Neo</p>
+          {definition.broker === "kotak" && definition.market === "cash" && (
+            <PaperInstrumentPicker
+              broker="kotak"
+              market="cash"
+              csrf={csrf}
+              disabled={busy}
+              onSelect={(item) =>
+                edit({
+                  ...definition,
+                  legs: [
+                    {
+                      stockCode: item.symbol,
+                      side: "buy",
+                      quantity: item.lotSize,
+                    },
+                  ],
+                })
+              }
+            />
+          )}
           <form
             onSubmit={(event) => {
               event.preventDefault();
@@ -593,7 +571,7 @@ export function StrategyLabPanel({
                 </label>
               </div>
               <p className="research-note">
-                Use Breeze stock codes. Options quantities are{" "}
+                Use the selected broker's exact symbols. Options quantities are{" "}
                 <strong>contract units, not lots</strong>; enter the correct
                 historical lot multiple. Template strikes are
                 placeholders—select the actual contract and expiry.
@@ -810,8 +788,8 @@ export function StrategyLabPanel({
             <span className="eyebrow">02 · REPLAY THE SESSION</span>
             <h2>Historical simulator</h2>
             <p>
-              Connect ICICI in Brokers, select a saved strategy and a completed
-              session. No generated prices or fallback data.
+              Connect your selected broker, select a saved strategy and a
+              completed session. No generated prices or fallback data.
             </p>
             <div className="research-fields">
               <label>
@@ -980,7 +958,7 @@ export function StrategyLabPanel({
           {run && point && (
             <section className="panel research-results">
               <span className="eyebrow">
-                ICICI HISTORICAL DATA · SIMULATED FILLS
+                BROKER HISTORICAL DATA · SIMULATED FILLS
               </span>
               <h2>
                 {run.strategy.name} · {run.day}
@@ -1092,13 +1070,12 @@ export function StrategyLabPanel({
           <span className="eyebrow">03 · OBSERVE, THEN REVIEW</span>
           <h2>Live data preview</h2>
           <p>
-            Refresh a REST snapshot or start a read-only WebSocket basket feed.
-            The screen reads the server cache every 3 seconds; legs are not
-            atomic. Old exchange timestamps or a silent stream block cash-draft
-            handoff.
+            Kotak uses real quote snapshots or optional 15-second polling.
+            Basket prices are not atomic; old exchange timestamps are marked
+            stale.
           </p>
           <Button
-            disabled={busy || !strategyId || !!stream}
+            disabled={busy || !strategyId || kotakPolling}
             onClick={() =>
               void act(async () => {
                 setQuotes([]);
@@ -1112,44 +1089,35 @@ export function StrategyLabPanel({
             {busy ? "Fetching quotes…" : "Refresh live quotes"}
           </Button>
           <div className="live-actions research-stream-actions">
-            <Button
-              disabled={busy || !strategyId || !!stream}
-              onClick={() =>
-                void act(async () => {
-                  setQuotes([]);
-                  const result = await researchRequest(
-                    "/stream",
-                    csrf,
-                    "POST",
-                    { strategyId },
-                  );
-                  setStream(result);
-                })
-              }
-            >
-              Start basket stream
-            </Button>
-            <Button
-              variant="secondary"
-              disabled={!stream}
-              onClick={() => {
-                setStream(null);
-                setQuotes([]);
-                setNotice(
-                  "Research feed stopped. This does not stop or change live orders.",
-                );
-              }}
-            >
-              Stop research stream
-            </Button>
-            <span role="status">
-              {stream ? `Feed: ${stream.state}` : "Feed stopped"}
-            </span>
+            {
+              <>
+                <Button
+                  disabled={busy || !strategyId || kotakPolling}
+                  onClick={() => {
+                    setQuotes([]);
+                    setKotakPolling(true);
+                  }}
+                >
+                  Start Kotak live polling
+                </Button>
+                <Button
+                  disabled={!kotakPolling}
+                  onClick={() => setKotakPolling(false)}
+                >
+                  Stop Kotak live polling
+                </Button>
+                <span role="status">
+                  {kotakPolling
+                    ? "Kotak quotes every 15 seconds"
+                    : "Kotak polling stopped"}
+                </span>
+              </>
+            }
           </div>
           <p className="research-note">
-            One data feed per account. Starting here replaces the Brokers
-            explorer feed. Leaving this view stops this feed; a vanished tab
-            expires within 45 seconds. This never arms or submits orders.
+            Kotak polls real REST quotes every 15 seconds while this view is
+            visible. Leaving this view stops polling. This never arms or submits
+            orders.
           </p>
           {!!quotes.length && (
             <>
@@ -1193,28 +1161,11 @@ export function StrategyLabPanel({
                   </tbody>
                 </table>
               </div>
-              {definition.market === "cash" ? (
-                <>
-                  <p>
-                    Open a pre-filled ticket, then enable live trading and
-                    review/confirm there. This button cannot place an order.
-                  </p>
-                  <Button
-                    disabled={
-                      !allFresh ||
-                      quotes[0].ask <= 0 ||
-                      definition.legs[0].quantity > 100
-                    }
-                    onClick={handoffCashDraft}
-                  >
-                    Review cash order in Live trading
-                  </Button>
-                </>
-              ) : (
+              {definition.market === "options" && (
                 <>
                   <p className="error">
-                    Options baskets are research-only. Real options orders are
-                    not supported by the current cash execution adapter.
+                    Options baskets are research-only. Real-order submission is
+                    not supported.
                   </p>
                   {payoff.length > 0 && (
                     <>

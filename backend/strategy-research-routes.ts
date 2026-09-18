@@ -1,12 +1,16 @@
-/** Owner-scoped strategy lab endpoints. The only injected broker capability is read-only data.
- * Save/build/replay/quote can never dispatch orders; cash drafts leave this module for the
- * separately authenticated live UI. Broker data is fetched server-side, not supplied by clients.
+/** HTTP endpoints for saving strategies, replaying historical candles and previewing quotes.
+ * Save/build/replay/quote can never dispatch orders. Broker data is fetched server-side,
+ * not supplied by clients; simulation is separate from the paper ledger and real portfolio.
  */
 import type { Express } from "express";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { type Store, lockWorkspaceSettings, audit, now } from "./database.js";
-import { BrokerManager } from "./brokers.js";
+import {
+  BrokerRequestCoordinator,
+  type BrokerMarketDataReader,
+} from "./broker-data-access.js";
+import { InstrumentCatalog } from "./instrument-master.js";
 import { fail, rateLimit } from "./security.js";
 import {
   researchStrategySchema,
@@ -15,16 +19,13 @@ import {
   summarizeBacktestBatch,
   type BacktestResult,
   type HistoricalCandle,
-  marketDataParameters,
-  normalizeResearchQuote,
-  normalizeOptionChain,
   type ResearchStrategy,
-} from "./strategy-lab.js";
+} from "./historical-strategy-simulator.js";
 
-/** Reserve shared daily/minute budget before each RPC, leaving live cancellation headroom.
- * A short option basket consumes one request per leg; no implicit refresh loops or retries.
+/** Count one broker request before sending it. The database lock prevents two concurrent
+ * routes from spending the same remaining allowance. Production callers also need MFA.
  */
-export async function reserveResearchRequest(
+export async function reserveBrokerRequestBudget(
   store: Store,
   userId: string,
   requireMfa: boolean,
@@ -39,8 +40,11 @@ export async function reserveResearchRequest(
       if (!row?.enabled)
         fail(403, "Enable MFA before requesting broker data on this server.");
     }
-    const day = new Date(Date.now() + 19800000).toISOString().slice(0, 10),
-      minute = Math.floor(Date.now() / 60000) * 60000;
+    const indiaTimezoneOffsetMs = 5.5 * 60 * 60 * 1000;
+    const day = new Date(Date.now() + indiaTimezoneOffsetMs)
+      .toISOString()
+      .slice(0, 10);
+    const minute = Math.floor(Date.now() / 60000) * 60000;
     const [daily] = await query<{ usage_day: string; request_count: number }>(
       "SELECT * FROM broker_usage WHERE user_id=$1",
       [userId],
@@ -49,8 +53,9 @@ export async function reserveResearchRequest(
       window_start: number;
       request_count: number;
     }>("SELECT * FROM broker_rpc_windows WHERE user_id=$1", [userId]);
-    const count = daily?.usage_day === day ? daily.request_count : 0,
-      perMinute = window?.window_start === minute ? window.request_count : 0;
+    const count = daily?.usage_day === day ? daily.request_count : 0;
+    const perMinute =
+      window?.window_start === minute ? window.request_count : 0;
     if (count >= 4000 || perMinute >= 60)
       fail(429, "Market-data budget reached. Wait before refreshing.");
     await query(
@@ -67,8 +72,10 @@ export async function reserveResearchRequest(
 export function registerResearchRoutes(
   app: Express,
   store: Store,
-  manager: BrokerManager,
+  requestCoordinator: BrokerRequestCoordinator,
   requireMfa: boolean,
+  brokerDataReader: BrokerMarketDataReader,
+  catalog: InstrumentCatalog,
 ) {
   const researchLimit = rateLimit(
     30,
@@ -79,7 +86,48 @@ export function registerResearchRoutes(
     req.path === "/stream/stop" ? next() : researchLimit(req, res, next),
   );
   const identity = z.string().uuid();
-  async function loadStrategy(
+  /** Resolve each contract from the saved definition; never substitute another data source. */
+  async function resolveStrategyContracts(
+    strategy: ResearchStrategy,
+    session: { user_id: string; token_hash: string },
+  ) {
+    if (!brokerDataReader.isConnected(session.user_id, session.token_hash))
+      fail(409, "Connect Kotak under Broker paper first.");
+    if (!catalog.isFresh("kotak", strategy.market)) {
+      await reserveBrokerRequestBudget(store, session.user_id, requireMfa);
+      await reserveBrokerRequestBudget(store, session.user_id, requireMfa);
+      try {
+        await catalog.load(
+          "kotak",
+          strategy.market,
+          await brokerDataReader.getInstrumentMasterUrl(
+            session.user_id,
+            session.token_hash,
+            strategy.market,
+          ),
+        );
+      } catch {
+        fail(
+          502,
+          "Kotak instrument master unavailable. No alternative data was substituted.",
+        );
+      }
+    }
+    try {
+      return strategy.legs.map((leg) =>
+        catalog.resolveResearch("kotak", strategy.market, leg),
+      );
+    } catch {
+      return fail(
+        422,
+        "Exact Kotak contract not found. Select a listed Kotak contract; expired contracts are not mapped to current tokens.",
+      );
+    }
+  }
+  /** Look up the definition using both strategy ID and signed-in user ID. Never let a
+   * caller load another user's strategy simply by knowing its UUID.
+   */
+  async function loadUserResearchStrategy(
     userId: string,
     id: string,
   ): Promise<ResearchStrategy> {
@@ -90,145 +138,11 @@ export function registerResearchRoutes(
       ),
     );
     if (!row) fail(404, "Research strategy not found.");
-    return researchStrategySchema.parse(JSON.parse(row.definition));
+    const definition = JSON.parse(row.definition);
+    if (definition.broker !== "kotak")
+      fail(409, "Unsupported legacy strategy. Create a new Kotak strategy.");
+    return researchStrategySchema.parse(definition);
   }
-  /** Exact-expiry chains are fetched on demand; two metered calls, never an unbounded scanner. */
-  app.post("/api/research/option-chain", async (req, res) => {
-    const input = z
-      .object({
-        stockCode: z
-          .string()
-          .trim()
-          .toUpperCase()
-          .regex(/^[A-Z0-9 &_.-]{1,30}$/),
-        expiryDate: z.iso.date(),
-      })
-      .strict()
-      .parse(req.body);
-    const userId = res.locals.session.user_id;
-    await manager.exclusive(userId, async () => {
-      const connection =
-        manager.get(userId) ||
-        fail(409, "Connect or reconnect ICICI under Brokers first.");
-      const contracts = [];
-      for (const right of ["call", "put"] as const) {
-        await reserveResearchRequest(store, userId, requireMfa);
-        let raw;
-        try {
-          raw = await connection.call("optionChain", {
-            stockCode: input.stockCode,
-            exchangeCode: "NFO",
-            productType: "options",
-            expiryDate: `${input.expiryDate}T00:00:00.000Z`,
-            right,
-          });
-        } catch {
-          return fail(
-            502,
-            "Option chain unavailable. Verify underlying, expiry and ICICI session.",
-          );
-        }
-        try {
-          contracts.push(
-            ...normalizeOptionChain(
-              raw,
-              input.stockCode,
-              input.expiryDate,
-              right,
-            ),
-          );
-        } catch (error) {
-          return fail(422, (error as Error).message);
-        }
-      }
-      res.json({
-        source: "icici-breeze",
-        contracts,
-        receivedAt: Date.now(),
-        complete: false,
-      });
-    });
-  });
-  /** Start a server-resolved basket on the existing data-only worker, not the live OMS. */
-  app.post("/api/research/stream", async (req, res) => {
-    const input = z.object({ strategyId: identity }).strict().parse(req.body),
-      userId = res.locals.session.user_id;
-    const strategy = await loadStrategy(userId, input.strategyId);
-    const today = new Date(Date.now() + 19800000).toISOString().slice(0, 10);
-    if (strategy.legs.some((leg) => leg.expiryDate && leg.expiryDate < today))
-      fail(
-        422,
-        "Expired contracts cannot start a live feed. Use historical replay instead.",
-      );
-    await manager.exclusive(userId, async () => {
-      const connection =
-        manager.get(userId) ||
-        fail(409, "Connect or reconnect ICICI under Brokers first.");
-      if (!connection.researchSnapshot)
-        fail(503, "Basket streaming is unavailable on this connection.");
-      await reserveResearchRequest(store, userId, requireMfa);
-      const streamId = randomUUID();
-      const legs = strategy.legs.map((leg) => {
-        const params = marketDataParameters(strategy, leg);
-        if (leg.expiryDate) {
-          const date = new Date(`${leg.expiryDate}T00:00:00Z`);
-          params.expiryDate = `${String(date.getUTCDate()).padStart(2, "0")}-${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][date.getUTCMonth()]}-${date.getUTCFullYear()}`;
-        }
-        return params;
-      });
-      try {
-        await connection.call("subscribeBasket", {
-          streamId,
-          strategyId: input.strategyId,
-          legs,
-        });
-      } catch {
-        return fail(
-          502,
-          "Basket feed could not start. Verify every contract exists in the current instrument master.",
-        );
-      }
-      res.json({
-        streamId,
-        strategyId: input.strategyId,
-        state: "waiting",
-        expiresWithoutHeartbeatMs: 45000,
-      });
-    });
-  });
-  /** Browser polling reads a bounded local cache; it does not issue broker REST requests.
-   * Both opaque IDs and owner lookup prevent another account/tab's cache being misattributed.
-   */
-  app.get("/api/research/stream", async (req, res) => {
-    const input = z
-        .object({ strategyId: identity, streamId: identity })
-        .strict()
-        .parse(req.query),
-      userId = res.locals.session.user_id;
-    await loadStrategy(userId, input.strategyId);
-    const current = manager.get(userId)?.researchSnapshot?.(input.streamId);
-    if (!current || current.strategyId !== input.strategyId)
-      fail(409, "Stream ended or was replaced. Start streaming again.");
-    res.json(current);
-  });
-  /** Idempotent stop targets one generation so a closing old tab cannot stop a newer stream. */
-  app.post("/api/research/stream/stop", async (req, res) => {
-    const input = z.object({ streamId: identity }).strict().parse(req.body),
-      userId = res.locals.session.user_id;
-    await manager.exclusive(userId, async () => {
-      const connection = manager.get(userId);
-      if (connection)
-        try {
-          await connection.call("stopBasket", input);
-        } catch {
-          return fail(
-            502,
-            "Stop acknowledgement unavailable; the feed lease expires without heartbeats.",
-          );
-        }
-    });
-    res.json({ stopped: true });
-  });
   app.get("/api/research", async (_req, res) => {
     const userId = res.locals.session.user_id;
     const result = await store.transaction(async (query) => ({
@@ -310,34 +224,35 @@ export function registerResearchRoutes(
       .strict()
       .parse(req.body);
     const userId = res.locals.session.user_id,
-      strategy = await loadStrategy(userId, input.strategyId);
+      strategy = await loadUserResearchStrategy(userId, input.strategyId);
     if (Date.parse(`${input.day}T15:30:00+05:30`) > Date.now())
       fail(422, "Choose a completed historical trading session.");
     if (
       strategy.legs.some((leg) => leg.expiryDate && leg.expiryDate < input.day)
     )
       fail(422, "Selected session is after a contract expiry.");
-    await manager.exclusive(userId, async () => {
-      const connection =
-        manager.get(userId) ||
-        fail(409, "Connect or reconnect ICICI under Brokers first.");
+    await requestCoordinator.runExclusiveForUser(userId, async () => {
+      const contracts = await resolveStrategyContracts(
+        strategy,
+        res.locals.session,
+      );
       const histories = [];
-      for (const leg of strategy.legs) {
-        await reserveResearchRequest(store, userId, requireMfa);
+      for (const contract of contracts) {
+        await reserveBrokerRequestBudget(store, userId, requireMfa);
         let raw: unknown;
         try {
-          raw = await connection.call("historical", {
-            ...marketDataParameters(strategy, leg),
-            interval: input.interval,
-            // Historical-v2's documented query uses exchange-local wall time, unlike
-            // signing timestamps. Do not shift this session window to 03:45 UTC.
-            fromDate: `${input.day} 09:15:00`,
-            toDate: `${input.day} 15:29:59`,
-          });
+          raw = await brokerDataReader.getHistoricalCandlesForDay(
+            userId,
+            res.locals.session.token_hash,
+            contract.instrument,
+            strategy.market === "cash" ? "nse_cm" : "nse_fo",
+            input.day,
+            input.interval,
+          );
         } catch {
           return fail(
             502,
-            "ICICI history unavailable. Check the contract, session and historical coverage; no synthetic replacement was used.",
+            "Selected broker history unavailable. Check the contract, session and historical coverage; no synthetic replacement was used.",
           );
         }
         try {
@@ -400,17 +315,18 @@ export function registerResearchRoutes(
     if (days.length !== input.days.length)
       fail(422, "Duplicate dates in batch request.");
     const userId = res.locals.session.user_id,
-      strategy = await loadStrategy(userId, input.strategyId);
+      strategy = await loadUserResearchStrategy(userId, input.strategyId);
     for (const day of days) {
       if (Date.parse(`${day}T15:30:00+05:30`) > Date.now())
         fail(422, `${day} is not a completed historical trading session.`);
       if (strategy.legs.some((leg) => leg.expiryDate && leg.expiryDate < day))
         fail(422, `Session ${day} is after a contract expiry.`);
     }
-    await manager.exclusive(userId, async () => {
-      const connection =
-        manager.get(userId) ||
-        fail(409, "Connect or reconnect ICICI under Brokers first.");
+    await requestCoordinator.runExclusiveForUser(userId, async () => {
+      const contracts = await resolveStrategyContracts(
+        strategy,
+        res.locals.session,
+      );
       const completed: BacktestResult[] = [],
         skipped: { day: string; reason: string }[] = [];
       const deadline = Date.now() + 60000;
@@ -426,14 +342,14 @@ export function registerResearchRoutes(
         }
         const histories: HistoricalCandle[][] = [];
         let sessionIssue: string | null = null;
-        for (const leg of strategy.legs) {
+        for (const contract of contracts) {
           if (Date.now() >= deadline || res.destroyed) {
             stoppedReason =
               "Batch time limit or client disconnect; remaining sessions not attempted.";
             break;
           }
           try {
-            await reserveResearchRequest(store, userId, requireMfa);
+            await reserveBrokerRequestBudget(store, userId, requireMfa);
           } catch (error) {
             if ((error as { status?: number }).status !== 429) throw error;
             budgetStopped = true;
@@ -442,16 +358,23 @@ export function registerResearchRoutes(
           }
           let raw: unknown;
           try {
-            raw = await connection.call("historical", {
-              ...marketDataParameters(strategy, leg),
-              interval: input.interval,
-              fromDate: `${day} 09:15:00`,
-              toDate: `${day} 15:29:59`,
-            });
+            raw = await brokerDataReader.getHistoricalCandlesForDay(
+              userId,
+              res.locals.session.token_hash,
+              contract.instrument,
+              strategy.market === "cash" ? "nse_cm" : "nse_fo",
+              day,
+              input.interval,
+            );
           } catch {
             sessionIssue =
-              "ICICI historical data unavailable. Verify session, contract and historical coverage.";
-            if (connection.snapshot().state === "disconnected")
+              "Selected broker historical data unavailable. Verify session, contract and historical coverage.";
+            if (
+              !brokerDataReader.isConnected(
+                userId,
+                res.locals.session.token_hash,
+              )
+            )
               stoppedReason =
                 "Broker disconnected; remaining sessions not attempted. Reconnect before retrying.";
             break;
@@ -526,39 +449,49 @@ export function registerResearchRoutes(
   app.post("/api/research/quotes", async (req, res) => {
     const input = z.object({ strategyId: identity }).strict().parse(req.body),
       userId = res.locals.session.user_id;
-    const strategy = await loadStrategy(userId, input.strategyId);
-    await manager.exclusive(userId, async () => {
-      const connection =
-        manager.get(userId) ||
-        fail(409, "Connect or reconnect ICICI under Brokers first.");
-      const quotes = [];
-      for (const leg of strategy.legs) {
-        await reserveResearchRequest(store, userId, requireMfa);
-        let raw;
+    const strategy = await loadUserResearchStrategy(userId, input.strategyId);
+    await requestCoordinator.runExclusiveForUser(userId, async () => {
+      if (strategy.broker === "kotak") {
+        const contracts = await resolveStrategyContracts(
+          strategy,
+          res.locals.session,
+        );
+        await reserveBrokerRequestBudget(store, userId, requireMfa);
         try {
-          raw = await connection.call(
-            "quotes",
-            marketDataParameters(strategy, leg),
+          const snapshots = await brokerDataReader.getQuoteSnapshots(
+            userId,
+            res.locals.session.token_hash,
+            contracts.map((item) => item.instrument),
+            strategy.market === "cash" ? "nse_cm" : "nse_fo",
           );
+          if (
+            snapshots.some(
+              (row) =>
+                row.price === null || row.bid === null || row.ask === null,
+            )
+          )
+            return fail(
+              502,
+              "Kotak returned incomplete quotes; no placeholder prices were used.",
+            );
+          res.json({
+            source: "kotak",
+            quotes: snapshots.map((row, index) => ({
+              ...row,
+              stockCode: strategy.legs[index].stockCode,
+              receivedAt: Date.now(),
+            })),
+            receivedAt: Date.now(),
+            optionsExecutionEnabled: false,
+          });
+          return;
         } catch {
           return fail(
             502,
-            "ICICI quote request failed. Check contract/session and reconnect if needed.",
+            "Kotak quote request failed or returned incomplete data. No alternative data was substituted.",
           );
         }
-        try {
-          quotes.push(normalizeResearchQuote(raw, strategy, leg));
-        } catch (error) {
-          return fail(422, (error as Error).message);
-        }
       }
-      // Quotes are sequential snapshots, not an atomic exchange basket or executable spread.
-      res.json({
-        source: "icici-breeze",
-        quotes,
-        receivedAt: Date.now(),
-        optionsExecutionEnabled: false,
-      });
     });
   });
 }

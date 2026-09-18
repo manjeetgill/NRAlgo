@@ -23,6 +23,8 @@ export const researchLegSchema = z
 export const researchStrategySchema = z
   .object({
     name: z.string().trim().min(3).max(80),
+    // Keep broker identity explicit so future adapters cannot misinterpret a saved contract.
+    broker: z.literal("kotak").default("kotak"),
     market: z.enum(["cash", "options"]),
     legs: z.array(researchLegSchema).min(1).max(4),
     capital: z.number().min(100).max(10000000),
@@ -275,7 +277,7 @@ export function simulateHistoricalBasket(
       "Requested entry/exit cannot be completed with this history.",
     );
   return {
-    source: "icici-breeze" as const,
+    source: strategy.broker,
     model: "scheduled-basket-v1",
     day,
     strategy,
@@ -350,153 +352,4 @@ export function summarizeBacktestBatch(
     ),
     averagePnlPerSession: roundMoney(totalPnl / sessions.length),
   };
-}
-
-/** Build only documented market-data arguments. No order payload or execution capability. */
-export function marketDataParameters(
-  strategy: ResearchStrategy,
-  leg: ResearchLeg,
-) {
-  return {
-    stockCode: leg.stockCode,
-    exchangeCode: strategy.market === "cash" ? "NSE" : "NFO",
-    productType: strategy.market,
-    ...(strategy.market === "options"
-      ? {
-          expiryDate: `${leg.expiryDate}T00:00:00.000Z`,
-          right: leg.right,
-          strikePrice: String(leg.strikePrice),
-        }
-      : {}),
-  };
-}
-
-/** Timestamp and identity checks keep a stale or wrong contract quote out of a live draft.
- * Missing last-trade timestamps are displayed as stale, never replaced by response-receipt time.
- */
-export function normalizeResearchQuote(
-  raw: unknown,
-  strategy: Pick<ResearchStrategy, "market">,
-  leg: ResearchLeg,
-) {
-  if (!Array.isArray(raw) || raw.length !== 1)
-    throw new Error("Expected exactly one quote per contract.");
-  const row = raw[0];
-  if (!row || typeof row !== "object")
-    throw new Error("Invalid quote response.");
-  if (
-    row.stock_code !== leg.stockCode ||
-    row.exchange_code !== (strategy.market === "cash" ? "NSE" : "NFO")
-  )
-    throw new Error("Quote instrument mismatch.");
-  const expiry = String(row.expiry_date || "");
-  const expiryDay = /^\d{4}-\d{2}-\d{2}/.test(expiry)
-    ? expiry.slice(0, 10)
-    : parseBrokerQuoteTime(expiry + " 00:00:00");
-  if (
-    strategy.market === "options" &&
-    (String(row.right).toLowerCase() !== leg.right ||
-      Number(row.strike_price) !== leg.strikePrice ||
-      (typeof expiryDay === "number"
-        ? new Date(expiryDay + 19800000).toISOString().slice(0, 10)
-        : expiryDay) !== leg.expiryDate)
-  )
-    throw new Error("Quote option contract mismatch.");
-  const price = Number(row.ltp),
-    bid = Number(row.best_bid_price),
-    ask = Number(row.best_offer_price);
-  if (
-    ![price, bid, ask].every(
-      (value) => Number.isFinite(value) && value >= 0 && value <= 10000000,
-    ) ||
-    bid > ask
-  )
-    throw new Error("Quote prices unavailable.");
-  const time = parseBrokerQuoteTime(String(row.ltt));
-  return {
-    stockCode: leg.stockCode,
-    price,
-    bid,
-    ask,
-    observedAt: time,
-    stale:
-      !time ||
-      price <= 0 ||
-      bid <= 0 ||
-      ask <= 0 ||
-      Date.now() - time > 60000 ||
-      time > Date.now() + 1000,
-  };
-}
-
-/** Normalize one explicit expiry/right chain. The broker may return only a strike subset;
- * never advertise complete-chain coverage or use its indicative prices as an order preview.
- */
-export function normalizeOptionChain(
-  raw: unknown,
-  stockCode: string,
-  expiryDate: string,
-  right: "call" | "put",
-) {
-  if (!Array.isArray(raw) || raw.length === 0 || raw.length >= 1000)
-    throw new Error("Option chain is empty or potentially truncated.");
-  const seen = new Set<number>();
-  return raw
-    .map((row) => {
-      const strikePrice = Number(row?.strike_price);
-      if (
-        !Number.isFinite(strikePrice) ||
-        strikePrice <= 0 ||
-        strikePrice > 1000000 ||
-        seen.has(strikePrice)
-      )
-        throw new Error("Invalid or duplicate option-chain contract.");
-      seen.add(strikePrice);
-      const leg: ResearchLeg = {
-        stockCode,
-        expiryDate,
-        right,
-        strikePrice,
-        side: "buy",
-        quantity: 1,
-      };
-      const quote = normalizeResearchQuote([row], { market: "options" }, leg);
-      const openInterest = Number(row.open_interest || 0),
-        volume = Number(row.total_quantity_traded || 0);
-      if (
-        ![openInterest, volume].every(
-          (value) => Number.isSafeInteger(value) && value >= 0,
-        )
-      )
-        throw new Error("Invalid option-chain volume/open interest.");
-      return { ...leg, ...quote, openInterest, volume };
-    })
-    .sort((a, b) => a.strikePrice! - b.strikePrice!);
-}
-/** Parse ICICI's DD-Mmm-YYYY exchange-local timestamps without using the machine timezone. */
-function parseBrokerQuoteTime(value: string): number | null {
-  const match = /^(\d{2})-([A-Za-z]{3})-(\d{4}) (\d{2}):(\d{2}):(\d{2})$/.exec(
-    value,
-  );
-  if (!match) return null;
-  const month = [
-    "jan",
-    "feb",
-    "mar",
-    "apr",
-    "may",
-    "jun",
-    "jul",
-    "aug",
-    "sep",
-    "oct",
-    "nov",
-    "dec",
-  ].indexOf(match[2].toLowerCase());
-  if (month < 0) return null;
-  return (
-    Date.parse(
-      `${match[3]}-${String(month + 1).padStart(2, "0")}-${match[1]}T${match[4]}:${match[5]}:${match[6]}+05:30`,
-    ) || null
-  );
 }

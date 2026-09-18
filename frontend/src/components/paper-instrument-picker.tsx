@@ -1,6 +1,7 @@
 "use client";
 /** Current-master search only. Selecting a row fills a paper ticket; it never submits an order.
- * Every request is manual, owner-authenticated and CSRF protected; no broker secrets enter React.
+ * Cash symbols load after connection; searches are owner-authenticated and CSRF protected.
+ * No broker secrets enter React.
  */
 import { useEffect, useRef, useState } from "react";
 import { requestApiJson } from "@/lib/api";
@@ -27,6 +28,162 @@ type SearchResult = {
   fetchedAt: number;
   nextOffset: number | null;
 };
+/** Browse current supported NSE EQ symbols after connection, then send only verified metadata
+ * to the ticket. Pages stay bounded to 50; no full-market quote requests or guessed tokens.
+ */
+export function KotakCashSymbolSelect({
+  csrf,
+  connected,
+  disabled,
+  selected,
+  onSelect,
+  onClear,
+}: {
+  csrf: string;
+  connected: boolean;
+  disabled: boolean;
+  selected: PaperInstrument | null;
+  onSelect: (instrument: PaperInstrument) => void;
+  onClear: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [appliedQuery, setAppliedQuery] = useState("");
+  const [result, setResult] = useState<SearchResult | null>(null),
+    [error, setError] = useState(""),
+    [busy, setBusy] = useState(false),
+    [offset, setOffset] = useState(0);
+  const generation = useRef(0);
+  /** Invalidate old fetches on disconnect/unmount; wallet refreshes do not re-download symbols. */
+  useEffect(() => {
+    if (connected) {
+      setQuery("");
+      void load("", 0);
+    } else {
+      setResult(null);
+      setError("");
+      setBusy(false);
+    }
+    return () => {
+      generation.current++;
+    };
+  }, [connected, csrf]);
+  async function load(search: string, nextOffset: number) {
+    const current = ++generation.current;
+    setBusy(true);
+    setError("");
+    setResult(null);
+    try {
+      const data = await requestApiJson(
+        "/paper/kotak/instruments",
+        "POST",
+        { market: "cash", query: search, offset: nextOffset },
+        csrf,
+        60000,
+      );
+      if (current === generation.current) {
+        setResult(data);
+        setOffset(nextOffset);
+        setAppliedQuery(search);
+      }
+    } catch (failure) {
+      if (current === generation.current) setError((failure as Error).message);
+    } finally {
+      if (current === generation.current) setBusy(false);
+    }
+  }
+  const items = result?.items || [];
+  return (
+    <section
+      className="kotak-data-panel kotak-cash-symbol-picker"
+      aria-label="Kotak cash symbol picker"
+    >
+      <label>
+        Search Kotak cash symbols
+        <input
+          value={query}
+          maxLength={40}
+          disabled={disabled || busy || !connected}
+          placeholder="RELIANCE, HDFCBANK, or token"
+          onChange={(event) => setQuery(event.target.value.toUpperCase())}
+        />
+      </label>
+      <Button
+        type="button"
+        variant="secondary"
+        disabled={disabled || busy || !connected}
+        onClick={() => void load(query, 0)}
+      >
+        {busy ? "Loading Kotak symbols…" : "Search / refresh Kotak symbols"}
+      </Button>
+      <label>
+        Kotak NSE cash token (pSymbol)
+        <select
+          aria-label="Kotak NSE cash token (pSymbol)"
+          required
+          value={selected?.masterToken || ""}
+          disabled={disabled || busy || !connected}
+          onChange={(event) => {
+            if (!event.target.value) {
+              onClear();
+              return;
+            }
+            const item = items.find(
+              (row) => row.masterToken === event.target.value,
+            );
+            if (item) onSelect(item);
+          }}
+        >
+          <option value="">
+            {connected
+              ? "Choose a supported NSE cash symbol"
+              : "Connect Kotak to load symbols"}
+          </option>
+          {selected &&
+            !items.some(
+              (item) => item.masterToken === selected.masterToken,
+            ) && (
+              <option value={selected.masterToken}>
+                {selected.symbol} · {selected.instrument} (selected)
+              </option>
+            )}
+          {items.map((item) => (
+            <option key={item.masterToken} value={item.masterToken}>
+              {item.symbol} · {item.name} · token {item.instrument}
+            </option>
+          ))}
+        </select>
+      </label>
+      {error && <p role="alert">{error}</p>}
+      {result && (
+        <>
+          <p>
+            {result.total} supported matches · symbols{" "}
+            {result.items.length ? offset + 1 : 0}–{offset + items.length}.
+            Master fetched {new Date(result.fetchedAt).toLocaleString("en-IN")}.
+            Metadata, not live prices; quotes are fetched separately.
+          </p>
+          {!items.length && (
+            <p>No supported symbols found. Try another search.</p>
+          )}
+          <Button
+            type="button"
+            disabled={disabled || busy || offset === 0}
+            onClick={() => void load(appliedQuery, Math.max(0, offset - 50))}
+          >
+            Previous cash symbols
+          </Button>
+          <Button
+            type="button"
+            disabled={disabled || busy || result.nextOffset === null}
+            onClick={() => void load(appliedQuery, result.nextOffset!)}
+          >
+            Next cash symbols
+          </Button>
+        </>
+      )}
+    </section>
+  );
+}
 export function PaperInstrumentPicker({
   broker,
   market,
@@ -34,7 +191,7 @@ export function PaperInstrumentPicker({
   disabled,
   onSelect,
 }: {
-  broker: "icici" | "kotak";
+  broker: "kotak";
   market: "cash" | "options";
   csrf: string;
   disabled: boolean;
@@ -61,12 +218,20 @@ export function PaperInstrumentPicker({
     setBusy(true);
     setError("");
     try {
-      const data = await requestApiJson(`/paper/${broker}/instruments`, "POST", {
-        market, query, offset: nextOffset,
-        ...(expiry ? { expiryDate: expiry } : {}),
-        ...(underlying ? { underlying } : {}),
-        ...(right ? { right } : {}),
-      }, csrf, 60000);
+      const data = await requestApiJson(
+        `/paper/${broker}/instruments`,
+        "POST",
+        {
+          market,
+          query,
+          offset: nextOffset,
+          ...(expiry ? { expiryDate: expiry } : {}),
+          ...(underlying ? { underlying } : {}),
+          ...(right ? { right } : {}),
+        },
+        csrf,
+        60000,
+      );
       if (current === generation.current) {
         setResult(data);
         setOffset(nextOffset);

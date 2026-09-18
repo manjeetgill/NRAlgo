@@ -6,7 +6,8 @@ export async function requestApiJson(
   csrf?: string,
   timeoutMs = 15000,
 ) {
-  if (!path.startsWith("/") || path.startsWith("//")) throw new Error("Invalid API path.");
+  if (!path.startsWith("/") || path.startsWith("//"))
+    throw new Error("Invalid API path.");
   const response = await fetch(`/api${path}`, {
     method,
     credentials: "same-origin",
@@ -20,10 +21,13 @@ export async function requestApiJson(
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const result = await response.json().catch(() => {
-    throw new Error("API response unavailable. Check the connection; verify order status before retrying.");
+    throw new Error(
+      "API response unavailable. Check the connection; verify order status before retrying.",
+    );
   });
   if (!response.ok) {
-    const detail = typeof result?.detail === "string" ? result.detail : "Request failed.";
+    const detail =
+      typeof result?.detail === "string" ? result.detail : "Request failed.";
     throw Object.assign(new Error(detail), { status: response.status });
   }
   return result;

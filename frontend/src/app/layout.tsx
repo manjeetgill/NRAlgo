@@ -15,7 +15,10 @@ export default async function RootLayout({
   await connection();
   return (
     <html lang="en">
-      <body>{children}</body>
+      {/* Extensions such as Writer add body attributes before React hydrates.
+          Tolerate differences on this element only; child UI mismatches must still surface.
+          This neither enables extension scripts nor relaxes the Content Security Policy. */}
+      <body suppressHydrationWarning>{children}</body>
     </html>
   );
 }

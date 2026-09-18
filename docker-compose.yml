@@ -41,6 +41,7 @@ services:
       APP_ENV: production
       DATABASE_URL: postgresql://nexus:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db:5432/nexus
       APP_DATABASE_PASSWORD: ${APP_DATABASE_PASSWORD:?Set APP_DATABASE_PASSWORD}
+      BACKUP_DATABASE_PASSWORD: ${BACKUP_DATABASE_PASSWORD:?Set BACKUP_DATABASE_PASSWORD to 64 hex characters}
     command: [node, dist/backend/database.js]
     depends_on:
       db:
@@ -118,7 +119,7 @@ services:
       context: .
       target: backup
     environment:
-      DATABASE_URL: postgresql://nexus:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db:5432/nexus
+      DATABASE_URL: postgresql://nexus_backup:${BACKUP_DATABASE_PASSWORD:?Set BACKUP_DATABASE_PASSWORD to 64 hex characters}@db:5432/nexus
       BACKUP_ENCRYPTION_KEY: ${BACKUP_ENCRYPTION_KEY:?Set a separate persistent 64-character hex backup key}
       BACKUP_S3_URI: ${BACKUP_S3_URI:-}
       AWS_REGION: ${AWS_REGION:-ap-south-1}

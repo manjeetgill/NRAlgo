@@ -1,0 +1,17 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug local workspace (API and worker)",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/run.ts",
+      "runtimeArgs": ["--env-file-if-exists=.env", "--import", "tsx"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "autoAttachChildProcesses": true,
+      "skipFiles": ["<node_internals>/**", "**/node_modules/**"],
+      "env": { "NEXUS_NO_BROWSER": "1" }
+    }
+  ]
+}

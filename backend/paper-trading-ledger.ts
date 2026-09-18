@@ -4,7 +4,7 @@
  */
 import { z } from "zod";
 
-export const paperBrokerSchema = z.enum(["icici", "kotak"]);
+export const paperBrokerSchema = z.enum(["kotak"]);
 export type PaperBroker = z.infer<typeof paperBrokerSchema>;
 /** Lot size is explicitly supplied for research, not certified against an exchange master. */
 export const paperOptionSchema = z
@@ -29,7 +29,7 @@ export const paperOrderInput = z
     option: paperOptionSchema.optional(),
     masterToken: z
       .string()
-      .regex(/^(icici|kotak):(cash|options):[1-9]\d{0,14}$/)
+      .regex(/^kotak:(cash|options):[1-9]\d{0,14}$/)
       .optional(),
   })
   .strict();
@@ -38,10 +38,9 @@ export type PaperInput = z.infer<typeof paperOrderInput>;
 export function paperInstrumentKey(
   input: Pick<PaperInput, "instrument" | "option">,
 ) {
-  const o = input.option;
-  return o
-    ? `OPTION:${input.instrument}:${o.expiryDate}:${o.right}:${o.strikePrice}`
-    : input.instrument;
+  const optionContract = input.option;
+  if (!optionContract) return input.instrument;
+  return `OPTION:${input.instrument}:${optionContract.expiryDate}:${optionContract.right}:${optionContract.strikePrice}`;
 }
 /** Enforce whole declared lots and stop trading expired contracts; no invented expiry settlement. */
 function validatePaperContract(input: PaperInput, now: number) {

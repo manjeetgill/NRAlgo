@@ -6,8 +6,7 @@ const config: NextConfig = {
   turbopack: { root: path.resolve(process.cwd()) },
   poweredByHeader: false,
   devIndicators: false,
-  // Breeze authentication can download its instrument master; keep the proxy deadline
-  // longer than the backend's 90-second hard limit so the browser receives its safe error.
+  // Allow bounded historical batches to complete and return sanitized backend errors.
   experimental: { proxyTimeout: 100000 },
   /** Keep browser requests same-origin; only the server knows the internal API address. */
   async rewrites() {

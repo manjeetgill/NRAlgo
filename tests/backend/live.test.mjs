@@ -71,7 +71,10 @@ test("paper and shadow dependency paths cannot select real execution with a flag
     "backend/simulator.ts",
     "backend/live/shadow.ts",
   ]) {
-    const source = readFileSync(new URL(`../../${file}`, import.meta.url), "utf8");
+    const source = readFileSync(
+      new URL(`../../${file}`, import.meta.url),
+      "utf8",
+    );
     assert.doesNotMatch(
       source,
       /from ["'][^"']*(execution|breeze|broker-thread)[^"']*["']/,

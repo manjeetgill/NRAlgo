@@ -1,0 +1,32 @@
+# Current security boundaries
+
+Updated 18 September 2026 after the Kotak-only transition. This supersedes the earlier mixed-broker/live-route review; retired adapters and their tests are not evidence for this release.
+
+## Verified application boundaries
+
+- App authentication uses bounded asynchronous scrypt, hashed opaque sessions, CSRF checks and owner-scoped queries. Production flags activate secure cookies, invitation/setup controls and required MFA for broker requests.
+- MFA secrets are encrypted and owner/purpose-bound. Token replay/recovery-code reuse are rejected. Password changes and MFA changes revoke broker access.
+- Kotak tokens live only in server memory, tied to the authenticating app session. Late login/read completions are fenced against logout, replacement and expiry. TOTP/MPIN are not stored. No credentials or raw broker error objects are returned to the browser.
+- Broker HTTPS origins, master CSV paths and feed URLs are allowlisted. REST requests reject redirects, have a ten-second timeout and bounded response sizes. Strict request schemas cannot select an arbitrary URL or broker order method.
+- All new market-data reads use the shared research request budget. Stream controls are rate-limited; stop remains a local operation. Feed access is owner/session-bound, expires without a viewer, and is closed on session revocation or errors.
+- Stream decoding is bounded and credential-free. Exchange timestamps remain opaque and are never used as proof of freshness for paper fills. Native chain prices are explicitly indicative.
+- Paper/research code has no execution capability. Live routes and the retired broker SDK were removed; remaining broker-neutral OMS/risk models are unmounted and tested only with fakes.
+- The browser uses a per-document nonce CSP and same-origin API transport. Unknown broker fields are stripped; displayed data is React text, never broker-supplied HTML.
+- Runtime state, keys, builds and test artifacts stay outside Git. Test databases use random disposable schemas, never the user's application schema.
+
+## Local verification
+
+Run `make check`, `make build`, and `npm run test:browser`. The current backend suite and production browser smoke test cover Kotak paper fills, portfolios, research, market exploration, account controls and mobile layout. All broker traffic in tests is mocked. Feed protocol/lifecycle behavior is covered by offline socket fixtures and browser subscribe/unsubscribe/snapshot/stop checks.
+
+The local PostgreSQL application data was reset only after explicit user confirmation. The schema was recreated empty; keys/configuration were retained. No real broker holdings, orders or account data were modified. Deleted local records can only be recovered from a pre-existing backup. The purpose binding for encrypted workspace secrets changed during this fresh-database transition: an old backup requires matching old application code or a deliberate data/key migration, not blind restoration into this release.
+
+## Remaining release gates
+
+1. **Real integrations unverified.** Actual Kotak feed hosts, binary frames, data entitlements, market-hours timestamps and historical coverage require read-only acceptance testing with a real account. Never bypass a host allowlist or stale-price check merely to get a green connection.
+2. **Single-instance design.** Session registries, feeds and some rate limits are in memory. Multiple API replicas require coordinated admission limits and broker ownership. Authentication still needs edge abuse protection and load testing before broad public access.
+3. **Deployment and recovery unverified here.** The Compose/CI configuration includes restricted runtime/backup roles and encrypted backups. Actual Lightsail TLS, firewall rules, container startup, backup privileges, off-server recovery and monitoring need deployment testing. Docker/container checks were not run on this host. Keep the database and API ports private.
+4. **Recovery/key rotation incomplete.** There is no public support/account recovery service or automatic encryption-key rotation. Loss of keys makes encrypted data unrecoverable. Keep registration restricted until operations are ready.
+5. **No certification.** No independent penetration test, high-load test, OS/image audit, Git-history secret audit or real-money test was performed. Older dependency-audit results are not current proof after a lockfile change; rerun CI audits with working registry access.
+6. **CSP and feed memory tradeoffs.** Inline CSS remains allowed; development permits framework evaluation. Native WebSocket frames are checked after Node assembles them, not before allocation. Protocol limits and three connected accounts constrain normal use but do not replace process memory monitoring.
+
+Passing local tests does not establish public-production or real-money readiness.

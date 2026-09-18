@@ -1,4 +1,4 @@
-/** Authenticator-app MFA and one-use recovery codes for application accounts, not ICICI login.
+/** Authenticator-app MFA and one-use recovery codes for application accounts, not broker login.
  * Secrets use the same AES-GCM vault with a separate purpose-bound encryption context.
  * Call verification while holding the user's settings lock so concurrent requests cannot reuse a code.
  */

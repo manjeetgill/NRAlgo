@@ -21,6 +21,7 @@ jobs:
       SETUP_TOKEN: ci-only-setup-token-at-least-32-characters
       APP_DATABASE_PASSWORD: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
       BROKER_ENCRYPTION_KEY: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+      BACKUP_DATABASE_PASSWORD: dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
       BACKUP_ENCRYPTION_KEY: cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
       REGISTRATION_TOKEN: ci-only-invitation-token-at-least-32-characters
     steps:
@@ -91,6 +92,7 @@ jobs:
           JS
       - name: Verify encrypted backup restoration into a disposable database
         run: |
+          docker compose exec -T db psql -U nexus -d nexus -v ON_ERROR_STOP=1 -c "DO \$\$ BEGIN IF has_table_privilege('nexus_backup','users','INSERT') OR has_table_privilege('nexus_backup','users','UPDATE') OR has_table_privilege('nexus_backup','users','DELETE') OR NOT has_table_privilege('nexus_backup','users','SELECT') THEN RAISE EXCEPTION 'Unsafe backup privileges'; END IF; END \$\$;"
           docker compose exec -T backup node dist/backend/backup.js --once
           archive=$(docker compose exec -T backup sh -c 'ls -t /backups/*.dump.enc | head -1')
           docker compose exec -T backup node dist/backend/backup.js --decrypt "$archive" /backups/restore-test.dump

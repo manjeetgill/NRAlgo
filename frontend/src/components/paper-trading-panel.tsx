@@ -8,11 +8,13 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { requestApiJson } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { BrokerPortfolioPanel } from "./broker-portfolio-panel";
+import { KotakOptionChain } from "./kotak-option-chain";
 import {
   PaperInstrumentPicker,
+  KotakCashSymbolSelect,
   type PaperInstrument,
 } from "./paper-instrument-picker";
-type Broker = "icici" | "kotak";
+type Broker = "kotak";
 type Order = {
   key: string;
   instrument: string;
@@ -57,25 +59,22 @@ const money = (value: number | null | undefined) =>
       }).format(value / 100);
 /** Same-origin, CSRF-protected requests. Server errors contain no broker tokens. */
 function request(path: string, csrf: string, body?: unknown, method?: string) {
-  return requestApiJson(`/paper/${path}`, method || (body === undefined ? "GET" : "POST"), body, csrf, 95000);
+  return requestApiJson(
+    `/paper/${path}`,
+    method || (body === undefined ? "GET" : "POST"),
+    body,
+    csrf,
+    95000,
+  );
 }
 export function PaperTradingPanel({ csrf }: { csrf: string }) {
-  const [broker, setBroker] = useState<Broker>("icici");
+  const broker: Broker = "kotak";
   const [portfolio, setPortfolio] = useState(false);
   return (
     <section className="research-panel" aria-label="Broker paper trading">
       <h2>Broker-connected paper trading</h2>
       <p>Real broker quotes · Virtual ₹1,00,000 per broker · No real orders</p>
-      <label>
-        Paper data broker{" "}
-        <select
-          value={broker}
-          onChange={(event) => setBroker(event.target.value as Broker)}
-        >
-          <option value="icici">ICICI Direct</option>
-          <option value="kotak">Kotak Neo</option>
-        </select>
-      </label>
+      <p>Market-data broker: Kotak Neo</p>
       <Button variant="secondary" onClick={() => setPortfolio(!portfolio)}>
         {portfolio ? "Back to paper trading" : "View broker portfolio"}
       </Button>
@@ -96,9 +95,7 @@ function PaperWallet({ broker, csrf }: { broker: Broker; csrf: string }) {
     [automatic, setAutomatic] = useState(false);
   const running = useRef(false),
     orderKey = useRef("");
-  const [instrument, setInstrument] = useState(
-      broker === "icici" ? "RELIND" : "",
-    ),
+  const [instrument, setInstrument] = useState(""),
     [side, setSide] = useState("buy");
   const [quantity, setQuantity] = useState(1),
     [limit, setLimit] = useState("100");
@@ -230,13 +227,7 @@ function PaperWallet({ broker, csrf }: { broker: Broker; csrf: string }) {
           ? "Quote matching every 10 seconds"
           : "Automatic matching stopped"}
       </p>
-      {broker === "icici" ? (
-        <p>
-          Connect ICICI in the Brokers page, then return here. Use a Breeze NSE
-          cash stock code or NFO underlying code for options. Its historical
-          simulator is unchanged.
-        </p>
-      ) : (
+      {
         <form
           onSubmit={(event) => {
             event.preventDefault();
@@ -307,7 +298,7 @@ function PaperWallet({ broker, csrf }: { broker: Broker; csrf: string }) {
             </Button>
           )}
         </form>
-      )}
+      }
       {error && (
         <p role="alert" className="form-error">
           {error}
@@ -356,42 +347,63 @@ function PaperWallet({ broker, csrf }: { broker: Broker; csrf: string }) {
             <option value="options">NSE options (NFO)</option>
           </select>
         </label>
-        <PaperInstrumentPicker
-          key={`${broker}:${market}`}
-          broker={broker}
-          market={market as "cash" | "options"}
-          csrf={csrf}
-          disabled={busy || !wallet?.connected}
-          onSelect={(item) => {
-            setSelectedInstrument(item);
-            setInstrument(item.instrument);
-            if (item.option) setOption(item.option);
-            setQuantity(item.lotSize);
-            orderKey.current = "";
-            setNotice(
-              "Contract selected from broker master. Quantity set to one lot; review side and limit before placing a paper order.",
-            );
-          }}
-        />
+        {broker === "kotak" && market === "options" && (
+          <KotakOptionChain
+            csrf={csrf}
+            disabled={busy || !wallet?.connected}
+            onSelect={(item) => {
+              setSelectedInstrument(item);
+              setInstrument(item.instrument);
+              if (item.option) setOption(item.option);
+              setQuantity(item.lotSize);
+              orderKey.current = "";
+              setNotice(
+                "Kotak contract selected. Review the paper limit; a fresh quote is required for matching.",
+              );
+            }}
+          />
+        )}
+        {!(broker === "kotak" && market === "cash") && (
+          <PaperInstrumentPicker
+            key={`${broker}:${market}`}
+            broker={broker}
+            market={market as "cash" | "options"}
+            csrf={csrf}
+            disabled={busy || !wallet?.connected}
+            onSelect={(item) => {
+              setSelectedInstrument(item);
+              setInstrument(item.instrument);
+              if (item.option) setOption(item.option);
+              setQuantity(item.lotSize);
+              orderKey.current = "";
+              setNotice(
+                "Contract selected from broker master. Quantity set to one lot; review side and limit before placing a paper order.",
+              );
+            }}
+          />
+        )}
         {selectedInstrument ? (
           <p>
             Broker-master contract selected; identity and lot size are locked.{" "}
-            <Button
-              type="button"
-              variant="secondary"
-              disabled={busy}
-              onClick={() => {
-                setSelectedInstrument(null);
-                orderKey.current = "";
-              }}
-            >
-              Use manual research entry
-            </Button>
+            {!(broker === "kotak" && market === "cash") && (
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={busy}
+                onClick={() => {
+                  setSelectedInstrument(null);
+                  orderKey.current = "";
+                }}
+              >
+                Use manual research entry
+              </Button>
+            )}
           </p>
         ) : (
           <p>
-            Manual research entry: contract details and lot sizes are
-            unverified. Prefer selecting a broker-master contract above.
+            {broker === "kotak" && market === "cash"
+              ? "Select a supported symbol from the Kotak dropdown below. Its broker token is filled automatically."
+              : "Manual research entry: contract details and lot sizes are unverified. Prefer selecting a broker-master contract above."}
           </p>
         )}
         {market === "options" && (
@@ -452,19 +464,38 @@ function PaperWallet({ broker, csrf }: { broker: Broker; csrf: string }) {
           </div>
         )}
         <div className="paper-grid">
-          <label>
-            {broker === "icici"
-              ? "Breeze paper stock code"
-              : market === "cash"
-                ? "Kotak NSE cash token (pSymbol)"
-                : "Kotak NFO option token (pSymbol)"}
-            <input
-              required
-              value={instrument}
-              disabled={Boolean(selectedInstrument)}
-              onChange={(e) => setInstrument(e.target.value.toUpperCase())}
+          {broker === "kotak" && market === "cash" ? (
+            <KotakCashSymbolSelect
+              csrf={csrf}
+              connected={Boolean(wallet?.connected)}
+              disabled={busy}
+              selected={selectedInstrument}
+              onSelect={(item) => {
+                setSelectedInstrument(item);
+                setInstrument(item.instrument);
+                setQuantity(item.lotSize);
+                orderKey.current = "";
+                setNotice(
+                  "Kotak symbol selected. Review quantity and limit, then refresh paper quotes.",
+                );
+              }}
+              onClear={() => {
+                setSelectedInstrument(null);
+                setInstrument("");
+                orderKey.current = "";
+              }}
             />
-          </label>
+          ) : (
+            <label>
+              Kotak NFO option token (pSymbol)
+              <input
+                required
+                value={instrument}
+                disabled={Boolean(selectedInstrument)}
+                onChange={(e) => setInstrument(e.target.value.toUpperCase())}
+              />
+            </label>
+          )}
           <label>
             Paper side
             <select value={side} onChange={(e) => setSide(e.target.value)}>
@@ -495,7 +526,15 @@ function PaperWallet({ broker, csrf }: { broker: Broker; csrf: string }) {
             />
           </label>
         </div>
-        <Button disabled={busy || !wallet?.connected}>Place paper order</Button>
+        <Button
+          disabled={
+            busy ||
+            !wallet?.connected ||
+            (broker === "kotak" && market === "cash" && !selectedInstrument)
+          }
+        >
+          Place paper order
+        </Button>
         <Button
           type="button"
           variant="secondary"

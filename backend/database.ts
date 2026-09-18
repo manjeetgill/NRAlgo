@@ -32,7 +32,8 @@ export const isEntryPoint = (url: string) =>
  */
 export function openDatabaseStore(
   url = process.env.DATABASE_URL ||
-    (process.env.APP_ENV !== "production" && process.env.NODE_ENV !== "production"
+    (process.env.APP_ENV !== "production" &&
+    process.env.NODE_ENV !== "production"
       ? readLocalPostgresConfiguration()?.applicationUrl
       : undefined),
 ): Store {
@@ -100,8 +101,9 @@ export function openDatabaseStore(
  */
 export async function runDatabaseMigrations(
   store: Store,
-  options: { runtimePassword?: string } = {
+  options: { runtimePassword?: string; backupPassword?: string } = {
     runtimePassword: process.env.APP_DATABASE_PASSWORD,
+    backupPassword: process.env.BACKUP_DATABASE_PASSWORD,
   },
 ) {
   await store.transaction(async (query) => {
@@ -208,9 +210,6 @@ export async function runDatabaseMigrations(
         .length
     ) {
       await query(
-        "CREATE UNIQUE INDEX live_icici_owner_idx ON live_accounts(user_id) WHERE broker_binding LIKE 'icici:%'",
-      );
-      await query(
         "CREATE TABLE live_permissions (account_id VARCHAR(36) PRIMARY KEY REFERENCES live_accounts(id), session_hash VARCHAR(64) NOT NULL, armed_until DOUBLE PRECISION NOT NULL, trading_day VARCHAR(10) NOT NULL)",
       );
       await query(
@@ -244,7 +243,7 @@ export async function runDatabaseMigrations(
         .length
     ) {
       await query(
-        "CREATE TABLE paper_accounts (user_id VARCHAR(36) NOT NULL REFERENCES users(id), broker VARCHAR(10) NOT NULL CHECK (broker IN ('icici','kotak')), ledger TEXT NOT NULL, PRIMARY KEY(user_id,broker))",
+        "CREATE TABLE paper_accounts (user_id VARCHAR(36) NOT NULL REFERENCES users(id), broker VARCHAR(10) NOT NULL CHECK (broker = 'kotak'), ledger TEXT NOT NULL, PRIMARY KEY(user_id,broker))",
       );
       await query("INSERT INTO schema_migrations VALUES(7)");
     }
@@ -276,6 +275,41 @@ export async function runDatabaseMigrations(
       );
     });
   }
+  if (options.backupPassword)
+    await provisionBackupRole(store, options.backupPassword);
+}
+
+/** Only the migration administrator provisions this dedicated dump reader. */
+export async function provisionBackupRole(store: Store, password: string) {
+  if (!/^[a-f0-9]{64}$/i.test(password))
+    throw new Error(
+      "BACKUP_DATABASE_PASSWORD must be 64 random hex characters.",
+    );
+  await store.transaction(async (query) => {
+    await query("SELECT pg_advisory_xact_lock(684201)");
+    if (
+      !(
+        await query("SELECT rolname FROM pg_roles WHERE rolname='nexus_backup'")
+      ).length
+    )
+      await query(
+        "CREATE ROLE nexus_backup LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS",
+      );
+    await query(
+      `ALTER ROLE nexus_backup WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD '${password}'`,
+    );
+    await query("GRANT USAGE ON SCHEMA public TO nexus_backup");
+    await query("GRANT SELECT ON ALL TABLES IN SCHEMA public TO nexus_backup");
+    await query(
+      "GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO nexus_backup",
+    );
+    await query(
+      "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO nexus_backup",
+    );
+    await query(
+      "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON SEQUENCES TO nexus_backup",
+    );
+  });
 }
 /** Record a safe, user-visible event and retain the newest 2,000 events per account. No secrets. */
 export const audit = async (query: Query, message: string, userId: string) => {
@@ -307,7 +341,8 @@ export const lockWorkspaceSettings = async (
 
 if (isEntryPoint(import.meta.url)) {
   const local =
-    (process.env.APP_ENV === "production" || process.env.NODE_ENV === "production")
+    process.env.APP_ENV === "production" ||
+    process.env.NODE_ENV === "production"
       ? null
       : readLocalPostgresConfiguration();
   const store = openDatabaseStore(
@@ -319,6 +354,7 @@ if (isEntryPoint(import.meta.url)) {
     await runDatabaseMigrations(store, {
       runtimePassword:
         process.env.APP_DATABASE_PASSWORD || local?.applicationPassword,
+      backupPassword: process.env.BACKUP_DATABASE_PASSWORD,
     });
     console.log("Database migration complete.");
   } finally {

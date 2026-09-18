@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { requestApiJson } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { KotakAccountReports } from "./kotak-account-reports";
 type Row = {
   symbol: string;
   exchange: string;
@@ -29,7 +30,7 @@ export function BrokerPortfolioPanel({
   broker,
   csrf,
 }: {
-  broker: "icici" | "kotak";
+  broker: "kotak";
   csrf: string;
 }) {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null),
@@ -41,7 +42,13 @@ export function BrokerPortfolioPanel({
     setSnapshot(null);
     setError("");
     try {
-      const data = await requestApiJson(`/portfolio/${broker}/refresh`, "POST", undefined, csrf, 95000);
+      const data = await requestApiJson(
+        `/portfolio/${broker}/refresh`,
+        "POST",
+        undefined,
+        csrf,
+        95000,
+      );
       setSnapshot(data);
     } catch (error) {
       setError(
@@ -54,17 +61,17 @@ export function BrokerPortfolioPanel({
   return (
     <section className="paper-wallet" aria-label="Broker portfolio">
       <h3>Broker portfolio — read only</h3>
+      {broker === "kotak" && <KotakAccountReports csrf={csrf} />}
       <p>
         Real account positions and holdings. Never merged with paper cash, paper
         positions or simulated P&amp;L. Connect the selected broker first;
         live-order execution is not required.
       </p>
       <p>
-        {broker === "kotak"
-          ? "Kotak positions cover positions returned by its current-day trades API; untraded carry-forward positions may not be included."
-          : "ICICI positions are from Portfolio Positions; holdings are from Demat Holdings."}{" "}
-        Values are broker-reported snapshots, not guaranteed live marks. Missing
-        values remain unavailable.
+        Kotak positions cover positions returned by its current-day trades API;
+        untraded carry-forward positions may not be included. Values are
+        broker-reported snapshots, not guaranteed live marks. Missing values
+        remain unavailable.
       </p>
       <Button disabled={busy} onClick={() => void refresh()}>
         {busy ? "Fetching broker portfolio…" : "Refresh broker portfolio"}

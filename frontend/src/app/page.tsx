@@ -41,13 +41,11 @@ import {
 } from "lucide-react";
 import { requestApiJson } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { BrokerPanel, AccountPanel } from "@/components/broker-panel";
-import {
-  LiveTradingPanel,
-  type LiveOrderDraft,
-} from "@/components/live-trading-panel";
+import { AccountPanel } from "@/components/account-panel";
 import { StrategyLabPanel } from "@/components/strategy-lab-panel";
 import { PaperTradingPanel } from "@/components/paper-trading-panel";
+import { KotakAccountReports } from "@/components/kotak-account-reports";
+import { KotakMarketDataPanel } from "@/components/kotak-market-data-panel";
 
 type Strategy = {
   id: string;
@@ -91,6 +89,7 @@ type Workspace = {
   events: { id: number; message: string; created_at: string }[];
 };
 type Page =
+  | "Market data"
   | "Broker paper"
   | "Strategy lab"
   | "Live trading"
@@ -101,6 +100,7 @@ type Page =
   | "Account & security"
   | "Activity log"
   | "Learn the stack";
+type DashboardMode = "paper" | "live";
 const money = (n: number) =>
   new Intl.NumberFormat("en-IN", {
     style: "currency",
@@ -190,11 +190,8 @@ export default function TradingWorkspacePage() {
     invite_required: boolean;
   } | null>(null);
   const [page, setPage] = useState<Page>("Overview");
-  const [researchDraft, setResearchDraft] = useState<
-    LiveOrderDraft | undefined
-  >();
-  // Never carry a previous signed-in user's instrument draft into another account.
-  useEffect(() => setResearchDraft(undefined), [workspace?.username]);
+  const [dashboardMode, setDashboardMode] = useState<DashboardMode>("paper");
+  const [marketPrefill, setMarketPrefill] = useState<string[]>([]);
   const [registering, setRegistering] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -486,9 +483,14 @@ export default function TradingWorkspacePage() {
     { name: "Strategies" as Page, icon: Blocks },
     { name: "Strategy lab" as Page, icon: FlaskConical },
     { name: "Broker paper" as Page, icon: Radio },
+    { name: "Market data" as Page, icon: Database },
     { name: "Orders & trades" as Page, icon: ArrowDownLeft },
     { name: "Brokers" as Page, icon: Wallet },
-    { name: "Live trading" as Page, icon: ShieldCheck },
+    {
+      name: "Live trading" as Page,
+      label: "Live positions",
+      icon: ShieldCheck,
+    },
     { name: "Account & security" as Page, icon: ShieldCheck },
     { name: "Activity log" as Page, icon: Clock3 },
   ];
@@ -609,16 +611,16 @@ export default function TradingWorkspacePage() {
         </div>
         <p className="nav-label">WORKSPACE</p>
         <nav>
-          {navigation.map(({ name, icon: Icon }) => (
+          {navigation.map(({ name, label = name, icon: Icon }) => (
             <button
               key={name}
-              aria-label={name}
-              title={name}
+              aria-label={label}
+              title={label}
               className={page === name ? "active" : ""}
               onClick={() => setPage(name)}
             >
               <Icon size={18} />
-              <span>{name}</span>
+              <span>{label}</span>
               {name === "Strategies" && <b>{workspace.strategies.length}</b>}
             </button>
           ))}
@@ -681,7 +683,7 @@ export default function TradingWorkspacePage() {
           <div className="topbar-right">
             <span className="local-badge">
               <i />{" "}
-              {page === "Live trading"
+              {page === "Live trading" || dashboardMode === "live"
                 ? "Live trading controls"
                 : "Paper research"}
             </span>
@@ -691,20 +693,6 @@ export default function TradingWorkspacePage() {
           </div>
         </header>
         <main className="content">
-          {workspace.live_configured && page !== "Live trading" && (
-            <div className="environment is-paused">
-              <div>
-                <strong>ICICI live controls are configured</strong>
-                <span>
-                  This page runs paper research only. Navigating here does not
-                  stop live orders or close broker positions.
-                </span>
-              </div>
-              <Button variant="danger" onClick={() => setPage("Live trading")}>
-                Live status / kill switch
-              </Button>
-            </div>
-          )}
           <div className="heading">
             <div>
               <p className="eyebrow">YOUR TRADING COMMAND CENTER</p>
@@ -713,11 +701,13 @@ export default function TradingWorkspacePage() {
               </h1>
               <p>
                 {page === "Overview"
-                  ? "Build, test, and keep every strategy in sight."
+                  ? dashboardMode === "paper"
+                    ? "Paper-only strategy and simulator performance."
+                    : "Read-only Kotak account positions and marked P&L."
                   : page === "Strategies"
                     ? "Turn your ideas into repeatable rules."
-                    : page === "Brokers"
-                      ? "Connect your ICICI account and explore market data."
+                    : page === "Brokers" || page === "Market data"
+                      ? "Connect Kotak Neo and explore market data."
                       : page === "Orders & trades"
                         ? "Every simulated fill, with its strategy and execution price."
                         : page === "Activity log"
@@ -727,7 +717,7 @@ export default function TradingWorkspacePage() {
             </div>
             <Button
               onClick={() => {
-                if (page === "Live trading") {
+                if (page === "Live trading" || dashboardMode === "live") {
                   setPage("Strategies");
                   return;
                 }
@@ -735,7 +725,7 @@ export default function TradingWorkspacePage() {
                   setPage("Brokers");
                   return;
                 }
-                if (page === "Broker paper") {
+                if (page === "Broker paper" || page === "Market data") {
                   setPage("Brokers");
                   return;
                 }
@@ -744,9 +734,11 @@ export default function TradingWorkspacePage() {
               }}
             >
               <Plus size={17} />{" "}
-              {page === "Live trading"
+              {page === "Live trading" || dashboardMode === "live"
                 ? "Paper strategies"
-                : page === "Strategy lab" || page === "Broker paper"
+                : page === "Strategy lab" ||
+                    page === "Broker paper" ||
+                    page === "Market data"
                   ? "Connect market data"
                   : "New strategy"}
             </Button>
@@ -756,7 +748,9 @@ export default function TradingWorkspacePage() {
               {error}
             </div>
           )}
-          {page !== "Live trading" &&
+          {dashboardMode === "paper" &&
+            page !== "Live trading" &&
+            page !== "Market data" &&
             page !== "Strategy lab" &&
             page !== "Broker paper" && (
               <section
@@ -777,49 +771,72 @@ export default function TradingWorkspacePage() {
                 </div>
                 <Button
                   variant="secondary"
-                  onClick={() => setPage("Live trading")}
+                  onClick={() => {
+                    setDashboardMode("live");
+                    setPage("Overview");
+                  }}
                 >
-                  Switch to live controls
+                  View live dashboard
                 </Button>
               </section>
             )}
           {page === "Broker paper" && (
             <PaperTradingPanel csrf={workspace.csrf} />
           )}
-          {page === "Live trading" &&
-            (!workspace.live_submission_enabled ? (
-              <section className="environment">
-                <div>
-                  <strong>
-                    Real-order submission is disabled on this server.
-                  </strong>
-                  <p>
-                    Use Broker paper for market-fed simulated orders. Existing
-                    real positions or orders, if any, must be checked directly
-                    at your broker.
-                  </p>
-                </div>
-              </section>
-            ) : (
-              <LiveTradingPanel
-                csrf={workspace.csrf}
-                draft={researchDraft}
-                onPaper={() => setPage("Overview")}
-              />
-            ))}
-          {page === "Strategy lab" && (
-            <StrategyLabPanel
+          {page === "Market data" && (
+            <KotakMarketDataPanel
               csrf={workspace.csrf}
-              onLiveDraft={(draft) => {
-                setResearchDraft(draft);
-                setPage("Live trading");
+              prefilledInstruments={marketPrefill}
+            />
+          )}
+          {page === "Live trading" && (
+            <KotakAccountReports csrf={workspace.csrf} loadOnMount />
+          )}
+          {page === "Strategy lab" && (
+            <StrategyLabPanel csrf={workspace.csrf} />
+          )}
+          {page === "Overview" && dashboardMode === "live" && (
+            <KotakAccountReports
+              csrf={workspace.csrf}
+              loadOnMount
+              summaryOnly={page === "Overview" && dashboardMode === "live"}
+              onOpenMarket={(instruments) => {
+                setMarketPrefill(instruments);
+                setPage("Market data");
               }}
             />
           )}
-          {(page === "Overview" || page === "Strategies") && (
+          {(page === "Strategies" ||
+            (page === "Overview" && dashboardMode === "paper")) && (
             <>
               {page === "Overview" && (
                 <>
+                  <section
+                    className="dashboard-mode"
+                    aria-label="Dashboard source"
+                  >
+                    <span>Dashboard source</span>
+                    <div role="group" aria-label="Select dashboard source">
+                      <Button
+                        type="button"
+                        variant={
+                          dashboardMode === "paper" ? "primary" : "secondary"
+                        }
+                        onClick={() => setDashboardMode("paper")}
+                      >
+                        Paper
+                      </Button>
+                      <Button
+                        type="button"
+                        variant={
+                          dashboardMode === "live" ? "primary" : "secondary"
+                        }
+                        onClick={() => setDashboardMode("live")}
+                      >
+                        Live · read only
+                      </Button>
+                    </div>
+                  </section>
                   <section className="metrics">
                     <article>
                       <div>
@@ -994,7 +1011,52 @@ export default function TradingWorkspacePage() {
               </section>
             </>
           )}
-          {page === "Brokers" && <BrokerPanel csrf={workspace.csrf} />}
+          {page === "Overview" && dashboardMode === "live" && (
+            <>
+              <section className="dashboard-mode" aria-label="Dashboard source">
+                <span>Dashboard source</span>
+                <div role="group" aria-label="Select dashboard source">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => setDashboardMode("paper")}
+                  >
+                    Paper
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="primary"
+                    onClick={() => setDashboardMode("live")}
+                  >
+                    Live · read only
+                  </Button>
+                </div>
+              </section>
+              <section className="environment">
+                <span className="environment-icon">
+                  <ShieldCheck size={18} />
+                </span>
+                <div>
+                  <strong>Live broker dashboard — read only</strong>
+                  <span>
+                    Values above come from Kotak positions and quotes. They
+                    never affect paper cash, paper orders, or replay P&amp;L.
+                  </span>
+                </div>
+                <Button
+                  variant="secondary"
+                  onClick={() => setPage("Live trading")}
+                >
+                  View live positions
+                </Button>
+              </section>
+            </>
+          )}
+          {page === "Brokers" && (
+            <>
+              <PaperTradingPanel csrf={workspace.csrf} />
+            </>
+          )}
           {page === "Account & security" && (
             <AccountPanel csrf={workspace.csrf} onRefresh={refreshWorkspace} />
           )}
