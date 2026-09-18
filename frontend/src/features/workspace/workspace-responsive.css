@@ -106,7 +106,20 @@
     width: 100%;
   }
 }
+.navigation-close {
+  display: none;
+}
 @media (max-width: 880px) {
+  .navigation-close {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    color: inherit;
+    background: transparent;
+    border: 1px solid currentColor;
+    padding: 6px;
+    margin-bottom: 12px;
+  }
   .app-shell .sidebar {
     visibility: hidden;
     transform: translateX(-100%);

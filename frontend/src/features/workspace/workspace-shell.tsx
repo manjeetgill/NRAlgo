@@ -1,6 +1,6 @@
 "use client";
 /** Shared layout owns navigation only. Session, forms, quotes and broker commands have separate owners. */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Activity,
   ChevronRight,
@@ -45,6 +45,9 @@ export function WorkspaceShell({
 }) {
   const [requestedPage, setPage] = useState<WorkspacePage>("Overview");
   const [menuOpen, setMenuOpen] = useState(false);
+  const navigationRef = useRef<HTMLElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
   const [researchStrategyId, setResearchStrategyId] = useState("");
   const [templateId, setTemplateId] = useState<TemplateId>("ema");
   const [spreadDraft, setSpreadDraft] = useState<ResearchDraft>();
@@ -88,6 +91,65 @@ export function WorkspaceShell({
       window.removeEventListener("keydown", closeOnEscape);
     };
   }, [tradingMode]);
+  /** Mobile navigation is modal: contain keyboard focus and disable the background until dismissal.
+   * Cleanup restores the trigger and removes listeners on navigation, Escape, resize or unmount. */
+  useEffect(() => {
+    if (!menuOpen) {
+      return;
+    }
+    const query = window.matchMedia("(max-width: 880px)");
+    if (!query.matches) {
+      setMenuOpen(false);
+      return;
+    }
+    const navigation = navigationRef.current,
+      content = contentRef.current,
+      trigger = menuButtonRef.current;
+    if (!navigation || !content) {
+      return;
+    }
+    content.inert = true;
+    /** Only visible enabled controls participate in the focus cycle. */
+    const controls = () =>
+      Array.from(
+        navigation.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), [tabindex="0"]',
+        ),
+      ).filter((element) => element.getClientRects().length > 0);
+    controls()[0]?.focus();
+    /** Wrap Tab at either edge; Escape is also handled by the shell's close listener. */
+    function keepFocus(event: KeyboardEvent) {
+      if (event.key !== "Tab") {
+        return;
+      }
+      const items = controls(),
+        first = items[0],
+        last = items.at(-1);
+      if (
+        (event.shiftKey && document.activeElement === first) ||
+        (!event.shiftKey && document.activeElement === last)
+      ) {
+        event.preventDefault();
+        (event.shiftKey ? last : first)?.focus();
+      }
+    }
+    /** Desktop navigation is not modal and must not leave the main screen inert. */
+    function onResize() {
+      if (!query.matches) {
+        setMenuOpen(false);
+      }
+    }
+    navigation.addEventListener("keydown", keepFocus);
+    query.addEventListener("change", onResize);
+    return () => {
+      content.inert = false;
+      navigation.removeEventListener("keydown", keepFocus);
+      query.removeEventListener("change", onResize);
+      if (query.matches) {
+        trigger?.focus();
+      }
+    };
+  }, [menuOpen]);
   /** This shortcut changes presentation only, never account/execution permissions. */
   const onExploreOptionChain = useCallback(() => {
     setMarketInitialTool("chain");
@@ -163,10 +225,26 @@ export function WorkspaceShell({
         <button
           className="navigation-overlay"
           aria-label="Close navigation"
+          tabIndex={-1}
           onClick={() => setMenuOpen(false)}
         />
       )}
-      <aside className="sidebar" id="workspace-navigation">
+      <aside
+        ref={navigationRef}
+        className="sidebar"
+        id="workspace-navigation"
+        role={menuOpen ? "dialog" : undefined}
+        aria-modal={menuOpen || undefined}
+        aria-label="Workspace navigation menu"
+      >
+        <button
+          type="button"
+          className="navigation-close"
+          aria-label="Close navigation menu"
+          onClick={() => setMenuOpen(false)}
+        >
+          <X size={18} /> Close
+        </button>
         <a
           className="brand"
           href="#"
@@ -242,10 +320,11 @@ export function WorkspaceShell({
           </div>
         </div>
       </aside>
-      <div className="main-shell">
+      <div ref={contentRef} className="main-shell">
         <header className="topbar">
           <button
             className="navigation-toggle"
+            ref={menuButtonRef}
             aria-label={menuOpen ? "Close navigation" : "Open navigation"}
             aria-expanded={menuOpen}
             aria-controls="workspace-navigation"
