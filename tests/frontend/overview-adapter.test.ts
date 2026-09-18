@@ -96,7 +96,7 @@ test("live reports preserve unknown positions while retaining known funds", /** 
       assert.equal(snapshot.availableFunds, 42.5);
       assert.deepEqual(snapshot.warnings, ["Positions unavailable"]);
       assert.equal(calls.length, 1);
-      assert.equal(calls[0].url, "/api/paper/kotak/reports");
+      assert.equal(calls[0].url, "/api/brokers/kotak/overview");
       assert.equal(calls[0].init?.method, "POST");
       assert.equal(
         (calls[0].init?.headers as Record<string, string>)["X-CSRF-Token"],
@@ -179,7 +179,7 @@ test("stream operations use only subscription and cached-price endpoints", /** N
           /** Inspect each path without leaking request headers. */ (call) =>
             call.url,
         ),
-        ["/api/paper/kotak/live-feed", "/api/market/kotak/feed"],
+        ["/api/market/live-feed", "/api/market/kotak/feed"],
       );
     },
   );

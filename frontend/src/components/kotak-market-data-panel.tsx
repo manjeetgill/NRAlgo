@@ -291,7 +291,7 @@ export function KotakMarketDataPanel({
           <h2>Kotak market data</h2>
           <p>
             Connect under Brokers first. Read-only data; this screen cannot
-            place real or paper orders.
+            submit orders.
           </p>
         </div>
       </div>
@@ -497,8 +497,8 @@ export function KotakMarketDataPanel({
           {selectedTool === "instruments" && (
             <p>
               Discover all seven supported master CSV files. NSE searchable
-              dropdowns remain in Broker paper; other files are read-only
-              reference downloads.
+              contracts are available in the trading ticket; other files are
+              read-only reference downloads.
             </p>
           )}
           {selectedTool === "history" && (

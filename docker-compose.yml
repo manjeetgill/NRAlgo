@@ -56,6 +56,7 @@ services:
       APP_ORIGIN: https://${APP_DOMAIN:?Set APP_DOMAIN to your hostname}
       MARKET_DATA_PROVIDER: ${MARKET_DATA_PROVIDER:-kotak}
       LIVE_TRADING_ENABLED: ${LIVE_TRADING_ENABLED:-false}
+      PAPER_TRADING_ENABLED: ${PAPER_TRADING_ENABLED:-false}
       KOTAK_STATIC_IP_CONFIRMED: ${KOTAK_STATIC_IP_CONFIRMED:-false}
       SETUP_TOKEN: ${SETUP_TOKEN:?Set a random setup token}
       BROKER_ENCRYPTION_KEY: ${BROKER_ENCRYPTION_KEY:?Set a persistent 64-character hex encryption key}

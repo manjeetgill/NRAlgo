@@ -39,6 +39,12 @@ import {
 } from "lucide-react";
 import { requestApiJson } from "@/lib/api";
 import { OverviewScreen } from "@/features/overview/overview-screen";
+import {
+  getTradingMode,
+  isTradingPageVisible,
+  isTradingEventVisible,
+} from "@/lib/trading-mode";
+import { BrokerConnectionPanel } from "@/features/brokers/broker-connection-panel";
 import { Button } from "@/components/ui/button";
 import { AccountPanel } from "@/components/account-panel";
 import { StrategyLabPanel } from "@/components/strategy-lab-panel";
@@ -79,6 +85,7 @@ type Job = {
   result: Result;
 };
 type Workspace = {
+  paper_trading_enabled?: boolean;
   live_submission_enabled?: boolean;
   live_configured?: boolean;
   username: string;
@@ -116,7 +123,13 @@ export default function TradingWorkspacePage() {
     registration_enabled: boolean;
     invite_required: boolean;
   } | null>(null);
-  const [page, setPage] = useState<Page>("Overview");
+  const [requestedPage, setPage] = useState<Page>("Overview");
+  const tradingMode = getTradingMode(workspace?.paper_trading_enabled);
+  const isPaperMode = tradingMode === "paper";
+  // Guard the rendered route as well as navigation, including after a server setting change.
+  const page: Page = isTradingPageVisible(requestedPage, tradingMode)
+    ? requestedPage
+    : "Overview";
   // Overview's option-chain shortcut opens the existing explorer at the requested tool.
   const [marketInitialTool, setMarketInitialTool] = useState<
     "quotes" | "chain"
@@ -266,14 +279,14 @@ export default function TradingWorkspacePage() {
             </h1>
             <p>
               A home for your trading ideas—from the first line of JavaScript to
-              your next paper strategy.
+              your next trading decision.
             </p>
             <div className="auth-pills">
               <span>
                 <Code2 size={15} /> JavaScript powered
               </span>
               <span>
-                <FlaskConical size={15} /> Paper first
+                <ShieldCheck size={15} /> Controlled execution
               </span>
             </div>
           </div>
@@ -393,7 +406,7 @@ export default function TradingWorkspacePage() {
             )}
             <div className="auth-note">
               <ShieldCheck size={16} />
-              <span>Private workspaces · Separate paper and live controls</span>
+              <span>Private workspaces · Explicit trading authorization</span>
             </div>
           </div>
         </div>
@@ -425,7 +438,11 @@ export default function TradingWorkspacePage() {
     },
     { name: "Account & security" as Page, icon: ShieldCheck },
     { name: "Activity log" as Page, icon: Clock3 },
-  ];
+  ].filter(
+    /** Remove disallowed workflows entirely, not just their labels. */ (
+      item,
+    ) => isTradingPageVisible(item.name, tradingMode),
+  );
   const filtered = workspace.strategies.filter((s) =>
     `${s.name} ${s.symbol}`.toLowerCase().includes(search.toLowerCase()),
   );
@@ -558,23 +575,27 @@ export default function TradingWorkspacePage() {
           ))}
         </nav>
         <div className="sidebar-bottom">
-          <div className="build-card">
-            <span className="tiny-label">BUILT TO LEARN</span>
-            <strong>Your ideas, in JavaScript.</strong>
-            <p>Explore the tools behind your workspace.</p>
-            <button onClick={() => setPage("Learn the stack")}>
-              Explore the stack <ArrowUpRight size={14} />
+          {isPaperMode && (
+            <div className="build-card">
+              <span className="tiny-label">BUILT TO LEARN</span>
+              <strong>Your ideas, in JavaScript.</strong>
+              <p>Explore the tools behind your workspace.</p>
+              <button onClick={() => setPage("Learn the stack")}>
+                Explore the stack <ArrowUpRight size={14} />
+              </button>
+            </div>
+          )}
+          {isPaperMode && (
+            <button
+              className="learn-link"
+              aria-label="Learning guide"
+              title="Learning guide"
+              onClick={() => setPage("Learn the stack")}
+            >
+              <CircleHelp size={17} />
+              <span>Learning guide</span>
             </button>
-          </div>
-          <button
-            className="learn-link"
-            aria-label="Learning guide"
-            title="Learning guide"
-            onClick={() => setPage("Learn the stack")}
-          >
-            <CircleHelp size={17} />
-            <span>Learning guide</span>
-          </button>
+          )}
           <div className="profile">
             <span className="avatar">
               {workspace.username[0].toUpperCase()}
@@ -619,7 +640,9 @@ export default function TradingWorkspacePage() {
                 ? "Live trading controls"
                 : page === "Overview"
                   ? "Account overview"
-                  : "Paper research"}
+                  : isPaperMode
+                    ? "Paper research"
+                    : "Live workspace"}
             </span>
             <span className="topbar-divider" />
             <ShieldCheck size={16} />
@@ -646,33 +669,44 @@ export default function TradingWorkspacePage() {
                             : "Build a useful project. Learn how each piece fits."}
                 </p>
               </div>
-              <Button
-                onClick={() => {
-                  if (page === "Live trading") {
-                    setPage("Strategies");
-                    return;
+              {isPaperMode ? (
+                <Button
+                  onClick={() => {
+                    if (page === "Live trading") {
+                      setPage("Strategies");
+                      return;
+                    }
+                    if (page === "Strategy lab") {
+                      setPage("Brokers");
+                      return;
+                    }
+                    if (page === "Broker paper" || page === "Market data") {
+                      setPage("Brokers");
+                      return;
+                    }
+                    setFormError("");
+                    setModal(true);
+                  }}
+                >
+                  <Plus size={17} />{" "}
+                  {page === "Live trading"
+                    ? "Paper strategies"
+                    : page === "Strategy lab" ||
+                        page === "Broker paper" ||
+                        page === "Market data"
+                      ? "Connect market data"
+                      : "New strategy"}
+                </Button>
+              ) : (
+                <Button
+                  onClick={
+                    /** Live workspace navigation never opens a simulated-strategy form. */ () =>
+                      setPage("Brokers")
                   }
-                  if (page === "Strategy lab") {
-                    setPage("Brokers");
-                    return;
-                  }
-                  if (page === "Broker paper" || page === "Market data") {
-                    setPage("Brokers");
-                    return;
-                  }
-                  setFormError("");
-                  setModal(true);
-                }}
-              >
-                <Plus size={17} />{" "}
-                {page === "Live trading"
-                  ? "Paper strategies"
-                  : page === "Strategy lab" ||
-                      page === "Broker paper" ||
-                      page === "Market data"
-                    ? "Connect market data"
-                    : "New strategy"}
-              </Button>
+                >
+                  <Wallet size={17} /> Broker connection
+                </Button>
+              )}
             </div>
           )}
           {error && (
@@ -680,7 +714,8 @@ export default function TradingWorkspacePage() {
               {error}
             </div>
           )}
-          {page !== "Overview" &&
+          {isPaperMode &&
+            page !== "Overview" &&
             page !== "Live trading" &&
             page !== "Market data" &&
             page !== "Strategy lab" &&
@@ -704,10 +739,10 @@ export default function TradingWorkspacePage() {
                 <Button
                   variant="secondary"
                   onClick={() => {
-                    setPage("Live trading");
+                    setPage("Overview");
                   }}
                 >
-                  View live dashboard
+                  View overview
                 </Button>
               </section>
             )}
@@ -731,7 +766,7 @@ export default function TradingWorkspacePage() {
           )}
           {page === "Overview" && (
             <OverviewScreen
-              key={workspace.csrf}
+              key={`${workspace.csrf}:${tradingMode}`}
               workspace={workspace}
               onNavigate={setPage}
               onExploreOptionChain={onExploreOptionChain}
@@ -759,9 +794,7 @@ export default function TradingWorkspacePage() {
             </section>
           )}
           {page === "Brokers" && (
-            <>
-              <PaperTradingPanel csrf={workspace.csrf} />
-            </>
+            <BrokerConnectionPanel key={workspace.csrf} csrf={workspace.csrf} />
           )}
           {page === "Account & security" && (
             <AccountPanel csrf={workspace.csrf} onRefresh={refreshWorkspace} />
@@ -842,19 +875,25 @@ export default function TradingWorkspacePage() {
                 <Clock3 size={18} />
               </div>
               <div className="timeline">
-                {workspace.events.map((e) => (
-                  <div key={e.id}>
-                    <span className="timeline-dot">
-                      <Check size={12} />
-                    </span>
-                    <div>
-                      <strong>{e.message}</strong>
-                      <time>
-                        {new Date(e.created_at).toLocaleString("en-IN")}
-                      </time>
+                {workspace.events
+                  .filter(
+                    /** Keep this mode's activity view separate without deleting audit history. */ (
+                      event,
+                    ) => isTradingEventVisible(event.message, tradingMode),
+                  )
+                  .map((e) => (
+                    <div key={e.id}>
+                      <span className="timeline-dot">
+                        <Check size={12} />
+                      </span>
+                      <div>
+                        <strong>{e.message}</strong>
+                        <time>
+                          {new Date(e.created_at).toLocaleString("en-IN")}
+                        </time>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
               </div>
             </section>
           )}
@@ -906,8 +945,8 @@ export default function TradingWorkspacePage() {
           {page !== "Overview" && (
             <footer>
               <span>
-                <LockKeyhole size={12} /> Personal workspace · Separate paper
-                and live controls
+                <LockKeyhole size={12} /> Personal workspace ·{" "}
+                {isPaperMode ? "Paper trading" : "Live trading"}
               </span>
               <span>
                 Next.js + Node.js <span className="footer-dot">•</span> Built to
@@ -917,96 +956,100 @@ export default function TradingWorkspacePage() {
           )}
         </main>
       </div>
-      <dialog
-        ref={dialog}
-        onCancel={() => setModal(false)}
-        onClose={() => setModal(false)}
-        className="strategy-dialog"
-      >
-        <form onSubmit={saveStrategy}>
-          <button
-            type="button"
-            className="dialog-close"
-            aria-label="Close dialog"
-            onClick={() => setModal(false)}
-          >
-            <X size={20} />
-          </button>
-          <span className="icon-tile">
-            <Blocks size={23} />
-          </span>
-          <h2>Create a strategy</h2>
-          <p>Define an EMA crossover and test it in your paper workspace.</p>
-          {formError && (
-            <div className="error" role="alert">
-              {formError}
+      {isPaperMode && (
+        <dialog
+          ref={dialog}
+          onCancel={() => setModal(false)}
+          onClose={() => setModal(false)}
+          className="strategy-dialog"
+        >
+          <form onSubmit={saveStrategy}>
+            <button
+              type="button"
+              className="dialog-close"
+              aria-label="Close dialog"
+              onClick={() => setModal(false)}
+            >
+              <X size={20} />
+            </button>
+            <span className="icon-tile">
+              <Blocks size={23} />
+            </span>
+            <h2>Create a strategy</h2>
+            <p>Define an EMA crossover and test it in your paper workspace.</p>
+            {formError && (
+              <div className="error" role="alert">
+                {formError}
+              </div>
+            )}
+            <label>
+              Strategy name
+              <input
+                name="name"
+                minLength={2}
+                maxLength={60}
+                required
+                placeholder="e.g. NIFTY momentum"
+                autoFocus
+              />
+            </label>
+            <div className="form-grid">
+              <label>
+                Instrument
+                <select name="symbol">
+                  <option>NIFTY</option>
+                  <option>BANKNIFTY</option>
+                  <option>SENSEX</option>
+                </select>
+              </label>
+              <label>
+                Virtual capital (₹)
+                <input
+                  name="capital"
+                  type="number"
+                  min={1000}
+                  max={500000}
+                  step={1}
+                  defaultValue={100000}
+                  required
+                />
+              </label>
+              <label>
+                Fast EMA
+                <input
+                  name="fast"
+                  type="number"
+                  min={2}
+                  max={40}
+                  defaultValue={9}
+                  required
+                />
+              </label>
+              <label>
+                Slow EMA
+                <input
+                  name="slow"
+                  type="number"
+                  min={3}
+                  max={80}
+                  defaultValue={21}
+                  required
+                />
+              </label>
             </div>
-          )}
-          <label>
-            Strategy name
-            <input
-              name="name"
-              minLength={2}
-              maxLength={60}
-              required
-              placeholder="e.g. NIFTY momentum"
-              autoFocus
-            />
-          </label>
-          <div className="form-grid">
-            <label>
-              Instrument
-              <select name="symbol">
-                <option>NIFTY</option>
-                <option>BANKNIFTY</option>
-                <option>SENSEX</option>
-              </select>
-            </label>
-            <label>
-              Virtual capital (₹)
-              <input
-                name="capital"
-                type="number"
-                min={1000}
-                max={500000}
-                step={1}
-                defaultValue={100000}
-                required
-              />
-            </label>
-            <label>
-              Fast EMA
-              <input
-                name="fast"
-                type="number"
-                min={2}
-                max={40}
-                defaultValue={9}
-                required
-              />
-            </label>
-            <label>
-              Slow EMA
-              <input
-                name="slow"
-                type="number"
-                min={3}
-                max={80}
-                defaultValue={21}
-                required
-              />
-            </label>
-          </div>
-          <div className="form-note">
-            <FlaskConical size={16} />
-            <span>Paper mode · Synthetic sample data · No broker required</span>
-          </div>
-          <Button className="w-full" disabled={busy}>
-            {busy ? "Saving…" : "Create paper strategy"}
-            <ArrowRight size={15} />
-          </Button>
-        </form>
-      </dialog>
+            <div className="form-note">
+              <FlaskConical size={16} />
+              <span>
+                Paper mode · Synthetic sample data · No broker required
+              </span>
+            </div>
+            <Button className="w-full" disabled={busy}>
+              {busy ? "Saving…" : "Create paper strategy"}
+              <ArrowRight size={15} />
+            </Button>
+          </form>
+        </dialog>
+      )}
       {notice && (
         <div className="toast" role="status">
           <Check size={17} />

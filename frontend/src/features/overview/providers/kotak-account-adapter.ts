@@ -21,6 +21,14 @@ const rupeesFromPaise = (value: unknown) => {
 export const kotakAccountAdapter: BrokerAccountAdapter = {
   id: "kotak",
   name: "Kotak Neo",
+  /** GET reads authentication state only; no virtual account, quotes or execution are requested. */
+  async loadConnectionStatus() {
+    const status = await requestApiJson("/brokers/kotak/status");
+    if (typeof status.connected !== "boolean") {
+      throw new Error("Broker connection status is unavailable.");
+    }
+    return status.connected;
+  },
   /** Load the existing virtual ledger and connection flag without matching or sending orders. */
   async loadPaperAccount() {
     // GET reads the virtual ledger (lazily initialized by the server); no broker execution.
@@ -108,7 +116,7 @@ export const kotakAccountAdapter: BrokerAccountAdapter = {
     // POST is a CSRF-protected read: limits and positions only, not orders/trades or execution.
     // The extended timeout accommodates the broker's serialized report/initial quote reads.
     const reports = await requestApiJson(
-      "/paper/kotak/reports",
+      "/brokers/kotak/overview",
       "POST",
       {},
       csrf,
@@ -172,7 +180,7 @@ export const kotakAccountAdapter: BrokerAccountAdapter = {
   /** Start the shared price subscription. Returning the promise leaves waiting to the hook. */
   startPositionFeed(csrf) {
     // POST subscribes the server's cached open-position tokens; the screen never sends orders.
-    return requestApiJson("/paper/kotak/live-feed", "POST", {}, csrf);
+    return requestApiJson("/market/live-feed", "POST", {}, csrf);
   },
   /** Read the server's tick cache only; this does not refetch broker account reports. */
   async readPriceTicks() {

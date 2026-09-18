@@ -19,8 +19,8 @@ import {
   formatActivityTime,
 } from "@/features/overview/overview-model";
 import { useOverviewAccount } from "@/features/overview/use-overview-account";
+import { getTradingMode, isTradingEventVisible } from "@/lib/trading-mode";
 import type {
-  AccountMode,
   OverviewDestination,
   OverviewWorkspace,
 } from "@/features/overview/overview-types";
@@ -38,7 +38,8 @@ export function OverviewScreen({
   onExploreOptionChain: () => void;
 }) {
   const [brokerId, setBrokerId] = useState(availableBrokers[0].id);
-  const [mode, setMode] = useState<AccountMode>("paper");
+  // The server setting selects one workspace; a local toggle cannot reveal a disabled mode.
+  const mode = getTradingMode(workspace.paper_trading_enabled);
   const [showPositions, setShowPositions] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<
     OverviewWorkspace["events"][number] | null
@@ -57,6 +58,11 @@ export function OverviewScreen({
     (job) => job.status === "running",
   ).length;
   const recentEvents = [...workspace.events]
+    .filter(
+      /** Keep simulated history out of the live view without changing stored audit records. */ (
+        event,
+      ) => isTradingEventVisible(event.message, mode),
+    )
     .sort(
       /** Event IDs establish stable newest-first audit ordering without mutating workspace data. */ (
         a,
@@ -81,14 +87,6 @@ export function OverviewScreen({
   function onBrokerChange(event: ChangeEvent<HTMLSelectElement>) {
     setBrokerId(event.target.value);
     setShowPositions(false);
-  }
-  /** Bind a mode button without transferring balances or automatically enabling execution. */
-  function onSelectMode(value: AccountMode) {
-    /** Hide the previous book while the selected mode's independent state is rendered. */
-    return () => {
-      setMode(value);
-      setShowPositions(false);
-    };
   }
   /** Explicitly request one snapshot; the hook owns promise rejection and loading state. */
   function onRefreshSnapshot() {
@@ -148,14 +146,18 @@ export function OverviewScreen({
         <div>
           <strong>
             <LockKeyhole size={15} />
-            {workspace.live_configured
-              ? "Live execution requires explicit authorization"
-              : "Live trading is locked"}
+            {mode === "paper"
+              ? "Paper trading workspace"
+              : workspace.live_configured
+                ? "Live execution requires explicit authorization"
+                : "Live trading is locked"}
           </strong>
           <p>
-            {workspace.live_configured
-              ? "Review your risk limits and arm live trading in its dedicated screen. Viewing this dashboard never enables orders."
-              : "Practice with paper orders and explore the market. Live execution is disabled on this server."}
+            {mode === "paper"
+              ? "Virtual funds and simulated orders only. No real orders are submitted from this workspace."
+              : workspace.live_configured
+                ? "Review your risk limits and arm live trading in its dedicated screen. Viewing this dashboard never enables orders."
+                : "View your broker account and market data. Live execution is disabled on this server."}
           </p>
         </div>
         <button onClick={onNavigateTo("Account & security")}>
@@ -165,43 +167,49 @@ export function OverviewScreen({
 
       {/* Paper/live headline values come from independent snapshots, never demo constants. */}
       <div className={styles.metrics}>
-        <article className={styles.metric} aria-label="Paper profit and loss">
-          <div>
-            Paper P&amp;L <FlaskConical size={17} />
-          </div>
-          <strong className={getPnlClassName(account.paper?.pnl)}>
-            {formatAccountMoney(account.paper?.pnl)}
-          </strong>
-          <p>Realized + unrealized · paper ledger, all time</p>
-        </article>
-        <article
-          className={styles.metric}
-          aria-label="Live position profit and loss"
-        >
-          <div>
-            Live position P&amp;L <Activity size={17} />
-          </div>
-          <strong className={getPnlClassName(account.live?.pnl)}>
-            {formatAccountMoney(account.live?.pnl)}
-          </strong>
-          <p>
-            {account.live
-              ? "Open broker positions · last known marks"
-              : account.connected
-                ? "Select Live to load broker positions"
-                : "Connect your broker to view"}
-          </p>
-        </article>
-        <article className={styles.metric} aria-label="Running replay jobs">
-          <div>
-            Running replays <Activity size={17} />
-          </div>
-          <strong>{runningJobs}</strong>
-          <p>
-            {workspace.strategies.length} strategies saved ·{" "}
-            {workspace.halted ? "paper workspace paused" : "paper mode"}
-          </p>
-        </article>
+        {mode === "paper" && (
+          <article className={styles.metric} aria-label="Paper profit and loss">
+            <div>
+              Paper P&amp;L <FlaskConical size={17} />
+            </div>
+            <strong className={getPnlClassName(account.paper?.pnl)}>
+              {formatAccountMoney(account.paper?.pnl)}
+            </strong>
+            <p>Realized + unrealized · paper ledger, all time</p>
+          </article>
+        )}
+        {mode === "live" && (
+          <article
+            className={styles.metric}
+            aria-label="Live position profit and loss"
+          >
+            <div>
+              Live position P&amp;L <Activity size={17} />
+            </div>
+            <strong className={getPnlClassName(account.live?.pnl)}>
+              {formatAccountMoney(account.live?.pnl)}
+            </strong>
+            <p>
+              {account.live
+                ? "Open broker positions · last known marks"
+                : account.connected
+                  ? "Refresh snapshot to load broker positions"
+                  : "Connect your broker to view"}
+            </p>
+          </article>
+        )}
+        {mode === "paper" && (
+          <article className={styles.metric} aria-label="Running replay jobs">
+            <div>
+              Running replays <Activity size={17} />
+            </div>
+            <strong>{runningJobs}</strong>
+            <p>
+              {workspace.strategies.length} strategies saved ·{" "}
+              {workspace.halted ? "paper workspace paused" : "paper mode"}
+            </p>
+          </article>
+        )}
         <button
           className={`${styles.metric} ${styles.metricButton}`}
           onClick={onNavigateTo("Brokers")}
@@ -239,25 +247,6 @@ export function OverviewScreen({
                 ? "Simulated funds"
                 : "Read-only broker snapshot"}
             </span>
-          </div>
-          <div
-            className={styles.modeSwitch}
-            role="group"
-            aria-label="Dashboard account mode"
-          >
-            {(["paper", "live"] as const).map(
-              /** Render accessible pressed-state controls for the two independent accounts. */ (
-                value,
-              ) => (
-                <button
-                  key={value}
-                  aria-pressed={mode === value}
-                  onClick={onSelectMode(value)}
-                >
-                  {value === "paper" ? "Paper" : "Live"}
-                </button>
-              ),
-            )}
           </div>
           <button
             className={styles.refresh}
@@ -313,7 +302,7 @@ export function OverviewScreen({
         {mode === "live" && account.connected === false && (
           <p className={styles.notice}>
             Connect {broker.name} in Broker connections to load funds and
-            positions. Paper trading remains separate.
+            positions.
           </p>
         )}
         {account.error && (
@@ -412,7 +401,7 @@ export function OverviewScreen({
             <div className={styles.empty}>
               <Clock3 size={26} />
               <h3>Your activity will appear here</h3>
-              <p>Create a strategy or connect your broker to get started.</p>
+              <p>Connect your broker to get started.</p>
             </div>
           )}
         </section>
@@ -422,9 +411,11 @@ export function OverviewScreen({
             <div className={styles.quickActions}>
               <button
                 className={styles.primary}
-                onClick={onNavigateTo("Strategy lab")}
+                onClick={onNavigateTo(
+                  mode === "paper" ? "Strategy lab" : "Live trading",
+                )}
               >
-                Create a strategy
+                {mode === "paper" ? "Create a strategy" : "Open live trading"}
               </button>
               <button onClick={onNavigateTo("Brokers")}>
                 Connect a broker
@@ -434,48 +425,53 @@ export function OverviewScreen({
               </button>
             </div>
           </section>
-          <section className={styles.card}>
-            <h2>Before you go live</h2>
-            <ul className={styles.checklist}>
-              <li>
-                <ShieldCheck size={17} />
-                <span>Authenticator MFA</span>
-                <strong>
-                  {account.mfaEnabled === null
-                    ? "Unknown"
-                    : account.mfaEnabled
-                      ? "Enabled"
-                      : "Required"}
-                </strong>
-              </li>
-              <li>
-                <Radio size={17} />
-                <span>Broker session</span>
-                <strong>
-                  {account.connected === null
-                    ? "Checking"
-                    : account.connected
-                      ? "Connected"
-                      : "Required"}
-                </strong>
-              </li>
-              <li>
-                <Check size={17} />
-                <span>Risk limits &amp; authorization</span>
-                <button onClick={onNavigateTo("Live trading")}>
-                  Review <ArrowRight size={12} />
-                </button>
-              </li>
-            </ul>
-            <p className={styles.readinessNote}>
-              Connection and trading permission are separate. Check all controls
-              before placing a live order.
-            </p>
-          </section>
+          {mode === "live" && (
+            <section className={styles.card}>
+              <h2>Before you go live</h2>
+              <ul className={styles.checklist}>
+                <li>
+                  <ShieldCheck size={17} />
+                  <span>Authenticator MFA</span>
+                  <strong>
+                    {account.mfaEnabled === null
+                      ? "Unknown"
+                      : account.mfaEnabled
+                        ? "Enabled"
+                        : "Required"}
+                  </strong>
+                </li>
+                <li>
+                  <Radio size={17} />
+                  <span>Broker session</span>
+                  <strong>
+                    {account.connected === null
+                      ? "Checking"
+                      : account.connected
+                        ? "Connected"
+                        : "Required"}
+                  </strong>
+                </li>
+                <li>
+                  <Check size={17} />
+                  <span>Risk limits &amp; authorization</span>
+                  <button onClick={onNavigateTo("Live trading")}>
+                    Review <ArrowRight size={12} />
+                  </button>
+                </li>
+              </ul>
+              <p className={styles.readinessNote}>
+                Connection and trading permission are separate. Check all
+                controls before placing a live order.
+              </p>
+            </section>
+          )}
         </div>
       </div>
       <footer className={styles.footer}>
-        <span>NRIAlgo / Overview · Paper and live accounts stay separate</span>
+        <span>
+          NRIAlgo / Overview ·{" "}
+          {mode === "paper" ? "Paper workspace" : "Live workspace"}
+        </span>
         <span>
           <Wallet size={13} /> {broker.name}
         </span>

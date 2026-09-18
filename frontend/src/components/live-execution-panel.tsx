@@ -106,7 +106,7 @@ export function LiveExecutionPanel({ csrf }: { csrf: string }) {
       <p>
         Use a dedicated, initially flat trading account with an empty order
         book. Manual orders, carried positions or unknown outcomes halt
-        execution. Paper orders are never promoted to live.
+        execution. Every live order requires explicit authorization.
       </p>
       <p>
         Funds use Kotak RMS buying power, not a settled cash ledger. Halting

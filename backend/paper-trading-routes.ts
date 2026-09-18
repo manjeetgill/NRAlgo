@@ -60,6 +60,8 @@ export function registerPaperRoutes(
       "/api/market/instruments",
       "/api/market/option-chain",
       "/api/market/live-feed",
+      "/api/brokers/kotak/connect",
+      "/api/brokers/kotak/overview",
     ],
     limit,
   );
@@ -122,55 +124,71 @@ export function registerPaperRoutes(
     return broker === "kotak" && marketData.isConnected(userId, sessionHash);
   }
   /** Login makes two documented authentication calls, never an order request. No raw secrets in responses. */
-  app.post("/api/paper/kotak/connect", async (req, res) => {
-    const parsed = kotakLoginSchema.safeParse(req.body);
-    if (!parsed.success) {
-      // Only static field hints leave the server; never serialize validation inputs.
-      const hints: Record<string, string> = {
-        accessToken: "API dashboard token is required (8–4096 characters)",
-        mobileNumber: "Mobile must be +91 followed by 10 digits",
-        ucc: "UCC must contain 1–32 characters",
-        totp: "TOTP must be exactly 6 digits from your registered authenticator",
-        mpin: "MPIN must be exactly 6 digits",
-      };
-      const issues = [
-        ...new Set(
-          parsed.error.issues.map((issue) =>
-            Object.hasOwn(hints, String(issue.path[0]))
-              ? hints[String(issue.path[0])]
-              : "Unexpected or missing login fields",
+  app.post(
+    ["/api/paper/kotak/connect", "/api/brokers/kotak/connect"],
+    async (req, res) => {
+      const parsed = kotakLoginSchema.safeParse(req.body);
+      if (!parsed.success) {
+        // Only static field hints leave the server; never serialize validation inputs.
+        const hints: Record<string, string> = {
+          accessToken: "API dashboard token is required (8–4096 characters)",
+          mobileNumber: "Mobile must be +91 followed by 10 digits",
+          ucc: "UCC must contain 1–32 characters",
+          totp: "TOTP must be exactly 6 digits from your registered authenticator",
+          mpin: "MPIN must be exactly 6 digits",
+        };
+        const issues = [
+          ...new Set(
+            parsed.error.issues.map((issue) =>
+              Object.hasOwn(hints, String(issue.path[0]))
+                ? hints[String(issue.path[0])]
+                : "Unexpected or missing login fields",
+            ),
           ),
-        ),
-      ];
-      fail(422, `[KOTAK_INPUT_INVALID] ${issues.join(". ")}.`);
-    }
-    const input = parsed.data!,
-      session = res.locals.session;
-    await reserveBrokerRequestBudget(store, session.user_id, production);
-    await reserveBrokerRequestBudget(store, session.user_id, production);
-    await requestCoordinator.runExclusiveForUser(session.user_id, async () => {
-      try {
-        openPositionCache.delete(res.locals.session.user_id);
-        await kotak.connect(
-          session.user_id,
-          session.token_hash,
-          session.expires * 1000,
-          input,
-        );
-      } catch (error) {
-        if (error instanceof KotakConnectionError) throw error;
-        fail(
-          502,
-          "Kotak login failed. Verify token, TOTP, MPIN and host. Credentials are not saved.",
-        );
+        ];
+        fail(422, `[KOTAK_INPUT_INVALID] ${issues.join(". ")}.`);
       }
+      const input = parsed.data!,
+        session = res.locals.session;
+      await reserveBrokerRequestBudget(store, session.user_id, production);
+      await reserveBrokerRequestBudget(store, session.user_id, production);
+      await requestCoordinator.runExclusiveForUser(
+        session.user_id,
+        async () => {
+          try {
+            openPositionCache.delete(res.locals.session.user_id);
+            await kotak.connect(
+              session.user_id,
+              session.token_hash,
+              session.expires * 1000,
+              input,
+            );
+          } catch (error) {
+            if (error instanceof KotakConnectionError) throw error;
+            fail(
+              502,
+              "Kotak login failed. Verify token, TOTP, MPIN and host. Credentials are not saved.",
+            );
+          }
+        },
+      );
+      res.json({ connected: true });
+    },
+  );
+  app.delete(
+    ["/api/paper/kotak/connect", "/api/brokers/kotak/connect"],
+    (req, res) => {
+      kotak.disconnect(res.locals.session.user_id);
+      openPositionCache.delete(res.locals.session.user_id);
+      res.json({ connected: false });
+    },
+  );
+  /** Read broker authentication only. Unlike a virtual-wallet read, this never initializes a ledger. */
+  app.get("/api/brokers/kotak/status", (_req, res) => {
+    const session = res.locals.session;
+    res.json({
+      connected: kotak.isConnected(session.user_id, session.token_hash),
     });
-    res.json({ connected: true });
-  });
-  app.delete("/api/paper/kotak/connect", (req, res) => {
-    kotak.disconnect(res.locals.session.user_id);
-    openPositionCache.delete(res.locals.session.user_id);
-    res.json({ connected: false });
   });
   app.get("/api/paper/:broker", async (req, res) => {
     const broker = paperBrokerSchema.parse(req.params.broker),
@@ -529,131 +547,146 @@ export function registerPaperRoutes(
   });
   /** Live monitoring reads only funds and open positions. Order/trade history is intentionally
    * excluded: positions are marked from their exact Kotak option tokens instead. */
-  app.post("/api/paper/kotak/reports", async (_req, res) => {
-    const session = res.locals.session;
-    if (!kotak.isConnected(session.user_id, session.token_hash))
-      fail(409, "Connect Kotak first.");
-    const cachedPositions = openPositionCache.get(session.user_id);
-    const reusablePositions =
-      cachedPositions &&
-      cachedPositions.sessionHash === session.token_hash &&
-      cachedPositions.expiresAt > Date.now()
-        ? cachedPositions.rows
-        : null;
-    const result: Record<string, unknown> = {
-      source: "kotak",
-      readOnly: true,
-      observedAt: Date.now(),
-    };
-    await requestCoordinator.runExclusiveForUser(session.user_id, async () => {
-      for (const kind of ["limits", "positions"] as const) {
-        await reserveBrokerRequestBudget(store, session.user_id, production);
-        try {
-          result[kind] = {
-            rows:
-              kind === "positions"
-                ? await (async () => {
-                    const positions =
-                      reusablePositions ??
-                      (await kotak.getPortfolioRows(
+  app.post(
+    ["/api/paper/kotak/reports", "/api/brokers/kotak/overview"],
+    async (_req, res) => {
+      const session = res.locals.session;
+      if (!kotak.isConnected(session.user_id, session.token_hash))
+        fail(409, "Connect Kotak first.");
+      const cachedPositions = openPositionCache.get(session.user_id);
+      const reusablePositions =
+        cachedPositions &&
+        cachedPositions.sessionHash === session.token_hash &&
+        cachedPositions.expiresAt > Date.now()
+          ? cachedPositions.rows
+          : null;
+      const result: Record<string, unknown> = {
+        source: "kotak",
+        readOnly: true,
+        observedAt: Date.now(),
+      };
+      await requestCoordinator.runExclusiveForUser(
+        session.user_id,
+        async () => {
+          for (const kind of ["limits", "positions"] as const) {
+            await reserveBrokerRequestBudget(
+              store,
+              session.user_id,
+              production,
+            );
+            try {
+              result[kind] = {
+                rows:
+                  kind === "positions"
+                    ? await (async () => {
+                        const positions =
+                          reusablePositions ??
+                          (await kotak.getPortfolioRows(
+                            session.user_id,
+                            session.token_hash,
+                            "positions",
+                          ));
+                        if (!reusablePositions)
+                          openPositionCache.set(session.user_id, {
+                            sessionHash: session.token_hash,
+                            expiresAt: Date.now() + 15 * 60 * 1000,
+                            rows: positions,
+                          });
+                        const bySegment = new Map<
+                          "nse_cm" | "nse_fo",
+                          string[]
+                        >();
+                        for (const position of positions) {
+                          const segment = position.exchange as
+                            "nse_cm" | "nse_fo";
+                          if (
+                            (segment === "nse_cm" || segment === "nse_fo") &&
+                            /^\d{1,15}$/.test(position.instrumentToken)
+                          )
+                            bySegment.set(segment, [
+                              ...(bySegment.get(segment) || []),
+                              position.instrumentToken,
+                            ]);
+                        }
+                        const marks = new Map<string, number>();
+                        for (const [segment, tokens] of bySegment) {
+                          const uniqueTokens = [...new Set(tokens)];
+                          for (
+                            let offset = 0;
+                            offset < uniqueTokens.length;
+                            offset += 50
+                          ) {
+                            await reserveBrokerRequestBudget(
+                              store,
+                              session.user_id,
+                              production,
+                            );
+                            for (const quote of await marketData.getQuoteSnapshots(
+                              session.user_id,
+                              session.token_hash,
+                              uniqueTokens.slice(offset, offset + 50),
+                              segment,
+                            ))
+                              if (quote.price !== null && !quote.stale)
+                                marks.set(
+                                  `${segment}|${quote.instrument}`,
+                                  quote.price,
+                                );
+                          }
+                        }
+                        return positions.map(
+                          ({
+                            instrumentToken,
+                            pnlBase,
+                            pnlPerMark,
+                            ...position
+                          }) => {
+                            const markPrice =
+                              marks.get(
+                                `${position.exchange}|${instrumentToken}`,
+                              ) ?? position.markPrice;
+                            return {
+                              ...position,
+                              instrumentToken,
+                              pnlBase,
+                              pnlPerMark,
+                              markPrice,
+                              pnl:
+                                markPrice !== null &&
+                                pnlBase !== null &&
+                                pnlPerMark !== null
+                                  ? pnlBase + pnlPerMark * markPrice
+                                  : position.pnl !== null &&
+                                      position.markPrice !== null &&
+                                      markPrice !== null &&
+                                      pnlPerMark !== null
+                                    ? position.pnl +
+                                      (markPrice - position.markPrice) *
+                                        pnlPerMark
+                                    : position.pnl,
+                            };
+                          },
+                        );
+                      })()
+                    : await kotak.getAccountReport(
                         session.user_id,
                         session.token_hash,
-                        "positions",
-                      ));
-                    if (!reusablePositions)
-                      openPositionCache.set(session.user_id, {
-                        sessionHash: session.token_hash,
-                        expiresAt: Date.now() + 15 * 60 * 1000,
-                        rows: positions,
-                      });
-                    const bySegment = new Map<"nse_cm" | "nse_fo", string[]>();
-                    for (const position of positions) {
-                      const segment = position.exchange as "nse_cm" | "nse_fo";
-                      if (
-                        (segment === "nse_cm" || segment === "nse_fo") &&
-                        /^\d{1,15}$/.test(position.instrumentToken)
-                      )
-                        bySegment.set(segment, [
-                          ...(bySegment.get(segment) || []),
-                          position.instrumentToken,
-                        ]);
-                    }
-                    const marks = new Map<string, number>();
-                    for (const [segment, tokens] of bySegment) {
-                      const uniqueTokens = [...new Set(tokens)];
-                      for (
-                        let offset = 0;
-                        offset < uniqueTokens.length;
-                        offset += 50
-                      ) {
-                        await reserveBrokerRequestBudget(
-                          store,
-                          session.user_id,
-                          production,
-                        );
-                        for (const quote of await marketData.getQuoteSnapshots(
-                          session.user_id,
-                          session.token_hash,
-                          uniqueTokens.slice(offset, offset + 50),
-                          segment,
-                        ))
-                          if (quote.price !== null && !quote.stale)
-                            marks.set(
-                              `${segment}|${quote.instrument}`,
-                              quote.price,
-                            );
-                      }
-                    }
-                    return positions.map(
-                      ({
-                        instrumentToken,
-                        pnlBase,
-                        pnlPerMark,
-                        ...position
-                      }) => {
-                        const markPrice =
-                          marks.get(
-                            `${position.exchange}|${instrumentToken}`,
-                          ) ?? position.markPrice;
-                        return {
-                          ...position,
-                          instrumentToken,
-                          pnlBase,
-                          pnlPerMark,
-                          markPrice,
-                          pnl:
-                            markPrice !== null &&
-                            pnlBase !== null &&
-                            pnlPerMark !== null
-                              ? pnlBase + pnlPerMark * markPrice
-                              : position.pnl !== null &&
-                                  position.markPrice !== null &&
-                                  markPrice !== null &&
-                                  pnlPerMark !== null
-                                ? position.pnl +
-                                  (markPrice - position.markPrice) * pnlPerMark
-                                : position.pnl,
-                        };
-                      },
-                    );
-                  })()
-                : await kotak.getAccountReport(
-                    session.user_id,
-                    session.token_hash,
-                    kind,
-                  ),
-            error: null,
-          };
-        } catch {
-          result[kind] = {
-            rows: null,
-            error: `Kotak ${kind} unavailable; not assumed empty.`,
-          };
-        }
-      }
-    });
-    res.json(result);
-  });
+                        kind,
+                      ),
+                error: null,
+              };
+            } catch {
+              result[kind] = {
+                rows: null,
+                error: `Kotak ${kind} unavailable; not assumed empty.`,
+              };
+            }
+          }
+        },
+      );
+      res.json(result);
+    },
+  );
   app.post(
     ["/api/market/live-feed", "/api/paper/kotak/live-feed"],
     async (req, res) => {

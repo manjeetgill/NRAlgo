@@ -1,6 +1,7 @@
 /** Screen-facing contracts use INR, exchange units and epoch milliseconds.
  * Broker wire fields and token formats are confined to provider adapters. */
-export type AccountMode = "paper" | "live";
+export type { TradingMode as AccountMode } from "@/lib/trading-mode";
+import type { TradingMode as AccountMode } from "@/lib/trading-mode";
 /** Navigation targets understood by the workspace shell; no execution commands are exposed. */
 export type OverviewDestination =
   | "Strategies"
@@ -46,6 +47,8 @@ export interface PriceTick {
 export interface BrokerAccountAdapter {
   id: string;
   name: string;
+  /** Read broker authentication without loading or creating a virtual ledger. */
+  loadConnectionStatus(): Promise<boolean>;
   /** A read-only account adapter: screen navigation must never submit or arm orders. */
   loadPaperAccount(): Promise<{
     connected: boolean;
@@ -63,6 +66,7 @@ export interface OverviewWorkspace {
   csrf: string;
   halted: boolean;
   live_configured?: boolean;
+  paper_trading_enabled?: boolean;
   strategies: { id: string; name: string; status: string }[];
   jobs: { id: string; status: string }[];
   events: { id: number; message: string; created_at: string }[];

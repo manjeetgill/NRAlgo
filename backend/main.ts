@@ -94,6 +94,8 @@ export function createApiApplication(
   if (env.REGISTRATION_TOKEN && env.REGISTRATION_TOKEN.length < 32)
     throw new Error("REGISTRATION_TOKEN must contain at least 32 characters.");
   const vault = credentialVault(env);
+  // Runtime presentation setting, deliberately independent of real-money execution permission.
+  const paperTradingEnabled = env.PAPER_TRADING_ENABLED === "true";
   const brokerAccess = new BrokerRequestCoordinator();
   const kotakClient = kotakData || new KotakMarketDataClient();
   // Share one public catalog between paper tickets and research contract resolution.
@@ -238,6 +240,7 @@ export function createApiApplication(
         setup_token_required: Boolean(setupToken),
         registration_enabled: registrationEnabled,
         invite_required: !openRegistration,
+        paper_trading_enabled: paperTradingEnabled,
       })),
     ),
   );
@@ -454,6 +457,7 @@ export function createApiApplication(
       await store.transaction(async (query) => ({
         live_submission_enabled: false,
         live_configured: liveManager.enabled,
+        paper_trading_enabled: paperTradingEnabled,
         username: (
           await query<User>("SELECT username FROM users WHERE id=$1", [userId])
         )[0].username,

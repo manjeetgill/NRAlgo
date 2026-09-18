@@ -183,3 +183,24 @@ acceptance testing and operational supervision remain deployment requirements.
 PostgreSQL schemas, testing payloads, correlation, auth/CSRF/MFA, idempotency,
 unknown outcomes, expiry and cancellation ownership. Existing OMS tests cover
 timeouts, restart recovery, drift and multi-leg safety independently.
+
+### Workspace presentation mode
+
+Set `PAPER_TRADING_ENABLED` in the root `.env` (or the API container environment),
+then restart the API. This is a runtime setting returned by `/api/workspace`;
+no frontend rebuild is needed.
+
+- `false` (default): live-only navigation, account balances, positions, and order controls.
+  Simulated wallets, replays, strategy forms, virtual balances and explicitly simulated
+  activity messages are not rendered. The live Overview never loads a virtual wallet.
+- `true`: the paper workspace, virtual balance and research tools are shown instead.
+
+This setting only chooses the workspace UI. It does **not** enable real-money execution,
+arm an account, disable existing API permissions, delete ledgers, or stop queued jobs.
+`LIVE_TRADING_ENABLED`, broker/static-IP requirements, MFA and explicit arming remain
+independent execution safeguards. Stored audit history is retained; filtering is only
+for the displayed mode. Legacy events are identified by their explicit simulator labels.
+
+Broker authentication uses the wallet-independent `/api/brokers/kotak/status` and
+`/api/brokers/kotak/connect` endpoints. `/api/brokers/kotak/overview` loads real funds and
+positions. Existing API aliases remain compatible with older clients.

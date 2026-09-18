@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { requestApiJson } from "@/lib/api";
 import { applyPriceTicks } from "@/features/overview/overview-model";
+import { loadOverviewSnapshot } from "@/features/overview/load-overview-snapshot";
 import type {
   AccountMode,
   AccountSnapshot,
@@ -32,7 +33,7 @@ export function useOverviewAccount(
   /** Serialize snapshot reads. Dependencies bind requests to the chosen adapter/session;
    * generation checks discard late results, and failures preserve the last known snapshot. */
   const loadAccountSnapshot = useCallback(
-    /** Load readiness independently, then paper connection state and optionally live funds/positions.
+    /** Load readiness independently, then only the configured account's funds/positions.
      * This callback handles its own rejection so event handlers can safely invoke it with void. */
     async (requestedMode: AccountMode) => {
       if (inFlight.current) {
@@ -62,24 +63,17 @@ export function useOverviewAccount(
           },
         );
       try {
-        // Adapter API: read the virtual ledger and broker connection flag, never place orders.
-        const result = await broker.loadPaperAccount();
+        // Mode-isolated API orchestration: a live read must never initialize a virtual wallet.
+        const result = await loadOverviewSnapshot(broker, csrf, requestedMode);
         if (version !== generation.current) {
           return;
         }
-        setPaper(result.snapshot);
         setConnected(result.connected);
-        if (!result.connected) {
-          liveSnapshot.current = null;
-          setLive(null);
-        }
-        if (requestedMode === "live" && result.connected) {
-          // Adapter API: one explicit report snapshot; do not retry automatically on failure.
-          const snapshot = await broker.loadLiveAccount(csrf);
-          if (version === generation.current) {
-            liveSnapshot.current = snapshot;
-            setLive(snapshot);
-          }
+        if (requestedMode === "paper") {
+          setPaper(result.snapshot);
+        } else {
+          liveSnapshot.current = result.snapshot;
+          setLive(result.snapshot);
         }
       } catch (failure) {
         if (version === generation.current) {
@@ -98,7 +92,7 @@ export function useOverviewAccount(
     },
     [broker, csrf],
   );
-  /** Re-establish the baseline when the memoized adapter/session loader changes.
+  /** Re-establish only the configured account when mode, adapter or session changes.
    * Cleanup invalidates pending reads, including React Strict Mode's development remount. */
   useEffect(() => {
     generation.current++;
@@ -108,19 +102,14 @@ export function useOverviewAccount(
     liveSnapshot.current = null;
     setConnected(null);
     setMfaEnabled(null);
-    void loadAccountSnapshot("paper");
+    void loadAccountSnapshot(mode);
+    // Capture the ref container, not its value: later manual refreshes must also be invalidated.
+    const requestGeneration = generation;
     /** Invalidate outstanding promises without changing shared broker connections. */
     return () => {
-      generation.current++;
+      requestGeneration.current++;
     };
-  }, [loadAccountSnapshot]);
-  /** Observe mode and load completion to fetch Live once after connection is established.
-   * Cached snapshots are reused; errors stop automatic retries. No resource needs cleanup. */
-  useEffect(() => {
-    if (mode === "live" && !live && connected === true && !loading && !error) {
-      void loadAccountSnapshot("live");
-    }
-  }, [mode, live, connected, loading, error, loadAccountSnapshot]);
+  }, [loadAccountSnapshot, mode]);
   /** Re-subscribe after adapter, session, mode, connection or snapshot identity changes.
    * Tick updates preserve capturedAt, so price renders do not recreate the timer.
    * Cleanup cancels this consumer, but leaves the shared feed available to other screens. */

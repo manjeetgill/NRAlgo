@@ -64,7 +64,13 @@ export function KotakAccountReports({
     setError("");
     try {
       setData(
-        await requestApiJson("/paper/kotak/reports", "POST", {}, csrf, 95000),
+        await requestApiJson(
+          "/brokers/kotak/overview",
+          "POST",
+          {},
+          csrf,
+          95000,
+        ),
       );
     } catch (failure) {
       setError((failure as Error).message);
@@ -184,10 +190,9 @@ export function KotakAccountReports({
       <h3>Kotak funds and open positions — read only</h3>
       <p role="status">Price feed: {feedStatus}</p>
       <p>
-        Real broker records, separate from paper trading. Monetary fields are
-        INR. Each open position is marked from its exact Kotak instrument token.
-        Order and trade-history reports are not requested; no orders are sent
-        from this view.
+        Real broker records. Monetary fields are INR. Each open position is
+        marked from its exact Kotak instrument token. Order and trade-history
+        reports are not requested; no orders are sent from this view.
       </p>
       <Button type="button" disabled={busy} onClick={() => void refresh()}>
         {busy
