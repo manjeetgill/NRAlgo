@@ -6,7 +6,29 @@ import {
   calculatePositionPnl,
   formatAccountMoney,
   formatActivityTime,
+  retainKnownExposure,
 } from "../../frontend/src/features/overview/overview-model";
+
+test("11-T08 outage retains ten known units until a successful empty reconciliation", () => {
+  const prior = createSnapshot();
+  const disconnected = retainKnownExposure(prior, null)!;
+  assert.equal(disconnected.positions![0].quantity, 10);
+  assert.equal(disconnected.capturedAt, prior.capturedAt);
+  assert.match(disconnected.warnings.join(" "), /Last known/);
+  const partial = retainKnownExposure(
+    disconnected,
+    createSnapshot({ positions: null, pnl: null, capturedAt: 3000 }),
+  )!;
+  assert.equal(partial.positions![0].quantity, 10);
+  assert.equal(partial.capturedAt, prior.capturedAt);
+  const flat = createSnapshot({ positions: [], pnl: 0, capturedAt: 4000 });
+  assert.equal(retainKnownExposure(partial, flat), flat);
+  assert.equal(retainKnownExposure(null, null), null);
+  assert.equal(
+    retainKnownExposure(createSnapshot({ mode: "paper" }), null),
+    null,
+  );
+});
 import type {
   AccountSnapshot,
   PriceTick,

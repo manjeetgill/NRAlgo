@@ -20,6 +20,7 @@ import {
 } from "@/features/overview/overview-model";
 import { useOverviewAccount } from "@/features/overview/use-overview-account";
 import { getTradingMode, isTradingEventVisible } from "@/lib/trading-mode";
+import { orderAuditEvents } from "@/features/activity/audit-model";
 import type {
   OverviewDestination,
   OverviewWorkspace,
@@ -53,17 +54,11 @@ export function OverviewScreen({
     ) ?? availableBrokers[0];
   const account = useOverviewAccount(broker, workspace.csrf, mode);
   const snapshot = mode === "paper" ? account.paper : account.live;
-  const recentEvents = [...workspace.events]
+  const recentEvents = orderAuditEvents(workspace.events)
     .filter(
       /** Keep simulated history out of the live view without changing stored audit records. */ (
         event,
       ) => isTradingEventVisible(event.message, mode),
-    )
-    .sort(
-      /** Event IDs establish stable newest-first audit ordering without mutating workspace data. */ (
-        a,
-        b,
-      ) => b.id - a.id,
     )
     .slice(0, 5);
   /** Bind a navigation destination without granting any trading permissions. */

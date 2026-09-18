@@ -1,7 +1,10 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { requestApiJson } from "@/lib/api";
-import { applyPriceTicks } from "@/features/overview/overview-model";
+import {
+  applyPriceTicks,
+  retainKnownExposure,
+} from "@/features/overview/overview-model";
 import { loadOverviewSnapshot } from "@/features/overview/load-overview-snapshot";
 import type {
   AccountMode,
@@ -73,10 +76,25 @@ export function useOverviewAccount(
           setPaper(result.snapshot);
         } else {
           liveSnapshot.current = result.snapshot;
-          setLive(result.snapshot);
+          setLive(
+            /** Keep prior exposure until a successful broker snapshot proves it changed. */ (
+              previous,
+            ) => retainKnownExposure(previous, result.snapshot),
+          );
         }
       } catch (failure) {
         if (version === generation.current) {
+          setConnected(null);
+          setLive(
+            /** Failed transport is not evidence of an empty account. */ (
+              previous,
+            ) =>
+              retainKnownExposure(
+                previous,
+                null,
+                "Account refresh failed. Showing last known exposure and marks; reconciliation is required.",
+              ),
+          );
           setError(
             failure instanceof Error
               ? failure.message
@@ -120,6 +138,7 @@ export function useOverviewAccount(
       !subscribedSnapshot?.positions?.length ||
       connected !== true
     ) {
+      setFeedMessage("No active price subscription · last known values only");
       return;
     }
     let cancelled = false,

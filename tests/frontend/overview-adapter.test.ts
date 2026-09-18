@@ -3,6 +3,22 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { kotakAccountAdapter } from "../../frontend/src/features/overview/providers/kotak-account-adapter";
 
+test("11-T02 long valuation is 300; missing mark cannot display an old broker P&L as current", async () => {
+  for (const markPrice of [2940, null]) {
+    await withResponse(
+      {
+        positions: {
+          rows: [{ quantity: 10, averagePrice: 2910, markPrice, pnl: 300 }],
+        },
+      },
+      async () => {
+        const snapshot = await kotakAccountAdapter.loadLiveAccount("test-csrf");
+        assert.equal(snapshot.pnl, markPrice === null ? null : 300);
+      },
+    );
+  }
+});
+
 /** Install a scoped HTTP stub and restore global fetch even when an assertion fails. */
 async function withResponse(
   payload: unknown,

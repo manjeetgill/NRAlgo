@@ -4,6 +4,44 @@ import type {
   PriceTick,
 } from "@/features/overview/overview-types";
 
+/** Preserve known exposure during an outage, never interpret a failed read as a confirmed flat book.
+ * Call only within the same authenticated account; the hook clears all state on account/mode changes.
+ * A complete successful snapshot (including an empty book) replaces the old one normally. */
+export function retainKnownExposure(
+  previous: AccountSnapshot | null,
+  incoming: AccountSnapshot | null,
+  reason = "Broker disconnected. Last known exposure is retained; reconnect and refresh to reconcile.",
+): AccountSnapshot | null {
+  if (!previous || previous.mode !== "live") {
+    return incoming;
+  }
+  if (!incoming) {
+    return {
+      ...previous,
+      warnings: [...new Set([...previous.warnings, reason])],
+    };
+  }
+  if (
+    incoming.mode !== "live" ||
+    incoming.positions !== null ||
+    previous.positions === null
+  ) {
+    return incoming;
+  }
+  return {
+    ...incoming,
+    positions: previous.positions,
+    pnl: previous.pnl,
+    capturedAt: previous.capturedAt,
+    warnings: [
+      ...new Set([
+        ...incoming.warnings,
+        "Position reconciliation unavailable. Showing last known exposure and marks, not a confirmed current position book.",
+      ]),
+    ],
+  };
+}
+
 /** Format INR without displaying missing or non-finite balances as zero. */
 export function formatAccountMoney(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value)

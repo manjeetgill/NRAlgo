@@ -158,7 +158,10 @@ export const kotakAccountAdapter: BrokerAccountAdapter = {
               quantity: row.quantity as number,
               averagePrice: numberOrNull(row.averagePrice),
               markPrice: numberOrNull(row.markPrice),
-              pnl: numberOrNull(row.pnl),
+              pnl:
+                numberOrNull(row.markPrice) === null
+                  ? null
+                  : numberOrNull(row.pnl),
               pnlBase: numberOrNull(row.pnlBase),
               pnlPerMark: numberOrNull(row.pnlPerMark),
               markedAt: null,
