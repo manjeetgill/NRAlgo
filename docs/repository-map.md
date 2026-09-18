@@ -162,6 +162,7 @@ Screens call feature hooks/adapters → same-origin API → authenticated applic
 | [frontend/src/features/live-trading/live-order-ticket.tsx](../frontend/src/features/live-trading/live-order-ticket.tsx) | Risk configuration, MFA arming, preview, confirmation and halt controls; no effect-driven submission. |
 | [frontend/src/features/account/account-screen.tsx](../frontend/src/features/account/account-screen.tsx) | App password/MFA/session management; not broker credential configuration. |
 | [frontend/src/features/activity/activity-screen.tsx](../frontend/src/features/activity/activity-screen.tsx) | Escaped audit text and presentation-mode filtering; stored audit records are retained. |
+| [frontend/src/features/activity/audit-model.ts](../frontend/src/features/activity/audit-model.ts) | Pure derived audit categories, bounded search and explicit IST timestamp formatting. |
 | [frontend/src/features/learning/learning-screen.tsx](../frontend/src/features/learning/learning-screen.tsx) | Static architecture/learning guide with no trading side effects. |
 
 ## Tests: retain in Git, exclude from production runtime

@@ -221,6 +221,7 @@ export function WorkspaceContent({
       return (
         <ActivityScreen
           workspace={workspace}
+          onRefresh={onRefresh}
           tradingMode={workspace.paper_trading_enabled ? "paper" : "live"}
         />
       );
