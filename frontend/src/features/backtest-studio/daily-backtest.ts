@@ -20,12 +20,15 @@ export interface BacktestSettings {
   slippage: number;
 }
 export interface DailyTrade {
+  signalDate: string;
   entryDate: string;
   exitDate: string;
   quantity: number;
   entry: number;
   exit: number;
   pnl: number;
+  entryFee: number;
+  exitFee: number;
   reason: string;
 }
 
@@ -53,11 +56,17 @@ export function validateDailyBars(bars: DailyBar[]): void {
 }
 /** Parse locally with strict columns/size bounds; file contents are never sent to a broker. */
 export function parseDailyCsv(text: string): DailyBar[] {
-  if (text.length > 2000000) {
+  if (new TextEncoder().encode(text).byteLength > 2000000) {
     throw new Error("CSV must be at most 2 MB.");
   }
   const rows = parse(text, {
-    columns: true,
+    /** Duplicate headers otherwise silently replace a price column in the CSV parser. */
+    columns: (headers: string[]) => {
+      if (new Set(headers).size !== headers.length) {
+        throw new Error("CSV column names must be unique.");
+      }
+      return headers;
+    },
     bom: true,
     trim: true,
     skip_empty_lines: true,
@@ -196,8 +205,12 @@ export function runDailyBacktest(bars: DailyBar[], settings: BacktestSettings) {
     drawdown = 0,
     totalFees = 0,
     skippedEntries = 0;
-  let position: { entryDate: string; entry: number; quantity: number } | null =
-    null;
+  let position: {
+    signalDate: string;
+    entryDate: string;
+    entry: number;
+    quantity: number;
+  } | null = null;
   let enterNext = false,
     exitNext = false;
   const trades: DailyTrade[] = [],
@@ -212,11 +225,30 @@ export function runDailyBacktest(bars: DailyBar[], settings: BacktestSettings) {
       pnl = (exit - position.entry) * position.quantity - settings.fee * 2;
     cash += exit * position.quantity - settings.fee;
     totalFees += settings.fee;
-    trades.push({ ...position, exitDate: date, exit, pnl, reason });
+    trades.push({
+      ...position,
+      exitDate: date,
+      exit,
+      pnl,
+      entryFee: settings.fee,
+      exitFee: settings.fee,
+      reason,
+    });
     position = null;
   }
   for (let index = 0; index < bars.length; index++) {
     const bar = bars[index];
+    // Existing exposure encounters the opening gap before a prior-bar rule exit (04-T04).
+    // Newly opened positions are handled by the intrabar branch below, never by this gap check.
+    if (position) {
+      const stop = position.entry * (1 - settings.stop / 100);
+      const target = position.entry * (1 + settings.target / 100);
+      if (bar.open <= stop) {
+        closePosition(bar.open, bar.date, "Gap below stop");
+      } else if (bar.open >= target) {
+        closePosition(bar.open, bar.date, "Gap above target");
+      }
+    }
     if (position && exitNext) {
       closePosition(bar.open, bar.date, "Signal exit at next open");
     }
@@ -225,7 +257,12 @@ export function runDailyBacktest(bars: DailyBar[], settings: BacktestSettings) {
         budget = Math.max(0, (cash * settings.allocation) / 100 - settings.fee),
         quantity = Math.floor(budget / entry);
       if (quantity > 0) {
-        position = { entryDate: bar.date, entry, quantity };
+        position = {
+          signalDate: bars[index - 1].date,
+          entryDate: bar.date,
+          entry,
+          quantity,
+        };
         cash -= entry * quantity + settings.fee;
         totalFees += settings.fee;
       } else {
@@ -237,12 +274,15 @@ export function runDailyBacktest(bars: DailyBar[], settings: BacktestSettings) {
     if (position) {
       const stop = position.entry * (1 - settings.stop / 100),
         target = position.entry * (1 + settings.target / 100);
-      if (bar.open <= stop) {
-        closePosition(bar.open, bar.date, "Gap below stop");
-      } else if (bar.open >= target) {
-        closePosition(bar.open, bar.date, "Gap above target");
-      } else if (bar.low <= stop) {
-        closePosition(stop, bar.date, "Stop; stop first if ambiguous");
+      if (bar.low <= stop) {
+        // A newly entered position can already breach its stop because of modeled slippage.
+        closePosition(
+          Math.min(bar.open, stop),
+          bar.date,
+          bar.high >= target
+            ? "Stop (both stop and target touched; stop first)"
+            : "Stop",
+        );
       } else if (bar.high >= target) {
         closePosition(target, bar.date, "Target");
       }

@@ -5,6 +5,9 @@ Updated 18 September 2026. Paths are relative to the repository root. This cover
 ## Dependency direction
 
 New screen infrastructure:
+- [backend/api-error-contract.ts](../backend/api-error-contract.ts): public JSON error codes, retry classification and server-generated correlation IDs without exposing raw exceptions.
+- [frontend/src/features/backtest-studio/backtest-report.ts](../frontend/src/features/backtest-studio/backtest-report.ts): local immutable-input report manifest with SHA-256 dataset/configuration fingerprints; does not claim durable server storage or verified provenance.
+- [frontend/src/features/backtest-studio/use-daily-backtest.ts](../frontend/src/features/backtest-studio/use-daily-backtest.ts): atomic CSV replacement, retained valid data after errors and generation-fenced report calculation.
 - [frontend/src/features/account/account-sessions.tsx](../frontend/src/features/account/account-sessions.tsx): real owner-scoped session listing and confirmed revocation without device metadata fabrication.
 - [frontend/src/features/orders/order-records-table.tsx](../frontend/src/features/orders/order-records-table.tsx): selected-domain filtering, details, safe export and explicit virtual cancellation.
 - [frontend/src/features/option-chain/option-chain-screen.tsx](../frontend/src/features/option-chain/option-chain-screen.tsx): standalone chain and research-draft navigation.

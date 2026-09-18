@@ -1,17 +1,13 @@
 "use client";
 /** Local historical CSV workbench. No generated prices, external upload or execution side effects. */
-import { useRef, useState, type ChangeEvent } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   strategyTemplates,
   type TemplateId,
 } from "@/features/strategy-library/strategy-templates";
-import {
-  parseDailyCsv,
-  runDailyBacktest,
-  type DailyBar,
-  type BacktestSettings,
-} from "./daily-backtest";
+import type { BacktestSettings } from "./daily-backtest";
+import { useDailyBacktest } from "./use-daily-backtest";
 import { formatInr } from "@/lib/format";
 import { downloadText } from "@/lib/download";
 
@@ -35,54 +31,20 @@ export function BacktestStudioScreen({
     fee: 20,
     slippage: 5,
   });
-  const [bars, setBars] = useState<DailyBar[]>([]);
-  const [filename, setFilename] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [report, setReport] = useState<ReturnType<
-    typeof runDailyBacktest
-  > | null>(null);
-  const fileGeneration = useRef(0);
-  /** Validate the selected local file once; reject a superseded read without retaining previous results. */
-  async function onFileSelected(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0],
-      generation = ++fileGeneration.current;
-    setReport(null);
-    setBars([]);
-    setFilename("");
-    setError("");
-    if (!file) {
-      return;
-    }
-    setLoading(true);
-    try {
-      if (file.size > 2000000) {
-        throw new Error("CSV must be at most 2 MB.");
-      }
-      const data = parseDailyCsv(await file.text());
-      if (generation === fileGeneration.current) {
-        setBars(data);
-        setFilename(file.name);
-      }
-    } catch (cause) {
-      if (generation === fileGeneration.current) {
-        setError(cause instanceof Error ? cause.message : "CSV unavailable.");
-      }
-    } finally {
-      if (generation === fileGeneration.current) {
-        setLoading(false);
-      }
-    }
-  }
-  /** Execute only the user's selected data and current parameters; errors never preserve a stale result. */
+  const {
+    bars,
+    filename,
+    report,
+    error,
+    loading,
+    running,
+    selectFile,
+    run,
+    invalidateReport,
+  } = useDailyBacktest();
+  /** Start local calculation; the hook owns validation, failure state and immutable input binding. */
   function onRun() {
-    setError("");
-    setReport(null);
-    try {
-      setReport(runDailyBacktest(bars, settings));
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Backtest failed.");
-    }
+    void run(settings);
   }
   const fields: [keyof Omit<BacktestSettings, "template">, string][] = [
     ["first", template.first],
@@ -134,22 +96,26 @@ export function BacktestStudioScreen({
                     ...settings,
                     [key]: Number(event.target.value),
                   });
-                  setReport(null);
+                  invalidateReport();
                 }}
               />
             </label>
           ))}
         </div>
         <div className="screen-toolbar">
-          <Button disabled={!bars.length || loading} onClick={onRun}>
-            Run calculated backtest
+          <Button disabled={!bars.length || loading || running} onClick={onRun}>
+            {running ? "Calculating…" : "Run calculated backtest"}
           </Button>
           <label>
             Upload daily CSV
             <input
               type="file"
               accept=".csv,text/csv"
-              onChange={(event) => void onFileSelected(event)}
+              onChange={
+                /** The hook catches file-read/parse failures and ignores superseded reads. */ (
+                  event,
+                ) => void selectFile(event.target.files?.[0])
+              }
             />
           </label>
         </div>
@@ -215,7 +181,15 @@ export function BacktestStudioScreen({
           <article className="panel screen-card">
             <h2>Calculated equity curve</h2>
             <p>
-              {filename} · {report.from} to {report.to}
+              {report.manifest.filename} · {report.from} to {report.to}
+            </p>
+            <p style={{ overflowWrap: "anywhere" }}>
+              Dataset SHA-256: {report.manifest.datasetHash}
+              <br />
+              Configuration SHA-256: {report.manifest.configurationHash}
+              <br />
+              Engine: {report.manifest.engineVersion} · Local result; download
+              to retain.
             </p>
             <svg
               viewBox="0 0 760 210"
@@ -243,7 +217,9 @@ export function BacktestStudioScreen({
                 <span>Profit factor</span>
                 <strong>
                   {report.profitFactor === null
-                    ? "— (no losing trades)"
+                    ? report.trades.length
+                      ? "— (no losing trades)"
+                      : "— (no trades)"
                     : report.profitFactor.toFixed(2)}
                 </strong>
               </div>
@@ -261,11 +237,7 @@ export function BacktestStudioScreen({
               onClick={() =>
                 downloadText(
                   "backtest-results.json",
-                  JSON.stringify(
-                    { ...report, filename, engineVersion: "1.0" },
-                    null,
-                    2,
-                  ),
+                  JSON.stringify(report, null, 2),
                   "application/json",
                 )
               }
