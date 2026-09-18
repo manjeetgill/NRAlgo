@@ -94,10 +94,19 @@ export function registerMfaRoutes(
   vault: Vault,
   disconnectBroker: (userId: string) => void,
 ) {
-  app.use(
-    "/api/auth/mfa",
-    rateLimit(10, 60000, (req) => req.res!.locals.session.user_id),
+  const proofAttemptLimit = rateLimit(
+    10,
+    60000,
+    (req) => req.res!.locals.session.user_id,
   );
+  /** Status reads retain the workspace read limit without consuming MFA proof attempts. */
+  app.use("/api/auth/mfa", (req, res, next) => {
+    if (req.method === "GET") {
+      next();
+      return;
+    }
+    proofAttemptLimit(req, res, next);
+  });
   const proof = z.object({
     password: z.string().min(1).max(128),
     token: z.string().max(32).default(""),

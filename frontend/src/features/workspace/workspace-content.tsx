@@ -210,7 +210,13 @@ export function WorkspaceContent({
     case "Live trading":
       return <LiveTradingScreen csrf={workspace.csrf} />;
     case "Account & security":
-      return <AccountScreen csrf={workspace.csrf} onRefresh={onRefresh} />;
+      return (
+        <AccountScreen
+          csrf={workspace.csrf}
+          username={workspace.username}
+          onRefresh={onRefresh}
+        />
+      );
     case "Activity log":
       return (
         <ActivityScreen

@@ -5,9 +5,10 @@
  * Sensitive operations call authenticated, CSRF-protected server routes.
  */
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { requestApiJson } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { AccountSessions } from "./account-sessions";
 
 /** Send same-origin authenticated JSON, with CSRF and a deadline longer than SDK authentication. */
 function requestAuthenticatedJson(
@@ -23,16 +24,20 @@ function requestAuthenticatedJson(
 export function AccountScreen({
   csrf,
   onRefresh,
+  username,
 }: {
   csrf: string;
   onRefresh: () => Promise<void>;
+  username: string;
 }) {
   const [message, setMessage] = useState(""),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
-  const [mfaEnabled, setMfaEnabled] = useState(false),
+  const [mfaEnabled, setMfaEnabled] = useState<boolean | null>(null),
     [enrollmentSecret, setEnrollmentSecret] = useState("");
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
+  const passwordDialog = useRef<HTMLDialogElement>(null);
+  const mutationPending = useRef(false);
   /** Read MFA policy for this app session; never populate an unmounted account screen from an old response. */
   useEffect(() => {
     let active = true;
@@ -54,6 +59,10 @@ export function AccountScreen({
   /** Require the password to begin/remove MFA; confirmation proves the authenticator was configured. */
   async function updateMfa(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (mutationPending.current || mfaEnabled === null) {
+      return;
+    }
+    mutationPending.current = true;
     const form = event.currentTarget;
     const action =
       (event.nativeEvent as SubmitEvent).submitter?.getAttribute("value") ||
@@ -85,12 +94,17 @@ export function AccountScreen({
     } catch (e) {
       setError((e as Error).message);
     } finally {
+      mutationPending.current = false;
       setBusy(false);
     }
   }
   /** Rotate the password and refresh the CSRF token for the newly issued app session. */
   async function changePassword(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (mutationPending.current || mfaEnabled === null) {
+      return;
+    }
+    mutationPending.current = true;
     const form = event.currentTarget;
     setBusy(true);
     setError("");
@@ -103,16 +117,18 @@ export function AccountScreen({
         Object.fromEntries(new FormData(form)),
       );
       form.reset();
+      passwordDialog.current?.close();
       await onRefresh();
       setMessage("Password changed. All previous sessions were revoked.");
     } catch (e) {
       setError((e as Error).message);
     } finally {
+      mutationPending.current = false;
       setBusy(false);
     }
   }
   return (
-    <section className="panel broker-settings">
+    <section className="screen-stack broker-settings">
       <div className="panel-heading">
         <div>
           <h3>Account security</h3>
@@ -127,68 +143,82 @@ export function AccountScreen({
         </div>
       )}
       {message && <p role="status">{message}</p>}
-      <form onSubmit={changePassword}>
+      <article className="panel screen-card">
+        <h2>Profile</h2>
         <label>
-          Current password
-          <input
-            name="current_password"
-            type="password"
-            autoComplete="current-password"
-            required
-            maxLength={128}
-          />
+          Username
+          <input readOnly value={username} />
         </label>
-        <label>
-          New password
-          <input
-            name="new_password"
-            type="password"
-            autoComplete="new-password"
-            required
-            minLength={12}
-            maxLength={128}
-          />
-        </label>
-        {mfaEnabled && (
+        <Button
+          variant="secondary"
+          disabled={mfaEnabled === null}
+          onClick={() => passwordDialog.current?.showModal()}
+        >
+          Change password
+        </Button>
+      </article>
+      <dialog
+        ref={passwordDialog}
+        className="workspace-dialog"
+        aria-labelledby="change-password-title"
+        onClose={(event) => event.currentTarget.querySelector("form")?.reset()}
+      >
+        <div className="screen-toolbar">
+          <h2 id="change-password-title">Change password</h2>
+          <Button
+            variant="secondary"
+            disabled={busy}
+            onClick={() => passwordDialog.current?.close()}
+          >
+            Close password form
+          </Button>
+        </div>
+        {error && <p role="alert">{error}</p>}
+        <form onSubmit={changePassword}>
           <label>
-            Authenticator or recovery code
+            Current password
             <input
-              name="token"
-              autoComplete="one-time-code"
+              name="current_password"
+              type="password"
+              autoComplete="current-password"
               required
-              maxLength={32}
+              maxLength={128}
             />
           </label>
-        )}
-        <Button disabled={busy}>Change password</Button>
-      </form>
-      <Button
-        variant="secondary"
-        disabled={busy}
-        onClick={async () => {
-          setBusy(true);
-          setError("");
-          try {
-            await requestAuthenticatedJson(
-              "/auth/revoke-sessions",
-              csrf,
-              "POST",
-              {},
-            );
-            setMessage(
-              "Other app sessions revoked. Broker connection closed; reconnect when needed.",
-            );
-          } catch (e) {
-            setError((e as Error).message);
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        Sign out other devices
-      </Button>
-      <div className="live-quote">
-        <h3>Authenticator MFA · {mfaEnabled ? "Enabled" : "Not enabled"}</h3>
+          <label>
+            New password
+            <input
+              name="new_password"
+              type="password"
+              autoComplete="new-password"
+              required
+              minLength={12}
+              maxLength={128}
+            />
+          </label>
+          {mfaEnabled && (
+            <label>
+              Authenticator or recovery code
+              <input
+                name="token"
+                autoComplete="one-time-code"
+                required
+                maxLength={32}
+              />
+            </label>
+          )}
+          <Button disabled={busy}>Change password</Button>
+        </form>
+      </dialog>
+      <div className="panel screen-card">
+        <h2>
+          Two-factor authentication ·{" "}
+          {mfaEnabled === null
+            ? "Unknown"
+            : mfaEnabled
+              ? "Enabled"
+              : "Not enabled"}
+        </h2>
         <p>
           Required for broker connections on the cloud server. Add NRIAlgo to
           your authenticator app using a setup key (time-based, 6 digits).
@@ -230,7 +260,7 @@ export function AccountScreen({
             </label>
           )}
           <Button
-            disabled={busy}
+            disabled={busy || mfaEnabled === null}
             value={
               enrollmentSecret ? "confirm" : mfaEnabled ? "disable" : "setup"
             }
@@ -256,6 +286,7 @@ export function AccountScreen({
           </div>
         )}
       </div>
+      <AccountSessions csrf={csrf} />
     </section>
   );
 }

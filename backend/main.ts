@@ -434,6 +434,54 @@ export function createApiApplication(
       })
       .json({ ok: true });
   });
+  /** Expose only owner-scoped opaque session identities, never session hashes, cookies or CSRF secrets. */
+  app.get("/api/auth/sessions", async (req, res) => {
+    const session = res.locals.session;
+    const rows = await store.transaction((query) =>
+      query<{ token_hash: string; expires: number }>(
+        "SELECT token_hash,expires FROM sessions WHERE user_id=$1 AND expires>$2 ORDER BY expires DESC",
+        [session.user_id, seconds()],
+      ),
+    );
+    res.json({
+      sessions: rows.map((row) => ({
+        id: digest(`session-view:${row.token_hash}`),
+        current: row.token_hash === session.token_hash,
+        expiresAt: row.expires * 1000,
+      })),
+    });
+  });
+  /** Revoke one different session under the account lock; a guessed ID cannot cross ownership boundaries. */
+  app.post("/api/auth/sessions/revoke", async (req, res) => {
+    const { id } = z
+      .object({ id: z.string().regex(/^[a-f0-9]{64}$/) })
+      .strict()
+      .parse(req.body);
+    const session = res.locals.session;
+    await store.transaction(async (query) => {
+      await lockWorkspaceSettings(query, store, session.user_id);
+      const rows = await query<{ token_hash: string }>(
+        "SELECT token_hash FROM sessions WHERE user_id=$1",
+        [session.user_id],
+      );
+      const target = rows.find(
+        (row) => digest(`session-view:${row.token_hash}`) === id,
+      );
+      if (!target) {
+        return fail(404, "Session not found.");
+      }
+      if (target.token_hash === session.token_hash) {
+        fail(409, "Use Sign out to end the current session.");
+      }
+      await query("DELETE FROM sessions WHERE user_id=$1 AND token_hash=$2", [
+        session.user_id,
+        target.token_hash,
+      ]);
+      await audit(query, "Revoked another account session.", session.user_id);
+    });
+    disconnectUserData(session.user_id);
+    res.json({ ok: true });
+  });
   app.post("/api/auth/revoke-sessions", async (req, res) => {
     const { user_id, token_hash } = res.locals.session;
     await store.transaction(async (query) => {
@@ -442,6 +490,7 @@ export function createApiApplication(
         user_id,
         token_hash,
       ]);
+      await audit(query, "Revoked other account sessions.", user_id);
     });
     disconnectUserData(user_id);
     res.json({ ok: true });

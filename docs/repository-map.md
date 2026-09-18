@@ -5,6 +5,7 @@ Updated 18 September 2026. Paths are relative to the repository root. This cover
 ## Dependency direction
 
 New screen infrastructure:
+- [frontend/src/features/account/account-sessions.tsx](../frontend/src/features/account/account-sessions.tsx): real owner-scoped session listing and confirmed revocation without device metadata fabrication.
 - [frontend/src/features/orders/order-records-table.tsx](../frontend/src/features/orders/order-records-table.tsx): selected-domain filtering, details, safe export and explicit virtual cancellation.
 - [frontend/src/features/option-chain/option-chain-screen.tsx](../frontend/src/features/option-chain/option-chain-screen.tsx): standalone chain and research-draft navigation.
 - [frontend/src/features/option-chain/use-market-feed.ts](../frontend/src/features/option-chain/use-market-feed.ts): abortable sequential shared-price cache reads, without broker report polling.

@@ -103,6 +103,78 @@ const strategy = {
   slow: 21,
 };
 
+test("MFA status reads do not consume the strict proof-attempt budget", async (t) => {
+  const { request, owner } = await fixture(t);
+  await owner();
+  for (let index = 0; index < 12; index++) {
+    assert.equal((await request("/api/auth/mfa")).status, 200);
+  }
+  for (let index = 0; index < 10; index++) {
+    assert.equal(
+      (await request("/api/auth/mfa/confirm", "POST", { token: "000000" }))
+        .status,
+      409,
+    );
+  }
+  assert.equal(
+    (await request("/api/auth/mfa/confirm", "POST", { token: "000000" }))
+      .status,
+    429,
+  );
+  assert.equal((await request("/api/auth/mfa")).status, 200);
+});
+
+test("session inventory is opaque, owner-scoped and revokes only another owned session", async (t) => {
+  const { request, owner, client } = await fixture(t);
+  await owner();
+  const other = client();
+  assert.equal((await other("/api/auth/login", "POST", creds)).status, 200);
+  const inventory = await request("/api/auth/sessions");
+  assert.equal(inventory.status, 200);
+  assert.equal(inventory.data.sessions.length, 2);
+  assert.doesNotMatch(JSON.stringify(inventory.data), /token_hash|csrf|cookie/);
+  const current = inventory.data.sessions.find((session) => session.current);
+  const target = inventory.data.sessions.find((session) => !session.current);
+  const outsider = client();
+  await outsider("/api/auth/register", "POST", {
+    username: "outsider",
+    password: "outsider-password-long",
+  });
+  assert.equal(
+    (await outsider("/api/auth/sessions/revoke", "POST", { id: target.id }))
+      .status,
+    404,
+  );
+  assert.equal(
+    (await request("/api/auth/sessions/revoke", "POST", { id: current.id }))
+      .status,
+    409,
+  );
+  assert.equal(
+    (
+      await request(
+        "/api/auth/sessions/revoke",
+        "POST",
+        { id: target.id },
+        { "x-csrf-token": "" },
+      )
+    ).status,
+    403,
+  );
+  assert.equal(
+    (await request("/api/auth/sessions/revoke", "POST", { id: "a".repeat(64) }))
+      .status,
+    404,
+  );
+  assert.equal(
+    (await request("/api/auth/sessions/revoke", "POST", { id: target.id }))
+      .status,
+    200,
+  );
+  assert.equal((await other("/api/workspace")).status, 401);
+  assert.equal((await request("/api/workspace")).status, 200);
+});
+
 test("owner authentication, CSRF, origin rejection and logout", async (t) => {
   const { request, owner } = await fixture(t);
   assert.equal((await request("/api/workspace")).status, 401);
