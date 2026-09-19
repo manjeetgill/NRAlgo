@@ -1,167 +1,129 @@
-# NRIAlgo — trading workspace
+# NRIAlgo terminal
 
-One TypeScript repository: Next.js UI, Express API, PostgreSQL, independent market-data contracts, research/paper engines, and a separately authorized live OMS. Kotak Neo is the only implemented broker. **Real-order endpoints exist but are disabled by default.** This is a development foundation, not a production or real-money certification.
+A single-user trading workspace with React/Next.js, an Express API, PostgreSQL and a private Python calculation service. Real execution is disabled by default. A successful build is not certification for live trading.
 
-## Run locally
+## Responsibilities
 
-Use Node.js 22.13+ and PostgreSQL 17. On macOS:
+| Layer | Owns | Must not do |
+| --- | --- | --- |
+| React / Next.js | Screens, forms, charts, selection and rendering validated results | Authoritative strategy pricing or direct broker execution |
+| Node.js / Express | Authentication, brokers, live data, order execution, execution risk, persistence and job orchestration | Maintain a second backtest/payoff engine |
+| Python / FastAPI | Historical processing, indicators, strategy simulation, payoff, Greeks and analytical risk | Receive broker credentials or place orders |
+| PostgreSQL | Account isolation, durable jobs, historical candles, orders and audit records | Grant the runtime account schema-administration privileges |
+
+Express runs inside Node.js; it is not an additional server. Chart geometry, display-only overlays and input validation remain in React. Analytical risk belongs in Python; fresh quotes, arming, quantity/notional limits, idempotency and reconciliation are independently enforced by Node before execution.
+
+Historical CSV import scripts still normalize some rows in Node. They are operator-only, not a second strategy engine. Moving that preprocessing to Python remains work to do.
+
+## Local setup
+
+Use Node.js 22.13+, Python 3.13+ and PostgreSQL 17. On macOS:
 
 ```sh
 brew install postgresql@17
 make install
+npm run hooks:install
 make run
 ```
 
-Open http://localhost:3000. The launcher starts this project's PostgreSQL on 127.0.0.1:55432, applies migrations, starts the API/web, and opens the browser. Ctrl+C stops the app; `make db-stop` stops the database. `NEXUS_NO_BROWSER=1 make run` skips browser opening.
+`make run` migrates the local database, then launches the API, Python calculator, web UI and optional development database-inspector surface. The current launcher starts the inspector on port 3002. The workspace is on port 3000, API on 8000 and private calculator on 8010. Never use the development launcher on the production host.
 
-Create an app account, then open **Broker connections** and connect Kotak with your API access token, registered mobile, UCC, current TOTP and MPIN. Credentials are sent only to the server; Kotak tokens stay in session-bound memory. Reconnect after logout or restart. Never put credentials in chat, Git, or frontend environment variables.
+Local PostgreSQL configuration/data and the Python environment live in ignored `.runtime/`. Do not commit that directory, `.env`, imported datasets or credentials. Use `.env.example` for documented configuration names; use distinct random production secrets and private file permissions.
 
-Existing local data is preserved. Never reset a database as part of a normal upgrade; back up first and apply the reviewed migrations.
-
-## What works
-
-- **Paper trading (when enabled):** searchable current NSE cash symbols, option contracts and paginated option-chain snapshots. Paper fills and P&L use broker bid/ask data with freshness checks and virtual funds. They never reach a real order endpoint.
-- **Broker portfolio:** separate read-only positions, holdings, funds, order book and trade book. Real account assets are never copied into the paper balance. Missing data stays unavailable.
-- **Algo lab / Spread builder:** saved cash/options baskets, live snapshots, optional 15-second polling, single-session and batch historical replay. Historical fills are assumptions, not actual broker fills.
-- **Broker market data:** a provider-neutral backend supplies instruments, quotes, option chains, history and streamed marks to the PDF-defined screens. There is no standalone market-data explorer.
-- **Overview:** live mode reads broker funds/positions once and revalues them from the shared price cache. Missing values remain unavailable. Paper mode uses its separate virtual ledger. `PAPER_TRADING_ENABLED=false` hides only paper features, not research or other screens.
-- **Strategies:** actual saved research in both modes, with search, market filters and dedicated cash/spread editors. No automatic strategy deployment is claimed.
-- **Strategy library / Backtest studio:** versioned EMA, RSI and channel-breakout rules; validated user-provided daily OHLC CSV; next-open signals, explicit stop/target, fees and slippage. No generated-price fallback.
-- **Option chain:** real contract metadata, shared streamed marks and contract detail drawers; selected legs preserve the complete in-memory spread draft.
-- **Audit log:** bounded owner-event search, derived categories, event details and filtered safe CSV export.
-- **Orders & trades / Live positions:** read-only app-managed OMS history is separate from explicit configure, arm, preview, submit, reconcile and halt controls. Supported real orders are bounded NSE EQ CNC and long NSE option NRML LIMIT/DAY orders; unsupported products fail closed.
-- **Account & security:** per-user authentication, CSRF protection, MFA, recovery codes and session revocation.
-
-Live execution requires server activation, the registered static-IP prerequisite, an authenticated Kotak session, app MFA, risk configuration, fresh reconciliation and explicit time-limited arming. Keep `LIVE_TRADING_ENABLED=false` and `KOTAK_STATIC_IP_CONFIRMED=false` while developing. The paper setting never grants live permission. Read [the live execution contract and limitations](docs/development-guide.md#kotak-live-execution-disabled-by-default) before considering activation.
-
-## Small, extensible design
-
-| Area                                                                       | Responsibility                                                        |
-| -------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| `backend/broker-data-access.ts`                                            | Read-only adapter contract and per-owner request guard                |
-| `backend/kotak-market-data-client.ts`                                      | Kotak authentication, host/header handling and response normalization |
-| `backend/kotak-market-data-contracts.ts`                                   | Bounded Kotak request construction and response parsing               |
-| `backend/kotak-market-data-stream.ts`                                      | Server-only WebSocket lifecycle and native-batch binary decoding      |
-| `backend/instrument-master.ts`                                             | Current Kotak contract metadata, safe downloads and bounded search    |
-| `backend/paper-trading-ledger.ts` / `paper-trading-routes.ts`              | Virtual ledger, fill rules and authenticated paper endpoints          |
-| `backend/historical-strategy-simulator.ts` / `strategy-research-routes.ts` | Pure replay calculations and owner-scoped research APIs               |
-| `backend/main.ts`                                                          | Dependency construction, account auth and route registration          |
-| `backend/market-data-provider.ts` / `kotak-market-data-provider.ts`        | Replaceable data source, separate from execution and account access   |
-| `backend/live/`                                                            | Durable OMS/risk engine, Kotak execution adapter and guarded routes   |
-| `frontend/src/features/<screen>/`                                          | Dedicated screens, request hooks, models and presentation             |
-| `frontend/src/components/` / `lib/`                                        | Reused UI and bounded shared utilities                                |
-| `backend/database.ts` / `local-database.ts`                                | PostgreSQL migrations and local lifecycle                             |
-
-To add a data source later, implement `MarketDataProvider` and register it at the composition root. To add an execution broker, separately implement `ExecutionBrokerAdapter`, account/auth binding, instrument resolution and contract tests. Register the UI account adapter rather than adding broker branches to screens. Existing wire contracts remain Kotak-specific at the adapter boundary; a new source is not a URL-only replacement. Never add an execution method to the read-only data interface or silently translate saved instrument tokens.
-
-## Checks and boundaries
-
-Start with the [detailed foundation review](docs/code-review-2026-09-18.md),
-[complete file map](docs/repository-map.md), and [development guide](docs/development-guide.md).
+## Commit preflight
 
 ```sh
-make check
-make build
-npm run test:browser
+npm run hooks:install       # Run once after cloning; enables .githooks/pre-commit.
+npm run check               # Lint and both TypeScript checks on the working tree.
+npm run preflight:commit    # Build only the staged snapshot, not unstaged changes.
+node scripts/preflight-commit.mjs HEAD  # Recheck a particular committed revision.
 ```
 
-`make check` runs lint, backend compilation/tests, frontend type-check/tests (both TS and MJS), and architecture checks. CI additionally runs the production build, dependency audits, browser smoke test and disposable container/backup checks. Browser tests start their own server on 3010. Tests use isolated PostgreSQL schemas and mocked broker transports, never the local application schema or a real broker account. On macOS they use installed Chrome; elsewhere install Playwright Chromium. Passing tests does not prove real broker connectivity or deployment readiness. Tests and documentation remain in Git but are excluded from production Docker images.
+The hook checks out the Git index into a disposable temporary directory. It installs dependencies from that snapshot's exact manifests/lockfiles, runs lint, compiles the backend, produces a Next.js production build and parses Python modules for syntax errors. Lockfile-keyed dependency caches live outside this repository. It never launches the trading app, migrates a database or contacts a broker. Build errors reject the commit. Staging fixes and retrying is required; do not bypass the hook with `--no-verify`.
 
-Current limitations: no automatic strategy execution; no futures paper execution; no naked paper option sales; no automatic expired-option settlement; no expired-contract history support. Kotak positions may omit untraded carry-forward exposure. Quote snapshots are not atomic multi-leg prices. Research polling stops on navigation, hidden tabs, edits or errors. Streaming is indicative and requires a login-provided approved `feedUrl`; its opaque exchange timestamps are not used for paper fill freshness. Stream reconnect is explicit; abandoned viewers expire after 45 seconds.
+GitHub Actions runs this preflight separately for each incoming commit in a push or pull request, with the failing revision in the job name. A new branch with no previous SHA checks its tip; pull requests check the full base-to-head range. Large pushes above the matrix limit must be split. Existing historical commits can be checked explicitly with the command above. Configure required CI checks/branch protection in GitHub to prevent bypass; local hooks are not distributed Git policy.
 
-See [Kotak API coverage](docs/kotak-api-coverage.md) and [security boundaries](docs/security-review.md).
+Automated test files, fixtures, browser-test dependencies and the obsolete specification acceptance register were removed at the owner's request. Build validation does **not** replace behavioral, broker integration, security or regression tests. Python syntax checks do not prove its dependencies install or calculations are correct. Exercise relevant screens and failure paths before release.
 
-Private local state lives under `.runtime/`, including PostgreSQL settings and the MFA encryption key. Keep it out of Git. Production requires HTTPS, MFA for broker data, private database/API ports and separate encrypted backups. The offline SQLite importer is migration tooling only, not an application database.
+## Code map
 
-## Deploy on a single AWS Lightsail server
+Modules document their responsibility at the relevant component, class or function. Related private helpers live with their owning screen. Framework entrypoints and security boundaries remain separate intentionally.
 
-Keep API, web, PostgreSQL, Caddy and backup service together initially. Use a Linux host
-with Docker Engine/Compose, a domain and a static IPv4. Allow 80/443; restrict SSH to trusted
-administration access. Do not expose 3000, 8000 or 5432. Check IPv6 rules too.
+| Location | Responsibility |
+| --- | --- |
+| `backend/main.ts` | Express composition, session/authentication and protected route registration |
+| `backend/database.ts`, `types.ts`, `local-database.ts` | Schema migrations, database contracts and development PostgreSQL lifecycle |
+| `backend/backup.ts`, `import-legacy-sqlite.ts` | Encrypted backup/restore and explicit legacy migration; not request handlers |
+| `backend/security.ts`, `mfa.ts` | Password/session protections, second factor and credential encryption |
+| `backend/broker-registry.ts`, `zerodha-connection.ts`, `zerodha-sdk.ts` | Owner-scoped active selection and one-use Zerodha authorization |
+| `backend/kotak-*`, `market-data-provider.ts`, `instrument-master.ts` | Kotak adapter, bounded provider contracts, streaming and exact instrument identity |
+| `backend/live/` | Order intent binding, preview/confirmation, risk reservations, adapter dispatch, reconciliation and halt controls |
+| `backend/paper-trading-*` | Separate virtual-account ledger; cannot authorize real orders |
+| `backend/eod-market-data.ts`, `eod-option-data.ts` | Stored instrument/candle validation, batch persistence and bounded reads |
+| `backend/option-chain-session.ts`, `option-chain-snapshots.ts` | Exchange-session display selection and captured-chain fallback |
+| `backend/historical-market-data*` | Broker historical-data transport validation; not backtest calculations |
+| `backend/research-contracts.ts`, `strategy-research-routes.ts` | Saved strategy validation and delegation of research calculations |
+| `backend/calculation-client.ts`, `calculation-jobs.ts` | Validated private Python calls and durable owner-scoped job lifecycle |
+| `backend/database-browser-routes.ts` | Authenticated, read-only, owner-filtered inspection of allowlisted records |
+| `calculation_engine/app.py`, `contracts.py` | Private authenticated calculation API and strict numerical inputs |
+| `calculation_engine/backtest.py`, `payoff.py` | Canonical backtests, stored-session simulation, option payoff and portfolio Greeks |
+| `calculation_engine/market_insights.py` | Bounded read-only public NSE reference datasets |
+| `frontend/src/app/`, `proxy.ts` | Next.js entrypoints, broker callback, attribution and request boundary |
+| `frontend/src/features/workspace/` | Navigation, session lifecycle, shared layout, dialogs and ordered workspace styles |
+| `frontend/src/features/brokers/`, `live-trading/`, `orders/` | Broker connection UI, explicit execution controls and read-only order records |
+| `frontend/src/features/overview/` | Mode-isolated account snapshots, streamed display marks and explicit market-insight reads |
+| `frontend/src/features/option-chain/` | Live/stored chain selection, exact stored chart reads and chart rendering |
+| `frontend/src/features/backtest-studio/`, `spread-builder/`, `research/` | Form inputs and presentation of Python calculation results |
+| Other `frontend/src/features/` folders | Account, audit, database, learning and saved-strategy screens, each with its own screen entrypoint |
+| `frontend/src/components/`, `lib/` | Shared controls, instrument pickers, request validation and presentation utilities |
+| `scripts/download*`, `audit-nse*`, `import-*` | Explicit historical-data download, quality audit and additive import commands |
+| `scripts/check-production-environment.mjs` | Fail-closed deployment settings validation; never prints secrets |
+| `scripts/preflight-commit.mjs`, `.githooks/`, `.github/workflows/` | Staged/revision build gates and commit-by-commit CI |
+| `Dockerfile`, `docker-compose.yml`, `Caddyfile`, `Makefile` | Runtime images, single-host service wiring, HTTPS and operator commands |
 
-Clone your reviewed repository and copy `.env.example` to `.env`, then restrict it to mode 0600.
-Configure:
+## Data and calculations
 
-```dotenv
-APP_DOMAIN=algo.your-domain.example
-POSTGRES_PASSWORD=RANDOM_DATABASE_ADMIN_PASSWORD
-APP_DATABASE_PASSWORD=RANDOM_64_HEX_RUNTIME_PASSWORD
-BACKUP_DATABASE_PASSWORD=DIFFERENT_RANDOM_64_HEX_BACKUP_PASSWORD
-SETUP_TOKEN=RANDOM_INITIAL_SETUP_TOKEN_AT_LEAST_32_CHARACTERS
-BROKER_ENCRYPTION_KEY=RANDOM_64_HEX_CREDENTIAL_KEY
-BACKUP_ENCRYPTION_KEY=DIFFERENT_RANDOM_64_HEX_BACKUP_KEY
-REGISTRATION_TOKEN=RANDOM_INVITATION_TOKEN_AT_LEAST_32_CHARACTERS
-ALLOW_PUBLIC_REGISTRATION=false
-```
+- Backtest studio reads stored daily cash/index candles and queues a Python job. It does not fabricate missing prices or silently use a broker-history fallback.
+- The historical simulator is for indexes using saved data. Available daily candles do not establish historical intraday option-premium coverage.
+- Options builder sends premiums, strikes, quantities, dates and volatility assumptions to Python. Returned results include payoff curves, signed net debit/credit, breakevens, extrema and Greeks. Model output is not a broker margin quote or an execution guarantee.
+- Historical charts identify underlying candles separately from option premiums. KLineChart handles drawing/indicator presentation; attribution is available at `/legal/charting`.
+- Importers validate by default where their CLI offers `--commit`. Review their usage before running; never point an unreviewed import at production. Preserve source/provenance and adjustment status. Missing candles are not invented.
+- `scripts/requirements-bhavcopy.lock` contains optional historical-download dependencies; install separately when using those scripts. Runtime Python dependencies are in `calculation_engine/requirements.lock`.
 
-Generate each value separately; the following prints a new 64-character random hex value:
+## Broker and order safety
+
+Kotak live execution is implemented behind explicit enablement. Zerodha authorization/connection is separate from execution capability; selecting an unsupported execution adapter fails closed. ICICI is not implemented.
+
+The server resolves the active broker when an intent is bound. Changing the selection must not move existing orders or positions to another broker. Live execution requires configured server flags, app MFA, an authenticated broker session, registered static-IP prerequisites, risk limits, fresh reconciliation and explicit time-limited arming. A paper-mode setting never grants live permission.
+
+Preview is not submission. Unknown submission outcomes must be reconciled, never automatically resent. Halt latches permission off; cancellation acknowledgements do not prove exchange cancellation, and halt does not automatically flatten positions. Keep `LIVE_TRADING_ENABLED=false` until these paths have been manually verified with the broker.
+
+## Single-host deployment
+
+Configure a real domain and private `.env` from `.env.example`. Keep runtime, migration, backup and encryption secrets distinct. Retain the broker/backup encryption keys securely outside the host: lost keys can make encrypted data unrecoverable.
 
 ```sh
-sudo docker run --rm node:22-alpine node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
+chmod 600 .env
+make preflight
+make deploy
+make status
+make logs
 ```
 
-Keep encryption keys outside the server in a password manager. Do not rotate them without a
-re-encryption/recovery plan. Rotate the invitation token when access should change. Omitting it
-closes additional registration unless open registration is explicitly enabled.
+Only Caddy publishes ports 80/443. PostgreSQL, the API and calculator stay on the private container network. Migrations run before the API. Backups use a separate read-only database account, authenticated encryption and configured S3 upload. Use an EC2 IAM role instead of permanent AWS keys where possible. Perform an actual restore drill; a green health check is not proof of recoverability.
 
-```sh
-sudo make deploy
-sudo make status
-sudo make logs
-```
+`make deploy` currently builds on the host. Before using a small AWS trading host, move builds to CI and deploy immutable images. Pin a known release and plan database-compatible rollback. The database inspector's extra Next.js process is development-only, not a production Compose service.
 
-`make deploy` first runs a fail-closed preflight. It rejects placeholder domains, weak or reused
-secrets, public registration, malformed flags, live execution without confirmed static-IP
-registration, insecure `.env` permissions, and deployments without an off-server S3 backup
-destination. Use an instance role where possible; otherwise supply both AWS credential fields.
+### Remaining hosting limitations
 
-The migration container uses database administrator credentials; the API uses a restricted
-non-superuser role. Backups use a separate SELECT-only `nexus_backup` role; set the new
-`BACKUP_DATABASE_PASSWORD` before deploying this revision. Migration grants read access to current
-and future public-schema tables created by the migration owner. Caddy overwrites the trusted client-IP header used for throttling. The API
-must remain private when `TRUST_EDGE_IP=true`. Only deploy one API:
-multiple API replicas require shared request limits and a shared broker-session registry.
+- The job runner serializes jobs per API process, not globally. Startup recovery resets running jobs; do not run multiple API instances until job ownership/leases are implemented.
+- HTTP cancellation does not terminate running Python work. Add process-level cancellation, time limits, CPU/memory caps and a live-execution research gate.
+- Python's request-size guard currently trusts Content-Length rather than measuring chunked payloads.
+- API readiness checks the database; ongoing calculator/worker health and broker-feed freshness need separate monitoring.
+- Add off-host logs, memory/disk/backup alerts, secret rotation, restart/reconciliation drills and verified dependency/image scans before live deployment.
 
-`/api/health` checks database access. `/api/ready` checks database schema readiness. Generated-price replay is retired: its public run route returns HTTP 410 and no worker starts locally or in Compose. Legacy regression helpers and stored rows are preserved, but never feed dashboard values.
-Configure an external uptime alert against `/api/ready`, plus disk/memory/backup alerts. Docker
-marks a hung process unhealthy but does not restart it merely because it is unhealthy.
+## Maintenance
 
-The cloud database starts empty. This does not upload your local PostgreSQL data or credentials.
-Validate HTTPS, MFA, two-account isolation, a replay, broker connectivity and restart recovery
-before inviting anybody. Public/live-trading launch remains a separate release decision.
+Keep this as the only project Markdown file. Next.js agent-file generation is disabled in `frontend/next.config.ts`. Read the installed framework's relevant documentation under `frontend/node_modules/next/dist/docs/` before changing Next behavior.
 
-## Backups and restoration
-
-The backup container creates an AES-GCM-encrypted PostgreSQL dump immediately and daily,
-retaining local archives for fourteen days. Its health check fails if successful backups are old.
-Local archives alone do **not** protect against losing the instance/disk.
-
-For off-server copies configure `BACKUP_S3_URI=s3://your-private-bucket/nralgo` and a suitable
-AWS identity. Prefer an instance role when supported; otherwise supply private, backup-only
-AWS credentials. Block public bucket access, configure retention/versioning, and give the
-uploader only the required object-write permissions. Upload failure fails the backup run.
-No AWS resources, bucket or credentials are created by this repository.
-
-To force a backup:
-
-```sh
-sudo docker compose exec -T backup node dist/backend/backup.js --once
-```
-
-Test restoration only into a **new disposable database**, never over the production database:
-
-```sh
-sudo docker compose exec -T backup ls /backups
-sudo docker compose exec -T backup node dist/backend/backup.js --decrypt /backups/CHOSEN.dump.enc /backups/restore-check.dump
-sudo docker compose exec -T db createdb -U nexus restore_check
-sudo docker compose exec -T backup cat /backups/restore-check.dump | sudo docker compose exec -T db pg_restore -U nexus -d restore_check --exit-on-error --no-owner --no-acl
-sudo docker compose exec -T db psql -U nexus -d restore_check -c 'SELECT count(*) FROM users;'
-```
-
-Decryption verifies integrity and refuses to overwrite an existing destination. Remove temporary
-plaintext restore dumps once verified. Keep both encryption keys separate from the archives.
-CI includes a disposable encrypted-backup restore test; actual server restoration must also pass.
-
-For upgrades: back up, stop Caddy/web/API, update to a reviewed commit and run `make deploy`.
-Schema migration rollback requires a matching backup and application revision. Never run
-`docker compose down -v` on production: that deletes database, certificates and backup volumes.
+Do not remove validation, ownership checks, explicit confirmation or execution-risk code to reduce line count. Shared utilities and broker/analytics boundaries are intentionally separate. Prefer meaningful commits such as “Add stored option history” or “Simplify live order screen”, without mandatory type prefixes. Never include secrets, databases, generated build output or imported price files in a commit.

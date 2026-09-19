@@ -2,6 +2,12 @@
 import type { NextConfig } from "next";
 import path from "node:path";
 const config: NextConfig = {
+  // Project guidance is consolidated in the root README, not generated Markdown files.
+  agentRules: false,
+  // The local launcher serves the workspace and database inspector concurrently.
+  // Separate build directories prevent Next.js from treating them as duplicate
+  // development servers for the same application instance.
+  distDir: process.env.DATABASE_UI === "1" ? ".next-database" : ".next",
   output: "standalone",
   turbopack: { root: path.resolve(process.cwd()) },
   poweredByHeader: false,
