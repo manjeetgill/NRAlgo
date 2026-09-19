@@ -1,8 +1,95 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+/**
+ * Shared workspace views: page commands, screen error containment, help and presentation-only tour.
+ * These controls own layout and navigation only; session and trading mutations stay with their hooks.
+ * A failed screen never triggers an automatic order retry.
+ */
+import { Component, useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { CircleHelp, Maximize, Play, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { WorkspacePage } from "./workspace-types";
+
+/** A screen owns its commands; the shell supplies their common heading position. */
+export function PageActions({ children }: { children: ReactNode }) {
+  const [target, setTarget] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    setTarget(document.getElementById("workspace-page-actions"));
+  }, []);
+  return target ? (
+    createPortal(children, target)
+  ) : (
+    <div className="page-actions">{children}</div>
+  );
+}
+
+/** Contain a screen render/chunk failure without losing navigation or exposing internal errors. */
+export class ScreenErrorBoundary extends Component<
+  { children: ReactNode },
+  { failed: boolean }
+> {
+  public state = { failed: false };
+  /** Render failures must not trigger automatic order retries. */
+  public static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  /** Navigating to another screen resets this keyed boundary. */
+  public render() {
+    return this.state.failed ? (
+      <section className="panel" role="alert">
+        <h2>This screen could not load.</h2>
+        <p>
+          Use the sidebar to navigate away and return. If an order was being
+          submitted, check its broker status before trying again.
+        </p>
+      </section>
+    ) : (
+      this.props.children
+    );
+  }
+}
+
+/** Presentation-only tour; steps never call trading or account mutation APIs. */
+export const workspaceTour: ReadonlyArray<{
+  page: WorkspacePage;
+  title: string;
+  description: string;
+}> = [
+  {
+    page: "Overview",
+    title: "Your workspace at a glance",
+    description: "Review account health, recent activity and quick actions.",
+  },
+  {
+    page: "Option chain",
+    title: "Explore the option chain",
+    description: "Inspect a call or put, then add a leg to your spread draft.",
+  },
+  {
+    page: "Spread builder",
+    title: "Build and review a spread",
+    description:
+      "Review selected legs and the payoff before considering execution.",
+  },
+  {
+    page: "Broker paper",
+    title: "Review a paper order",
+    description:
+      "Use New order to review an order for the separate virtual ledger. The tour submits nothing.",
+  },
+  {
+    page: "Orders & trades",
+    title: "Follow the result",
+    description:
+      "Open Details to inspect the recorded order history, or filter the records.",
+  },
+  {
+    page: "Activity log",
+    title: "Close with the audit trail",
+    description:
+      "Review the actions recorded in your account. Search and export the loaded events.",
+  },
+];
 
 /** Native modal keeps focus/escape behavior and never simulates a connected account. */
 export function WorkspaceHelp({

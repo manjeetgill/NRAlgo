@@ -2,7 +2,7 @@
 /** Saved research definitions are independent of paper wallets and live execution permission. */
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { PageActions } from "@/features/workspace/page-actions";
+import { PageActions } from "@/features/workspace/workspace-views";
 import { useStrategyLibrary } from "./use-strategy-library";
 
 /** Search persisted owner-scoped definitions; opening a row never starts an order or replay. */

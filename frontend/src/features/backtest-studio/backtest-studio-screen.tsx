@@ -2,7 +2,7 @@
 /** Stored historical workbench. No broker login, uploaded/generated prices or execution side effects. */
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { PageActions } from "@/features/workspace/page-actions";
+import { PageActions } from "@/features/workspace/workspace-views";
 import {
   strategyTemplates,
   type TemplateId,

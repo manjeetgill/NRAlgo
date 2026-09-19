@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { PageActions } from "@/features/workspace/page-actions";
+import { PageActions } from "@/features/workspace/workspace-views";
 import { requestApiJson } from "@/lib/api";
 
 type DatabaseResponse = {

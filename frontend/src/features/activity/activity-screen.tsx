@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { PageActions } from "@/features/workspace/page-actions";
+import { PageActions } from "@/features/workspace/workspace-views";
 import { downloadText, encodeCsv } from "@/lib/download";
 import { isTradingEventVisible, type TradingMode } from "@/lib/trading-mode";
 import type { WorkspaceSnapshot } from "@/features/workspace/workspace-types";

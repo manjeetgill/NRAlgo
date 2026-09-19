@@ -18,11 +18,13 @@ import {
   resolveWorkspacePage,
 } from "./workspace-navigation";
 import { WorkspaceContent } from "./workspace-content";
-import { ScreenErrorBoundary } from "./screen-error-boundary";
+import {
+  ScreenErrorBoundary,
+  WorkspaceHelp,
+  workspaceTour,
+} from "./workspace-views";
 import type { WorkspacePage, WorkspaceSnapshot } from "./workspace-types";
 import "./workspace.css";
-import { WorkspaceHelp } from "./workspace-help";
-import { workspaceTour } from "./workspace-tour";
 import type { TemplateId } from "@/features/strategy-library/strategy-templates";
 import {
   createResearchDefinition,
