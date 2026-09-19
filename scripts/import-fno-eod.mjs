@@ -11,7 +11,7 @@ import { parse } from "csv-parse/sync";
 import { z } from "zod";
 import { openDatabaseStore } from "../backend/database.ts";
 import { readLocalPostgresConfiguration } from "../backend/local-database.ts";
-import { importOptionEodDailyData } from "../backend/eod-option-data.ts";
+import { importOptionEodDailyData } from "../backend/stored-market-data.ts";
 
 const normalizedRowSchema = z
   .object({

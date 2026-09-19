@@ -13,7 +13,7 @@ import {
   researchStrategySchema,
   type ResearchStrategy,
 } from "./research-contracts.js";
-import { readStoredDailyCandle } from "./eod-market-data.js";
+import { readStoredDailyCandle } from "./stored-market-data.js";
 import { CalculationClient } from "./calculation-client.js";
 
 /** Count one broker request before sending it. The database lock prevents two concurrent

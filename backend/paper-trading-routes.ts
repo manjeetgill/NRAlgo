@@ -3,7 +3,6 @@
  * Matching is explicit/polled by the active page, not a background strategy scheduler.
  */
 import type { Express } from "express";
-import { optionChainSessionOpen } from "./option-chain-session.js";
 import { z } from "zod";
 import type { Store } from "./database.js";
 import type { BrokerRequestCoordinator } from "./broker-data-access.js";
@@ -22,10 +21,11 @@ import {
   resolveActiveBroker,
 } from "./broker-registry.js";
 import {
+  optionChainSessionOpen,
   readOptionChainSnapshot,
   saveOptionChainSnapshot,
   searchStoredOptionUnderlyings,
-} from "./option-chain-snapshots.js";
+} from "./option-chain-history.js";
 import {
   paperBrokerSchema,
   paperOrderInput,

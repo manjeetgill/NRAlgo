@@ -7,7 +7,7 @@ import { parse } from "csv-parse/sync";
 import { z } from "zod";
 import { openDatabaseStore } from "../backend/database.ts";
 import { readLocalPostgresConfiguration } from "../backend/local-database.ts";
-import { importEodData } from "../backend/eod-market-data.ts";
+import { importEodData } from "../backend/stored-market-data.ts";
 
 const daySchema = z.iso.date();
 export function normalizeRow(row, file, source) {

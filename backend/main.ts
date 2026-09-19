@@ -39,7 +39,7 @@ import { KotakLiveManager } from "./live/kotak-live-manager.js";
 import { registerLiveTradingRoutes } from "./live/live-trading-routes.js";
 import { registerDatabaseBrowserRoutes } from "./database-browser-routes.js";
 import { createZerodhaConnection } from "./zerodha-connection.js";
-import { registerEodRoutes } from "./eod-market-data.js";
+import { registerEodRoutes } from "./stored-market-data.js";
 import {
   recordBrokerConnected,
   recordBrokerDisconnected,

@@ -59,8 +59,8 @@ Modules document their responsibility at the relevant component, class or functi
 | `backend/kotak-*`, `market-data-provider.ts`, `instrument-master.ts` | Kotak adapter, bounded provider contracts, streaming and exact instrument identity |
 | `backend/live/` | Order intent binding, preview/confirmation, risk reservations, adapter dispatch, reconciliation and halt controls |
 | `backend/paper-trading-*` | Separate virtual-account ledger; cannot authorize real orders |
-| `backend/eod-market-data.ts`, `eod-option-data.ts` | Stored instrument/candle validation, batch persistence and bounded reads |
-| `backend/option-chain-session.ts`, `option-chain-snapshots.ts` | Exchange-session display selection and captured-chain fallback |
+| `backend/stored-market-data.ts` | Stored instrument/candle validation, batch persistence and bounded reads |
+| `backend/option-chain-history.ts` | Exchange-session display selection and captured-chain fallback |
 | `backend/historical-market-data*` | Broker historical-data transport validation; not backtest calculations |
 | `backend/research-contracts.ts`, `strategy-research-routes.ts` | Saved strategy validation and delegation of research calculations |
 | `backend/calculation-client.ts`, `calculation-jobs.ts` | Validated private Python calls and durable owner-scoped job lifecycle |
