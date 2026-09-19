@@ -8,8 +8,11 @@ import { Trash2 } from "lucide-react";
 import { requestApiJson } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { OptionChainPicker } from "@/components/option-chain-picker";
-import { InstrumentPicker } from "@/components/instrument-picker";
-import { summarizePayoff } from "@/features/spread-builder/spread-payoff";
+import { StoredInstrumentPicker } from "@/components/stored-instrument-picker";
+import {
+  usePayoffCalculation,
+  type PayoffCalculationInput,
+} from "@/features/spread-builder/use-payoff-calculation";
 
 import {
   createResearchDefinition,
@@ -149,8 +152,8 @@ export function ResearchWorkbench({
   const [day, setDay] = useState(
       new Date(Date.now() - 86400000).toISOString().slice(0, 10),
     ),
-    [interval, setIntervalValue] = useState("5minute"),
     [tab, setTab] = useState("builder");
+  const interval = "day";
   const [batchDays, setBatchDays] = useState("");
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
@@ -377,55 +380,43 @@ export function ResearchWorkbench({
         leg.expiryDate === definition.legs[0].expiryDate &&
         leg.stockCode === definition.legs[0].stockCode,
     );
-  const strikes = definition.legs.map((leg) => leg.strikePrice || 0),
-    payoffLow = Math.min(...strikes) * 0.8,
-    payoffHigh = Math.max(...strikes) * 1.2;
-  const payoff = useMemo(
-    /** Reuse the 61-point grid while only the freshness clock changes; this is illustrative research, not executable pricing. */ () =>
-      allFresh && sameExpiry
-        ? Array.from({ length: 61 }, (_, index) => {
-            const spot = payoffLow + ((payoffHigh - payoffLow) * index) / 60;
-            return definition.legs.reduce(
-              (sum, leg, i) =>
-                sum +
-                (leg.side === "buy" ? 1 : -1) *
-                  leg.quantity *
-                  (Math.max(
-                    0,
-                    leg.right === "call"
-                      ? spot - leg.strikePrice!
-                      : leg.strikePrice! - spot,
-                  ) -
-                    (leg.side === "buy" ? quotes[i].ask : quotes[i].bid)) -
-                2 * definition.feePerOrder,
-              0,
-            );
-          })
-        : [],
-    [
-      allFresh,
-      sameExpiry,
-      payoffLow,
-      payoffHigh,
-      definition.legs,
-      definition.feePerOrder,
-      quotes,
-    ],
+  const payoffRequest = useMemo<PayoffCalculationInput | null>(
+    /** Use only recent same-expiry broker quotes to create a Python payoff request. */ () => {
+      if (!allFresh || !sameExpiry) {
+        return null;
+      }
+      const strikes = definition.legs.map((leg) => leg.strikePrice ?? 0);
+      if (strikes.some((strike) => !Number.isFinite(strike) || strike <= 0)) {
+        return null;
+      }
+      const spot = (Math.min(...strikes) + Math.max(...strikes)) / 2;
+      return {
+        legs: definition.legs.map((leg, index) => ({
+          right: leg.right!,
+          side: leg.side,
+          strike: leg.strikePrice!,
+          quantity: leg.quantity,
+          premium: leg.side === "buy" ? quotes[index].ask : quotes[index].bid,
+          iv: 0,
+        })),
+        spot,
+        days: 0,
+        rate: 0,
+        dividend: 0,
+        ivShift: 0,
+        targetSpot: spot,
+        totalFees: definition.feePerOrder * 2 * definition.legs.length,
+      };
+    },
+    [allFresh, sameExpiry, definition.legs, definition.feePerOrder, quotes],
   );
+  const payoffCalculation = usePayoffCalculation(csrf, payoffRequest);
+  const payoff =
+    payoffCalculation.result?.points.map((point) => point.expiry) ?? [];
+  const payoffLow = payoffCalculation.result?.low ?? 0;
+  const payoffHigh = payoffCalculation.result?.high ?? 0;
   const point = run?.points[cursor];
-  /** Risk summary uses verified premium sides and same-expiry legs; missing quotes stay unavailable. */
-  const spreadRisk =
-    allFresh && sameExpiry
-      ? summarizePayoff(
-          definition.legs.map((leg, index) => ({
-            right: leg.right!,
-            side: leg.side,
-            strike: leg.strikePrice!,
-            quantity: leg.quantity,
-            premium: leg.side === "buy" ? quotes[index].ask : quotes[index].bid,
-          })),
-        )
-      : null;
+  const spreadRisk = payoffCalculation.result?.risk ?? null;
   return (
     <section
       className="research-lab"
@@ -441,8 +432,8 @@ export function ResearchWorkbench({
               : "Historical strategy research"}
           </strong>
           <span>
-            Selected broker historical candles · Saved baskets · Separate
-            real-money confirmation
+            Stored historical candles · Saved research · Separate real-money
+            confirmation
           </span>
         </div>
         <span className="badge">NO AUTO EXECUTION</span>
@@ -572,9 +563,9 @@ export function ResearchWorkbench({
                 <strong>
                   {!spreadRisk
                     ? "—"
-                    : spreadRisk.maxProfit === Infinity
+                    : spreadRisk.unlimitedProfit
                       ? "Unbounded"
-                      : currency(spreadRisk.maxProfit)}
+                      : currency(spreadRisk.maxProfit!)}
                 </strong>
               </div>
               <div>
@@ -582,9 +573,9 @@ export function ResearchWorkbench({
                 <strong>
                   {!spreadRisk
                     ? "—"
-                    : spreadRisk.maxLoss === Infinity
+                    : spreadRisk.unlimitedLoss
                       ? "Unbounded"
-                      : currency(spreadRisk.maxLoss)}
+                      : currency(spreadRisk.maxLoss!)}
                 </strong>
               </div>
               <div>
@@ -597,10 +588,15 @@ export function ResearchWorkbench({
               </div>
             </div>
             <p>
-              Risk figures exclude fees, taxes and slippage. Chart includes
-              configured fees. Non-atomic fills can create additional risk. Live
-              multi-leg execution is unavailable.
+              Risk figures and chart include configured flat fees. Taxes and
+              slippage are excluded. Non-atomic fills can create additional
+              risk. Live multi-leg execution is unavailable.
             </p>
+            {payoffCalculation.error && (
+              <p className="error" role="alert">
+                {payoffCalculation.error}
+              </p>
+            )}
             <Button variant="secondary" onClick={() => setTab("quotes")}>
               Load premium quotes
             </Button>
@@ -738,24 +734,27 @@ export function ResearchWorkbench({
                 }}
               />
             )}
-            <p>Research data broker: Kotak Neo</p>
+            <p>
+              Historical source: stored daily dataset · Live preview source:
+              Kotak Neo
+            </p>
             {definition.broker === "kotak" && definition.market === "cash" && (
-              <InstrumentPicker
-                market="cash"
-                csrf={csrf}
+              <StoredInstrumentPicker
                 disabled={busy}
-                onSelect={(item) =>
+                onSelect={(item) => {
                   edit({
                     ...definition,
                     legs: [
                       {
                         stockCode: item.symbol,
+                        dataInstrumentId: item.id,
                         side: "buy",
-                        quantity: item.lotSize,
+                        quantity: 1,
                       },
                     ],
-                  })
-                }
+                  });
+                  setDay(item.last_day);
+                }}
               />
             )}
             <form
@@ -806,10 +805,11 @@ export function ResearchWorkbench({
                   </label>
                 </div>
                 <p className="research-note">
-                  Use the selected broker's exact symbols. Options quantities
-                  are <strong>contract units, not lots</strong>; enter the
-                  correct historical lot multiple. Template strikes are
-                  placeholders—select the actual contract and expiry.
+                  Cash/index strategies must use an exact stored instrument.
+                  Options quantities are{" "}
+                  <strong>contract units, not lots</strong>; option legs support
+                  payoff and live preview, but stored daily data cannot
+                  reproduce historical option premiums.
                 </p>
                 {definition.legs.map((leg, index) => (
                   <div className="research-leg" key={index}>
@@ -840,6 +840,7 @@ export function ResearchWorkbench({
                           required
                           value={leg.stockCode}
                           maxLength={30}
+                          readOnly={definition.market === "cash"}
                           onChange={(event) =>
                             editLeg(index, {
                               stockCode: event.target.value.toUpperCase(),
@@ -955,32 +956,50 @@ export function ResearchWorkbench({
                   Timing & research assumptions
                 </h3>
                 <div className="research-fields">
-                  <label>
-                    Entry time (IST)
-                    <input
-                      type="time"
-                      required
-                      min="09:15"
-                      max="15:20"
-                      value={definition.entryTime}
-                      onChange={(event) =>
-                        edit({ ...definition, entryTime: event.target.value })
-                      }
-                    />
-                  </label>
-                  <label>
-                    Exit time (IST)
-                    <input
-                      type="time"
-                      required
-                      min="09:20"
-                      max="15:25"
-                      value={definition.exitTime}
-                      onChange={(event) =>
-                        edit({ ...definition, exitTime: event.target.value })
-                      }
-                    />
-                  </label>
+                  {definition.market === "options" ? (
+                    <>
+                      <label>
+                        Entry time (IST)
+                        <input
+                          type="time"
+                          required
+                          min="09:15"
+                          max="15:20"
+                          value={definition.entryTime}
+                          onChange={(event) =>
+                            edit({
+                              ...definition,
+                              entryTime: event.target.value,
+                            })
+                          }
+                        />
+                      </label>
+                      <label>
+                        Exit time (IST)
+                        <input
+                          type="time"
+                          required
+                          min="09:20"
+                          max="15:25"
+                          value={definition.exitTime}
+                          onChange={(event) =>
+                            edit({
+                              ...definition,
+                              exitTime: event.target.value,
+                            })
+                          }
+                        />
+                      </label>
+                    </>
+                  ) : (
+                    <label>
+                      Stored daily fill model
+                      <input
+                        value="Entry at open · exit at stop, target or close"
+                        readOnly
+                      />
+                    </label>
+                  )}
                   {(
                     [
                       ["capital", "Simulated capital (₹)", 100],
@@ -1010,9 +1029,9 @@ export function ResearchWorkbench({
                   ))}
                 </div>
                 <p className="research-note">
-                  One intraday entry/exit. Stops and targets are observed at
-                  completed candle closes, then filled at the next open. Taxes,
-                  actual broker margin and leg execution risk are not modeled.
+                  {definition.market === "cash"
+                    ? "Stored daily OHLC cannot prove intraday ordering. Entry is modeled at the open; stop wins if both stop and target are touched; otherwise the position exits at target or close."
+                    : "Option timing is retained for payoff and live-preview definitions. Historical option replay is unavailable until a stored option-premium dataset is added."}
                 </p>
                 <Button type="submit">Save research strategy</Button>
               </fieldset>
@@ -1025,9 +1044,17 @@ export function ResearchWorkbench({
               <span className="eyebrow">02 · REPLAY THE SESSION</span>
               <h2>Backtest results</h2>
               <p>
-                Connect your selected broker, select a saved strategy and a
-                completed session. No generated prices or fallback data.
+                Select a saved cash/index strategy and a session covered by the
+                stored daily dataset. No broker connection or fallback data is
+                used.
               </p>
+              {definition.market === "options" && (
+                <p role="status">
+                  Historical option simulation is unavailable because the stored
+                  dataset has no option-premium candles. Use payoff analysis or
+                  live preview for option definitions.
+                </p>
+              )}
               <div className="research-fields">
                 <label>
                   Historical session (IST)
@@ -1039,17 +1066,11 @@ export function ResearchWorkbench({
                 </label>
                 <label>
                   Candle interval
-                  <select
-                    value={interval}
-                    onChange={(event) => setIntervalValue(event.target.value)}
-                  >
-                    <option value="1minute">1 minute</option>
-                    <option value="5minute">5 minutes</option>
-                  </select>
+                  <input value="Daily stored OHLC" readOnly />
                 </label>
               </div>
               <Button
-                disabled={busy || !strategyId}
+                disabled={busy || !strategyId || definition.market !== "cash"}
                 onClick={() =>
                   void act(async () => {
                     const result = await researchRequest(
@@ -1069,24 +1090,31 @@ export function ResearchWorkbench({
                   })
                 }
               >
-                {busy ? "Loading broker history…" : "Run historical simulation"}
+                {busy
+                  ? "Loading stored history…"
+                  : "Run stored daily simulation"}
               </Button>
               <label>
                 Batch session dates (YYYY-MM-DD, comma separated)
                 <input
                   value={batchDays}
                   onChange={(event) => setBatchDays(event.target.value)}
-                  placeholder="2025-01-02, 2025-01-03"
+                  placeholder="2020-01-02, 2020-01-03"
                 />
               </label>
               <p>
                 Up to 20 completed dates. Each day starts with the same capital;
                 no compounding or overnight exposure. Missing history is
-                skipped. Shared API budgets or the time limit can stop a batch
-                early.
+                skipped. Runs read the stored database and do not consume a
+                broker API budget.
               </p>
               <Button
-                disabled={busy || !strategyId || !batchDays.trim()}
+                disabled={
+                  busy ||
+                  !strategyId ||
+                  !batchDays.trim() ||
+                  definition.market !== "cash"
+                }
                 onClick={() =>
                   void act(async () => {
                     const result = await researchRequest(
@@ -1151,7 +1179,7 @@ export function ResearchWorkbench({
                 <h2>No backtest loaded</h2>
                 <p>
                   Save your definition, then run a completed session or open a
-                  saved report. Results use broker historical candles, modeled
+                  saved report. Results use stored historical candles, modeled
                   costs and explicit fill assumptions.
                 </p>
                 <p>
