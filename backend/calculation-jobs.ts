@@ -39,6 +39,9 @@ type CalculationJobRow = {
   engine_version: string;
   created_at: Date | string;
   updated_at: Date | string;
+  claim_token: string | null;
+  lease_until: Date | string | null;
+  attempts: number;
 };
 type StoredBar = {
   day: string;
@@ -69,27 +72,31 @@ function presentJob(row: CalculationJobRow) {
   };
 }
 
-/** Execute one durable job at a time in this single-instance deployment. */
+/** Globally lease one durable job; a replaced worker can never publish a stale result. */
 export class CalculationJobRunner {
   private timer?: ReturnType<typeof setTimeout>;
   private closed = false;
   private running = false;
+  private lastPollAt = 0;
   private readonly controllers = new Map<string, AbortController>();
 
   constructor(
     private readonly store: Store,
     private readonly client: Pick<CalculationClient, "dailyBacktest">,
+    private readonly researchEnabled = true,
   ) {}
 
-  /** Recover interrupted CPU-only work safely, then start bounded serial polling. */
+  /** Poll without resetting another instance's running work. Recovery happens only after lease expiry. */
   public start() {
-    void this.store
-      .transaction((query) =>
-        query(
-          "UPDATE calculation_jobs SET status=CASE WHEN cancel_requested THEN 'cancelled' ELSE 'queued' END,progress=CASE WHEN cancel_requested THEN 0 ELSE 5 END,error=CASE WHEN cancel_requested THEN '' ELSE 'Worker restarted before completion; calculation safely requeued.' END,updated_at=NOW() WHERE status='running'",
-        ),
-      )
-      .finally(() => this.schedule(0));
+    this.schedule(0);
+  }
+
+  /** Readiness distinguishes an intentionally paused worker from a stalled database poll. */
+  public healthy() {
+    return (
+      !this.closed &&
+      (!this.researchEnabled || Date.now() - this.lastPollAt < 30000)
+    );
   }
 
   /** Stop accepting work and abort only calculation HTTP calls, never broker operations. */
@@ -130,9 +137,22 @@ export class CalculationJobRunner {
     this.timer.unref();
   }
 
-  /** Claim via SKIP LOCKED so a future multi-worker deployment cannot double-run a job. */
+  /** Serialize claims globally. A 150-second lease exceeds the Python hard wall-time limit. */
   private async claim() {
     return this.store.transaction(async (query) => {
+      await query("SELECT pg_advisory_xact_lock(684202)");
+      await query(
+        "UPDATE calculation_jobs SET status=CASE WHEN cancel_requested THEN 'cancelled' WHEN attempts>=3 THEN 'failed' ELSE 'queued' END,progress=0,error=CASE WHEN attempts>=3 THEN 'Calculation exhausted its recovery attempts.' ELSE 'Expired worker lease; calculation safely requeued.' END,claim_token=NULL,lease_until=NULL,updated_at=NOW() WHERE status='running' AND (lease_until IS NULL OR lease_until<NOW())",
+      );
+      if (
+        (
+          await query(
+            "SELECT id FROM calculation_jobs WHERE status='running' LIMIT 1",
+          )
+        ).length
+      ) {
+        return null;
+      }
       const [job] = await query<CalculationJobRow>(
         "SELECT * FROM calculation_jobs WHERE status='queued' AND NOT cancel_requested ORDER BY created_at,id FOR UPDATE SKIP LOCKED LIMIT 1",
       );
@@ -140,8 +160,8 @@ export class CalculationJobRunner {
         return null;
       }
       const [claimed] = await query<CalculationJobRow>(
-        "UPDATE calculation_jobs SET status='running',progress=10,error='',updated_at=NOW() WHERE id=$1 AND status='queued' RETURNING *",
-        [job.id],
+        "UPDATE calculation_jobs SET status='running',progress=10,error='',claim_token=$2,lease_until=NOW()+INTERVAL '150 seconds',attempts=attempts+1,updated_at=NOW() WHERE id=$1 AND status='queued' RETURNING *",
+        [job.id, randomUUID()],
       );
       return claimed ?? null;
     });
@@ -156,16 +176,22 @@ export class CalculationJobRunner {
     this.running = true;
     let found = false;
     try {
+      if (!this.researchEnabled) {
+        return;
+      }
       const job = await this.claim();
+      this.lastPollAt = Date.now();
       if (job) {
         found = true;
         await this.execute(job);
       }
     } catch {
-      // Database/service errors are reflected on the claimed job when possible; keep the worker alive.
+      console.error(
+        "Calculation worker poll failed; database readiness requires attention.",
+      );
     } finally {
       this.running = false;
-      this.schedule(found ? 0 : 500);
+      this.schedule(found ? 0 : 2000);
     }
   }
 
@@ -173,9 +199,35 @@ export class CalculationJobRunner {
   private async execute(job: CalculationJobRow) {
     const controller = new AbortController();
     this.controllers.set(job.id, controller);
+    let renewing = false;
+    const heartbeat = setInterval(() => {
+      if (renewing || controller.signal.aborted) {
+        return;
+      }
+      renewing = true;
+      void this.store
+        .transaction((query) =>
+          query<{ cancel_requested: boolean }>(
+            "UPDATE calculation_jobs SET lease_until=NOW()+INTERVAL '150 seconds',updated_at=NOW() WHERE id=$1 AND claim_token=$2 AND status='running' AND lease_until>NOW() RETURNING cancel_requested",
+            [job.id, job.claim_token],
+          ),
+        )
+        .then((rows) => {
+          this.lastPollAt = Date.now();
+          if (!rows.length || rows[0].cancel_requested) {
+            controller.abort();
+          }
+        })
+        .catch(() => controller.abort())
+        .finally(() => {
+          renewing = false;
+        });
+    }, 5000);
+    heartbeat.unref();
     try {
       const input = dailyJobInputSchema.parse(JSON.parse(job.input));
-      const dataset = await this.loadDataset(job.id, input);
+      const dataset = await this.loadDataset(input, controller.signal);
+      controller.signal.throwIfAborted();
       const response = await this.client.dailyBacktest(
         dataset.bars,
         input.settings,
@@ -212,46 +264,52 @@ export class CalculationJobRunner {
       };
       await this.store.transaction(async (query) => {
         const [current] = await query<{ cancel_requested: boolean }>(
-          "SELECT cancel_requested FROM calculation_jobs WHERE id=$1 FOR UPDATE",
-          [job.id],
+          "SELECT cancel_requested FROM calculation_jobs WHERE id=$1 AND claim_token=$2 AND status='running' AND lease_until>NOW() FOR UPDATE",
+          [job.id, job.claim_token],
         );
+        if (!current) {
+          return;
+        }
+        if (this.closed || controller.signal.aborted) {
+          throw new DOMException("Worker stopped", "AbortError");
+        }
         await query(
           current?.cancel_requested
-            ? "UPDATE calculation_jobs SET status='cancelled',progress=0,result='',error='',updated_at=NOW() WHERE id=$1"
-            : "UPDATE calculation_jobs SET status='completed',progress=100,result=$2,error='',engine_version=$3,updated_at=NOW() WHERE id=$1",
+            ? "UPDATE calculation_jobs SET status='cancelled',progress=0,result='',error='',claim_token=NULL,lease_until=NULL,updated_at=NOW() WHERE id=$1"
+            : "UPDATE calculation_jobs SET status='completed',progress=100,result=$2,error='',engine_version=$3,claim_token=NULL,lease_until=NULL,updated_at=NOW() WHERE id=$1",
           current?.cancel_requested
             ? [job.id]
             : [job.id, JSON.stringify(result), response.engineVersion],
         );
       });
     } catch (cause) {
-      const cancelled = controller.signal.aborted;
-      const detail = cancelled
-        ? ""
-        : cause instanceof Error && cause.message.length <= 300
+      const detail =
+        cause instanceof Error && cause.message.length <= 300
           ? cause.message
           : "Calculation failed validation or became unavailable.";
       await this.store
         .transaction((query) =>
-          cancelled
-            ? query(
-                "UPDATE calculation_jobs SET status='cancelled',progress=0,error='',updated_at=NOW() WHERE id=$1 AND status='running'",
-                [job.id],
-              )
-            : query(
-                "UPDATE calculation_jobs SET status='failed',error=$2,updated_at=NOW() WHERE id=$1 AND status='running'",
-                [job.id, detail],
-              ),
+          query(
+            "UPDATE calculation_jobs SET status=CASE WHEN cancel_requested THEN 'cancelled' WHEN $3 AND attempts<3 THEN 'queued' ELSE 'failed' END,progress=0,error=CASE WHEN cancel_requested THEN '' ELSE $4 END,claim_token=NULL,lease_until=NULL,updated_at=NOW() WHERE id=$1 AND claim_token=$2 AND status='running' AND lease_until>NOW()",
+            [
+              job.id,
+              job.claim_token,
+              this.closed || controller.signal.aborted,
+              detail,
+            ],
+          ),
         )
         .catch(() => {});
     } finally {
+      clearInterval(heartbeat);
       this.controllers.delete(job.id);
     }
   }
 
   /** Load bounded, ordered candles after matching both stable identity and symbol. */
-  private async loadDataset(jobId: string, input: DailyJobInput) {
+  private async loadDataset(input: DailyJobInput, signal: AbortSignal) {
     return this.store.transaction(async (query) => {
+      await query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
       const [instrument] = await query<{ id: string; symbol: string }>(
         "SELECT id,symbol FROM eod_instruments WHERE id=$1 AND symbol=$2",
         [input.instrumentId, input.symbol],
@@ -259,17 +317,22 @@ export class CalculationJobRunner {
       if (!instrument) {
         throw new Error("Stored instrument is unavailable.");
       }
-      const rows = await query<StoredBar>(
-        "SELECT day::text AS day,open,high,low,close,source FROM eod_candles WHERE instrument_id=$1 AND day>=$2::date AND day<=$3::date ORDER BY day LIMIT 10001",
-        [input.instrumentId, input.from, input.to],
-      );
+      const rows: StoredBar[] = [];
+      // Read bounded pages from one consistent snapshot; the final payload is capped at 10,000 bars.
+      for (let offset = 0; offset <= 10000; offset += 500) {
+        signal.throwIfAborted();
+        const batch = await query<StoredBar>(
+          "SELECT day::text AS day,open,high,low,close,source FROM eod_candles WHERE instrument_id=$1 AND day>=$2::date AND day<=$3::date ORDER BY day LIMIT 500 OFFSET $4",
+          [input.instrumentId, input.from, input.to, offset],
+        );
+        rows.push(...batch);
+        if (batch.length < 500) {
+          break;
+        }
+      }
       if (rows.length < 60 || rows.length > 10000) {
         throw new Error("Requires 60–10,000 stored daily candles.");
       }
-      await query(
-        "UPDATE calculation_jobs SET progress=30,updated_at=NOW() WHERE id=$1 AND status='running'",
-        [jobId],
-      );
       return {
         bars: rows.map((row) => ({
           date: row.day,
@@ -310,6 +373,8 @@ export function registerCalculationRoutes(
     const userId = res.locals.session.user_id;
     const id = randomUUID();
     await store.transaction(async (query) => {
+      // Serialize each owner's queue cap; simultaneous requests cannot both observe four jobs.
+      await query("SELECT id FROM users WHERE id=$1 FOR UPDATE", [userId]);
       const [count] = await query<{ count: string }>(
         "SELECT COUNT(*) FROM calculation_jobs WHERE user_id=$1 AND status IN ('queued','running')",
         [userId],

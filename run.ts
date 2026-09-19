@@ -75,7 +75,7 @@ const commands: [string, string[], string, NodeJS.ProcessEnv?][] = [
     [
       "-m",
       "uvicorn",
-      "calculation_engine.app:app",
+      "calculation_engine.worker:app",
       "--host",
       "127.0.0.1",
       "--port",

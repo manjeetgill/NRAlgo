@@ -8,7 +8,7 @@ RUN pip install --no-cache-dir --requirement calculation_engine/requirements.loc
 COPY --chown=calculator:calculator calculation_engine ./calculation_engine
 USER calculator
 EXPOSE 8010
-CMD ["python", "-m", "uvicorn", "calculation_engine.app:app", "--host", "0.0.0.0", "--port", "8010", "--no-server-header"]
+CMD ["python", "-m", "uvicorn", "calculation_engine.worker:app", "--host", "0.0.0.0", "--port", "8010", "--workers", "1", "--limit-concurrency", "8", "--timeout-graceful-shutdown", "5", "--no-server-header"]
 
 # Compile TypeScript with dev dependencies; production stages contain only runtime artifacts.
 FROM node:22-alpine AS backend-build

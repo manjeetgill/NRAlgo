@@ -98,7 +98,7 @@ export function createApiApplication(
     CalculationClient,
     "dailyBacktest" | "payoff" | "storedDaily"
   > &
-    Partial<Pick<CalculationClient, "marketInsights">>,
+    Partial<Pick<CalculationClient, "marketInsights" | "healthy">>,
 ) {
   const production =
     env.APP_ENV === "production" || env.NODE_ENV === "production";
@@ -123,7 +123,11 @@ export function createApiApplication(
   const brokerAccess = new BrokerRequestCoordinator();
   const calculationClient =
     injectedCalculationClient || new CalculationClient(env);
-  const calculationRunner = new CalculationJobRunner(store, calculationClient);
+  const calculationRunner = new CalculationJobRunner(
+    store,
+    calculationClient,
+    env.LIVE_TRADING_ENABLED !== "true",
+  );
   const zerodha = createZerodhaConnection(env, undefined, {
     connected: (userId, accountBinding) =>
       recordBrokerConnected(store, userId, "zerodha", accountBinding).then(
@@ -254,7 +258,7 @@ export function createApiApplication(
     });
     return { csrf };
   }
-  /** Readiness checks the schema; Compose independently health-gates the Python service. */
+  /** Liveness keeps the broker API available; readiness also checks calculator and worker progress. */
   async function databaseReady() {
     return store.transaction(async (query) =>
       Boolean((await query("SELECT id FROM settings WHERE id=1")).length),
@@ -281,7 +285,10 @@ export function createApiApplication(
   });
   app.get("/api/ready", async (req, res) => {
     try {
-      const ready = await databaseReady();
+      const ready =
+        (await databaseReady()) &&
+        calculationRunner.healthy() &&
+        Boolean(await calculationClient.healthy?.());
       res.status(ready ? 200 : 503).json({ ready, worker: "calculation-jobs" });
     } catch {
       res.status(503).json({ ready: false, detail: "Database not ready" });

@@ -305,10 +305,28 @@ async function readBoundedJson(response: Response, maximumBytes: number) {
   if (declared > maximumBytes) {
     throw new Error("Calculation response exceeded its size limit");
   }
-  const text = await response.text();
-  if (Buffer.byteLength(text) > maximumBytes) {
-    throw new Error("Calculation response exceeded its size limit");
+  const reader = response.body?.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    if (reader) {
+      for (;;) {
+        const chunk = await reader.read();
+        if (chunk.done) {
+          break;
+        }
+        size += chunk.value.byteLength;
+        if (size > maximumBytes) {
+          throw new Error("Calculation response exceeded its size limit");
+        }
+        chunks.push(chunk.value);
+      }
+    }
+  } finally {
+    await reader?.cancel().catch(() => {});
+    reader?.releaseLock();
   }
+  const text = Buffer.concat(chunks).toString("utf8");
   if (!response.ok) {
     let detail = "Calculation input was rejected.";
     if (response.status === 422) {
@@ -330,8 +348,10 @@ async function readBoundedJson(response: Response, maximumBytes: number) {
 export class CalculationClient {
   private readonly origin: string;
   private readonly token: string;
+  private readonly liveEnabled: boolean;
 
   constructor(env: NodeJS.ProcessEnv) {
+    this.liveEnabled = env.LIVE_TRADING_ENABLED === "true";
     const production =
       env.APP_ENV === "production" || env.NODE_ENV === "production";
     const rawOrigin = env.CALCULATION_SERVICE_URL || "http://127.0.0.1:8010";
@@ -361,6 +381,14 @@ export class CalculationClient {
 
   /** Invoke one authenticated Python operation with cancellation and no automatic retry. */
   private async request(path: string, payload: unknown, signal?: AbortSignal) {
+    if (
+      this.liveEnabled &&
+      ["/v1/backtests/daily", "/v1/research/stored-daily"].includes(path)
+    ) {
+      const detail =
+        "Heavy research is paused while live execution is enabled.";
+      throw Object.assign(new Error(detail), { status: 409, detail });
+    }
     try {
       const response = await fetch(new URL(path, this.origin), {
         method: "POST",
@@ -373,7 +401,7 @@ export class CalculationClient {
           ? AbortSignal.any([signal, AbortSignal.timeout(120000)])
           : AbortSignal.timeout(120000),
       });
-      return readBoundedJson(response, 12 * 1024 * 1024);
+      return await readBoundedJson(response, 12 * 1024 * 1024);
     } catch (cause) {
       if (signal?.aborted || (cause as Error).name === "AbortError") {
         throw cause;
@@ -383,6 +411,21 @@ export class CalculationClient {
       }
       const detail = "Calculation service is unavailable.";
       throw Object.assign(new Error(detail), { status: 503, detail });
+    }
+  }
+
+  /** Bound the readiness probe; a healthy supervisor may legitimately be busy. */
+  public async healthy() {
+    try {
+      const response = await fetch(new URL("/health", this.origin), {
+        signal: AbortSignal.timeout(3000),
+      });
+      const value = await readBoundedJson(response, 4096);
+      return z
+        .object({ status: z.literal("ok"), engineVersion: z.string() })
+        .safeParse(value).success;
+    } catch {
+      return false;
     }
   }
 

@@ -378,6 +378,16 @@ export async function runDatabaseMigrations(
       );
       await query("INSERT INTO schema_migrations VALUES(14)");
     }
+    if (
+      !(await query("SELECT version FROM schema_migrations WHERE version=15"))
+        .length
+    ) {
+      // Claim tokens fence late responses; expired leases, not API startup, permit recovery.
+      await query(
+        "ALTER TABLE calculation_jobs ADD COLUMN claim_token VARCHAR(36), ADD COLUMN lease_until TIMESTAMPTZ, ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0",
+      );
+      await query("INSERT INTO schema_migrations VALUES(15)");
+    }
   });
   // The migration container owns DDL; API/worker use a separate non-superuser role.
   if (options.runtimePassword) {
