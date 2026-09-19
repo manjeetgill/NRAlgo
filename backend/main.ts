@@ -40,7 +40,9 @@ import { registerLiveTradingRoutes } from "./live/live-trading-routes.js";
 import { registerDatabaseBrowserRoutes } from "./database-browser-routes.js";
 import { createZerodhaConnection } from "./zerodha-connection.js";
 import { BrokerSessionStore } from "./broker-session-store.js";
+import { BrokerAppCredentialStore } from "./broker-app-credential-store.js";
 import { registerEodRoutes } from "./stored-market-data.js";
+import { registerWatchlistRoutes } from "./watchlist-routes.js";
 import { HistoricalCandleStore } from "./historical-candle-store.js";
 import {
   recordBrokerConnected,
@@ -120,6 +122,7 @@ export function createApiApplication(
   }
   const vault = credentialVault(env);
   const savedBrokerSessions = new BrokerSessionStore(store, vault);
+  const brokerAppCredentials = new BrokerAppCredentialStore(store, vault);
   const restoreEpoch = new Map<string, number>();
   const restores = new Map<string, { until: number; promise: Promise<void> }>();
   const brokerAccess = new BrokerRequestCoordinator();
@@ -146,6 +149,7 @@ export function createApiApplication(
         ),
     },
     savedBrokerSessions,
+    brokerAppCredentials,
   );
   const kotakClient = kotakData || new KotakMarketDataClient();
   // Share one public catalog between market-data and research contract resolution.
@@ -801,10 +805,14 @@ export function createApiApplication(
     production,
   );
   registerLiveTradingRoutes(app, liveManager);
-  registerBrokerRegistryRoutes(app, store, (provider, userId, sessionHash) =>
-    provider === "kotak"
-      ? kotakClient.isConnected(userId, sessionHash)
-      : zerodha.isConnected(userId, sessionHash),
+  registerBrokerRegistryRoutes(
+    app,
+    store,
+    vault,
+    (provider, userId, sessionHash) =>
+      provider === "kotak"
+        ? kotakClient.isConnected(userId, sessionHash)
+        : zerodha.isConnected(userId, sessionHash),
   );
   registerMarketDataRoutes(
     app,
@@ -818,6 +826,7 @@ export function createApiApplication(
   registerDatabaseBrowserRoutes(app, store);
   zerodha.register(app);
   registerEodRoutes(app, store, history);
+  registerWatchlistRoutes(app, store, history);
   calculationRunner.start();
   app.use((req, res) => res.status(404).json({ detail: "Not found" }));
   const errorHandler: ErrorRequestHandler = (err: unknown, req, res, next) => {

@@ -515,6 +515,19 @@ export class KotakLiveManager {
       );
       try {
         await this.store.transaction(async (query) => {
+          // Serialize permission grants with broker selection so a concurrent switch
+          // cannot leave permission attached to the broker we just switched away from.
+          const active = await resolveActiveBroker(
+            query,
+            session.user_id,
+            true,
+          );
+          if (active.id !== entry.brokerId) {
+            fail(
+              409,
+              "Active broker changed while arming. Authorize the selected broker again.",
+            );
+          }
           if (entry.revoked || !entry.connection.isCurrent()) {
             fail(409, "Broker session changed while arming.");
           }

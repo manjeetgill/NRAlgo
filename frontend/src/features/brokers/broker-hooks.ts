@@ -240,7 +240,10 @@ const selectionSchema = z.object({
 export type RegisteredBroker = z.infer<typeof registeredBrokerSchema>;
 
 /** Fence stale reads and serialize active-broker changes without retrying mutations. */
-export function useBrokerRegistry(csrf: string, refreshKey: number | null) {
+export function useBrokerRegistry(
+  csrf: string,
+  refreshKey: number | null = null,
+) {
   const [registry, setRegistry] = useState<z.infer<typeof registrySchema>>({
     activeBrokerId: null,
     brokers: [],
@@ -314,11 +317,26 @@ export function useBrokerRegistry(csrf: string, refreshKey: number | null) {
     return () => abort.abort();
   }, [load, refreshKey]);
 
+  /** Re-read the durable preference after Settings changes or returning from another tab. */
+  useEffect(() => {
+    const refresh = () => {
+      if (!pendingSelection.current) {
+        void load();
+      }
+    };
+    window.addEventListener("focus", refresh);
+    window.addEventListener("active-broker-changed", refresh);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("active-broker-changed", refresh);
+    };
+  }, [load]);
+
   /** Select the broker for future intents; one explicit mutation is followed by one authoritative read. */
   const select = useCallback(
-    async (brokerId: string) => {
+    async (brokerId: string, token: string) => {
       if (pendingSelection.current || brokerId === registry.activeBrokerId) {
-        return;
+        return false;
       }
       pendingSelection.current = true;
       setSelecting(true);
@@ -326,12 +344,19 @@ export function useBrokerRegistry(csrf: string, refreshKey: number | null) {
       setWarning("");
       try {
         const result = selectionSchema.parse(
-          await requestApiJson("/brokers/active", "POST", { brokerId }, csrf),
+          await requestApiJson(
+            "/brokers/active",
+            "POST",
+            { brokerId, token },
+            csrf,
+          ),
         );
         if (mounted.current) {
           setWarning(result.warning ?? "");
         }
         await load();
+        window.dispatchEvent(new Event("active-broker-changed"));
+        return true;
       } catch (failure) {
         if (mounted.current) {
           setError(
@@ -340,6 +365,7 @@ export function useBrokerRegistry(csrf: string, refreshKey: number | null) {
               : "Active broker could not be changed.",
           );
         }
+        return false;
       } finally {
         pendingSelection.current = false;
         if (mounted.current) {
@@ -447,5 +473,30 @@ export function useZerodhaConnection(csrf: string) {
       setBusy(false);
     }
   }
-  return { connection, busy, error, action };
+  /** Save long-lived app credentials once; the response contains status only, never the secret. */
+  async function configure(input: { apiKey: string; apiSecret: string }) {
+    if (busy) {
+      return false;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const result = await requestApiJson(
+        "/brokers/zerodha/configuration",
+        "PUT",
+        input,
+        csrf,
+      );
+      setConnection(connectionSchema.parse(result));
+      return true;
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : "Unable to save Zerodha credentials.",
+      );
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+  return { connection, busy, error, action, configure };
 }

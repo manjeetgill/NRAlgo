@@ -6,6 +6,7 @@
  */
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { QRCodeSVG } from "qrcode.react";
 import { requestApiJson } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { AccountSessions } from "./account-sessions";
@@ -36,6 +37,19 @@ export function AccountScreen({
   const [mfaEnabled, setMfaEnabled] = useState<boolean | null>(null),
     [enrollmentSecret, setEnrollmentSecret] = useState("");
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
+  const [enrollmentUri, setEnrollmentUri] = useState("");
+  // Enrollment material stays in memory and disappears when its setup window ends.
+  useEffect(() => {
+    if (!enrollmentUri) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setEnrollmentSecret("");
+      setEnrollmentUri("");
+      setMessage("MFA setup expired. Start a new setup.");
+    }, 600000);
+    return () => window.clearTimeout(timer);
+  }, [enrollmentUri]);
   const passwordDialog = useRef<HTMLDialogElement>(null);
   const mutationPending = useRef(false);
   /** Read MFA policy for this app session; never populate an unmounted account screen from an old response. */
@@ -80,10 +94,12 @@ export function AccountScreen({
       form.reset();
       if (action === "setup") {
         setEnrollmentSecret(data.secret);
+        setEnrollmentUri(data.uri);
         setRecoveryCodes([]);
       } else {
         setMfaEnabled(data.enabled);
         setEnrollmentSecret("");
+        setEnrollmentUri("");
         setRecoveryCodes(data.recovery_codes || []);
         setMessage(
           data.enabled
@@ -216,8 +232,24 @@ export function AccountScreen({
           </h2>
           <p>
             Required for broker connections on the cloud server. Add NRIAlgo to
-            your authenticator app using a setup key (time-based, 6 digits).
+            your authenticator app by scanning the QR code or entering the setup
+            key (time-based, 6 digits).
           </p>
+          {enrollmentUri && (
+            <div>
+              <p>
+                Scan with your authenticator app, then enter its 6-digit code
+                below.
+              </p>
+              {/* Render locally: the URI contains a secret and must never reach a QR service. */}
+              <QRCodeSVG
+                value={enrollmentUri}
+                size={224}
+                marginSize={4}
+                title="Private NRIAlgo authenticator setup QR code"
+              />
+            </div>
+          )}
           {enrollmentSecret && (
             <label>
               One-time setup key

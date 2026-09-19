@@ -271,14 +271,19 @@ export function LiveOrderTicket({
               <fieldset disabled={busy}>
                 <legend>2. Enable live trading for five minutes</legend>
                 <label>
-                  Fresh app authenticator code
+                  Fresh app authenticator or unused recovery code
                   <input
                     type="password"
                     autoComplete="one-time-code"
+                    maxLength={32}
                     value={token}
                     onChange={(e) => setToken(e.target.value)}
                   />
                 </label>
+                <p>
+                  Use a new code for each authorization. If you just changed
+                  brokers, wait for your authenticator to show its next code.
+                </p>
                 <label>
                   Type ENABLE REAL MONEY
                   <input

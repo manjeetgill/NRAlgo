@@ -264,6 +264,12 @@ function ActiveBrokerSelector({
   refreshKey: number | null;
 }) {
   const registry = useBrokerRegistry(csrf, refreshKey);
+  const confirmationDialog = useRef<HTMLDialogElement>(null);
+  const [pendingBrokerId, setPendingBrokerId] = useState<string | null>(null);
+  const [brokerProof, setBrokerProof] = useState("");
+  const pendingBroker = registry.brokers.find(
+    (broker) => broker.id === pendingBrokerId,
+  );
   const brokers = useMemo(
     () =>
       [...registry.brokers].sort((left, right) =>
@@ -278,7 +284,7 @@ function ActiveBrokerSelector({
     <article className="panel screen-card active-broker-card">
       <div className="screen-toolbar">
         <div>
-          <h2>Active broker</h2>
+          <h2>Active live broker</h2>
           <p>
             New live order intents will use this broker after authorization.
           </p>
@@ -315,7 +321,10 @@ function ActiveBrokerSelector({
                   value={broker.id}
                   checked={registry.activeBrokerId === broker.id}
                   disabled={!connected || registry.selecting}
-                  onChange={() => void registry.select(broker.id)}
+                  onChange={() => {
+                    setPendingBrokerId(broker.id);
+                    confirmationDialog.current?.showModal();
+                  }}
                 />
                 <span>
                   <strong>{providerNames[broker.provider]}</strong>
@@ -334,14 +343,118 @@ function ActiveBrokerSelector({
         Changing this preference never moves existing broker orders or
         positions. Live trading permission is controlled separately.
       </p>
+      <dialog
+        ref={confirmationDialog}
+        className="workspace-dialog"
+        aria-labelledby="active-live-broker-title"
+        aria-describedby="active-live-broker-description"
+        onCancel={(event) => {
+          if (registry.selecting) {
+            event.preventDefault();
+          }
+        }}
+        onClose={() => {
+          setPendingBrokerId(null);
+          setBrokerProof("");
+        }}
+      >
+        <h2 id="active-live-broker-title">
+          Use{" "}
+          {pendingBroker
+            ? providerNames[pendingBroker.provider]
+            : "this broker"}{" "}
+          as your live broker?
+        </h2>
+        <p id="active-live-broker-description">
+          This selects your connected{" "}
+          {pendingBroker ? providerNames[pendingBroker.provider] : "broker"}{" "}
+          account for future live market activity, including supported live data
+          and new live trades. Live order submission still requires separate
+          authorization.
+        </p>
+        <p>
+          Existing orders and positions remain with their original broker. They
+          are not moved or closed. Unsupported activity is blocked, never routed
+          automatically to another broker.
+        </p>
+        {pendingBroker?.provider === "zerodha" && (
+          <p role="note">
+            Zerodha live order execution is not yet available in this app.
+          </p>
+        )}
+        {registry.error && <p role="alert">{registry.error}</p>}
+        <label>
+          Fresh authenticator or unused recovery code
+          <input
+            type="password"
+            autoComplete="one-time-code"
+            maxLength={32}
+            value={brokerProof}
+            disabled={registry.selecting}
+            onChange={(event) => setBrokerProof(event.target.value)}
+          />
+        </label>
+        <p>
+          Set up MFA in Account &amp; security first. Changing broker clears
+          live trading permission. Starting live trading requires a new code;
+          wait for the next code if you just used one.
+        </p>
+        <div className="screen-toolbar">
+          <Button
+            variant="secondary"
+            disabled={registry.selecting}
+            onClick={() => confirmationDialog.current?.close()}
+          >
+            Cancel
+          </Button>
+          <Button
+            disabled={
+              registry.selecting ||
+              pendingBroker?.status !== "connected" ||
+              !brokerProof.trim()
+            }
+            onClick={async () => {
+              try {
+                if (
+                  pendingBroker &&
+                  (await registry.select(pendingBroker.id, brokerProof.trim()))
+                ) {
+                  confirmationDialog.current?.close();
+                }
+              } finally {
+                setBrokerProof("");
+              }
+            }}
+          >
+            {registry.selecting ? "Changing…" : "Confirm live broker"}
+          </Button>
+        </div>
+      </dialog>
     </article>
   );
 }
 
-/** Redirect authorization and setup view; credentials never enter browser state. */
+/** Redirect authorization and setup view; credentials exist only in transient form state. */
 function ZerodhaConnectionCard({ csrf }: { csrf: string }) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const { connection, busy, error, action } = useZerodhaConnection(csrf);
+  const { connection, busy, error, action, configure } =
+    useZerodhaConnection(csrf);
+  const [appCredentials, setAppCredentials] = useState({
+    apiKey: "",
+    apiSecret: "",
+  });
+
+  /** Submit once to the same-origin API and immediately erase both form values. */
+  async function onConfigure(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    try {
+      if (await configure(appCredentials)) {
+        dialog.current?.close();
+      }
+    } finally {
+      setAppCredentials({ apiKey: "", apiSecret: "" });
+    }
+  }
   return (
     <>
       <article className="panel screen-card" aria-label="Zerodha connection">
@@ -444,6 +557,7 @@ function ZerodhaConnectionCard({ csrf }: { csrf: string }) {
         ref={dialog}
         className="workspace-dialog"
         aria-labelledby="zerodha-setup-title"
+        onClose={() => setAppCredentials({ apiKey: "", apiSecret: "" })}
       >
         <div className="screen-toolbar">
           <h2 id="zerodha-setup-title">Set up Zerodha Kite</h2>
@@ -473,19 +587,73 @@ function ZerodhaConnectionCard({ csrf }: { csrf: string }) {
             </p>
           </li>
           <li>
-            Set <code>ZERODHA_API_KEY</code> and <code>ZERODHA_API_SECRET</code>{" "}
-            in the server environment, then restart the API. Set{" "}
-            <code>APP_ORIGIN</code> to your public HTTPS app address in
-            production.
+            Enter the API key and secret from that app below. Saving new
+            credentials disconnects any existing Zerodha session, so authorize
+            again afterward.
           </li>
           <li>
             Click Authorize with Zerodha, sign in on Zerodha, then click
             Complete authorization when returned to this app.
           </li>
         </ol>
+        {error && (
+          <p role="alert" className="error">
+            {error}
+          </p>
+        )}
+        <form onSubmit={onConfigure} autoComplete="off">
+          <div className="market-grid">
+            <label>
+              Zerodha API key
+              <input
+                required
+                minLength={8}
+                maxLength={64}
+                pattern="[A-Za-z0-9_-]+"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                autoComplete="off"
+                disabled={busy}
+                value={appCredentials.apiKey}
+                onChange={(event) =>
+                  setAppCredentials((current) => ({
+                    ...current,
+                    apiKey: event.target.value,
+                  }))
+                }
+              />
+            </label>
+            <label>
+              Zerodha API secret
+              <input
+                type="password"
+                required
+                minLength={16}
+                maxLength={128}
+                autoComplete="new-password"
+                disabled={busy}
+                value={appCredentials.apiSecret}
+                onChange={(event) =>
+                  setAppCredentials((current) => ({
+                    ...current,
+                    apiSecret: event.target.value,
+                  }))
+                }
+              />
+            </label>
+          </div>
+          <p>
+            Stored encrypted for this workspace. The secret is never displayed
+            again or returned by the API.
+          </p>
+          <Button type="submit" disabled={busy}>
+            {busy ? "Saving…" : "Save Zerodha credentials"}
+          </Button>
+        </form>
         <p>
-          Never paste the API secret into chat or frontend code. No passwords or
-          OTPs are collected here. Your Kotak connection is independent.
+          No Zerodha password or OTP is collected here. Those are entered only
+          on Zerodha during authorization. Your Kotak connection is independent.
         </p>
       </dialog>
     </>

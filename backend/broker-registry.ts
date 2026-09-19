@@ -10,7 +10,8 @@ import { randomUUID } from "node:crypto";
 import type { Express } from "express";
 import { z } from "zod";
 import { audit, type Store } from "./database.js";
-import { fail, rateLimit } from "./security.js";
+import { credentialVault, fail, rateLimit } from "./security.js";
+import { verifySecondFactor } from "./mfa.js";
 
 export const brokerProviderSchema = z.enum(["kotak", "zerodha"]);
 export type BrokerProvider = z.infer<typeof brokerProviderSchema>;
@@ -159,6 +160,8 @@ async function listBrokers(
 /** Change the future routing preference transactionally; disconnected brokers cannot be selected. */
 async function selectActiveBroker(
   store: Store,
+  vault: ReturnType<typeof credentialVault>,
+  token: string,
   userId: string,
   brokerId: string,
   sessionHash: string,
@@ -190,6 +193,23 @@ async function selectActiveBroker(
     }
     const changed = settings.active_broker_id !== target.id;
     if (changed) {
+      // Consume proof under the settings lock, before changing any routing state.
+      const [security] = await query<{ enabled: boolean }>(
+        "SELECT enabled FROM user_security WHERE user_id=$1",
+        [userId],
+      );
+      if (!security?.enabled) {
+        fail(
+          409,
+          "Enable authenticator MFA in Account & security before changing your live broker.",
+        );
+      }
+      await verifySecondFactor(query, vault, userId, token);
+      // Switching away and back must not resurrect a previous live authorization.
+      await query(
+        "DELETE FROM live_permissions WHERE account_id IN (SELECT id FROM live_accounts WHERE user_id=$1)",
+        [userId],
+      );
       await query(
         "UPDATE user_settings SET active_broker_id=$2 WHERE user_id=$1",
         [userId, target.id],
@@ -214,6 +234,7 @@ async function selectActiveBroker(
 export function registerBrokerRegistryRoutes(
   app: Express,
   store: Store,
+  vault: ReturnType<typeof credentialVault>,
   isConnected?: BrokerConnectivityResolver,
 ) {
   const limit = rateLimit(30, 60000, (req) => req.res!.locals.session.user_id);
@@ -228,15 +249,22 @@ export function registerBrokerRegistryRoutes(
       ),
     );
   });
-  app.post("/api/brokers/active", limit, async (req, res) => {
-    const { brokerId } = z
-      .object({ brokerId: z.string().uuid() })
+  const proofLimit = rateLimit(
+    10,
+    60000,
+    (req) => req.res!.locals.session.user_id,
+  );
+  app.post("/api/brokers/active", proofLimit, async (req, res) => {
+    const { brokerId, token } = z
+      .object({ brokerId: z.string().uuid(), token: z.string().min(6).max(32) })
       .strict()
       .parse(req.body);
     const session = res.locals.session;
     res.json(
       await selectActiveBroker(
         store,
+        vault,
+        token,
         session.user_id,
         brokerId,
         session.token_hash,
