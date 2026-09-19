@@ -1,4 +1,5 @@
 # One host, one API. Only Caddy publishes public ports.
+name: nraialgo-terminal
 x-service: &service
   restart: unless-stopped
   logging:
@@ -16,7 +17,10 @@ x-app: &app
   pids_limit: 128
   tmpfs: ["/tmp:size=64m,mode=1777"]
 x-database: &database
-  DATABASE_URL: postgresql://nexus_app:${APP_DATABASE_PASSWORD:?Set APP_DATABASE_PASSWORD to 64 hex characters}@db:5432/nexus
+  DB_HOST: db
+  DB_NAME: nexus
+  DB_USER: nexus_app
+  DB_PASSWORD_FILE: /run/secrets/app_database_password
   APP_ENV: production
 
 services:
@@ -32,7 +36,9 @@ services:
     environment:
       POSTGRES_USER: nexus
       POSTGRES_DB: nexus
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets: [postgres_password]
+    networks: [data]
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -49,10 +55,15 @@ services:
     image: ${BACKEND_IMAGE:?Use the digest-pinned release manifest}
     environment:
       APP_ENV: production
-      DATABASE_URL: postgresql://nexus:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db:5432/nexus
-      APP_DATABASE_PASSWORD: ${APP_DATABASE_PASSWORD:?Set APP_DATABASE_PASSWORD}
-      BACKUP_DATABASE_PASSWORD: ${BACKUP_DATABASE_PASSWORD:?Set BACKUP_DATABASE_PASSWORD to 64 hex characters}
-    command: [node, dist/backend/database.js]
+      DB_HOST: db
+      DB_NAME: nexus
+      DB_USER: nexus
+      DB_PASSWORD_FILE: /run/secrets/postgres_password
+      APP_DATABASE_PASSWORD_FILE: /run/secrets/app_database_password
+      BACKUP_DATABASE_PASSWORD_FILE: /run/secrets/backup_database_password
+    secrets: [postgres_password, app_database_password, backup_database_password]
+    networks: [data]
+    command: [node, --import, ./dist/backend/runtime-secrets.js, dist/backend/database.js]
     depends_on:
       db:
         condition: service_healthy
@@ -68,18 +79,20 @@ services:
       NODE_OPTIONS: --max-old-space-size=320
       APP_ORIGIN: https://${APP_DOMAIN:?Set APP_DOMAIN to your hostname}
       MARKET_DATA_PROVIDER: ${MARKET_DATA_PROVIDER:-kotak}
-      ZERODHA_API_KEY: ${ZERODHA_API_KEY:-}
-      ZERODHA_API_SECRET: ${ZERODHA_API_SECRET:-}
+      ZERODHA_API_KEY_FILE: /run/secrets/zerodha_api_key
+      ZERODHA_API_SECRET_FILE: /run/secrets/zerodha_api_secret
       LIVE_TRADING_ENABLED: ${LIVE_TRADING_ENABLED:-false}
       PAPER_TRADING_ENABLED: ${PAPER_TRADING_ENABLED:-false}
       KOTAK_STATIC_IP_CONFIRMED: ${KOTAK_STATIC_IP_CONFIRMED:-false}
-      SETUP_TOKEN: ${SETUP_TOKEN:?Set a random setup token}
-      BROKER_ENCRYPTION_KEY: ${BROKER_ENCRYPTION_KEY:?Set a persistent 64-character hex encryption key}
-      REGISTRATION_TOKEN: ${REGISTRATION_TOKEN:-}
+      SETUP_TOKEN_FILE: /run/secrets/setup_token
+      BROKER_ENCRYPTION_KEY_FILE: /run/secrets/broker_encryption_key
+      REGISTRATION_TOKEN_FILE: /run/secrets/registration_token
       ALLOW_PUBLIC_REGISTRATION: ${ALLOW_PUBLIC_REGISTRATION:-false}
       TRUST_EDGE_IP: "true"
       CALCULATION_SERVICE_URL: http://calculator:8010
-      CALCULATION_SERVICE_TOKEN: ${CALCULATION_SERVICE_TOKEN:?Set a separate calculation-service token}
+      CALCULATION_SERVICE_TOKEN_FILE: /run/secrets/calculation_service_token
+    secrets: [app_database_password, setup_token, broker_encryption_key, registration_token, calculation_service_token, zerodha_api_key, zerodha_api_secret]
+    networks: [gateway, data, analytics, broker_egress]
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -110,7 +123,9 @@ services:
       OMP_NUM_THREADS: "1"
       MKL_NUM_THREADS: "1"
       NUMEXPR_NUM_THREADS: "1"
-      CALCULATION_SERVICE_TOKEN: ${CALCULATION_SERVICE_TOKEN:?Set a separate calculation-service token}
+      CALCULATION_SERVICE_TOKEN_FILE: /run/secrets/calculation_service_token
+    secrets: [calculation_service_token]
+    networks: [analytics, reference_egress]
     healthcheck:
       test:
         [
@@ -132,6 +147,7 @@ services:
       NODE_OPTIONS: --max-old-space-size=256
     tmpfs: ["/tmp:size=32m,mode=1777", "/app/.next/cache:size=32m,uid=1000,gid=1000"]
     image: ${WEB_IMAGE:?Use the digest-pinned release manifest}
+    networks: [frontend, gateway]
     depends_on:
       api:
         condition: service_healthy
@@ -150,6 +166,7 @@ services:
   caddy:
     <<: *service
     image: ${CADDY_IMAGE:?Use the digest-pinned release manifest}
+    networks: [edge, frontend]
     mem_limit: 128m
     memswap_limit: 128m
     cpus: 0.25
@@ -172,12 +189,16 @@ services:
     cpu_shares: 128
     image: ${BACKUP_IMAGE:?Use the digest-pinned release manifest}
     environment:
-      DATABASE_URL: postgresql://nexus_backup:${BACKUP_DATABASE_PASSWORD:?Set BACKUP_DATABASE_PASSWORD to 64 hex characters}@db:5432/nexus
-      BACKUP_ENCRYPTION_KEY: ${BACKUP_ENCRYPTION_KEY:?Set a separate persistent 64-character hex backup key}
+      APP_ENV: production
+      DB_HOST: db
+      DB_NAME: nexus
+      DB_USER: nexus_backup
+      DB_PASSWORD_FILE: /run/secrets/backup_database_password
+      BACKUP_ENCRYPTION_KEY_FILE: /run/secrets/backup_encryption_key
       BACKUP_S3_URI: ${BACKUP_S3_URI:-}
       AWS_REGION: ${AWS_REGION:-ap-south-1}
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+    secrets: [backup_database_password, backup_encryption_key]
+    networks: [data, backup_egress]
     volumes:
       - backups:/backups
     depends_on:
@@ -194,3 +215,36 @@ volumes:
   caddy_data:
   caddy_config:
   backups:
+
+# Each consumer receives only its own mounts. Host files live in an owner-only directory.
+secrets:
+  postgres_password:
+    file: ${SECRETS_DIR:?Set the private secret directory}/postgres_password
+  app_database_password:
+    file: ${SECRETS_DIR:?Set the private secret directory}/app_database_password
+  backup_database_password:
+    file: ${SECRETS_DIR:?Set the private secret directory}/backup_database_password
+  broker_encryption_key:
+    file: ${SECRETS_DIR:?Set the private secret directory}/broker_encryption_key
+  backup_encryption_key:
+    file: ${SECRETS_DIR:?Set the private secret directory}/backup_encryption_key
+  setup_token:
+    file: ${SECRETS_DIR:?Set the private secret directory}/setup_token
+  registration_token:
+    file: ${SECRETS_DIR:?Set the private secret directory}/registration_token
+  calculation_service_token:
+    file: ${SECRETS_DIR:?Set the private secret directory}/calculation_service_token
+  zerodha_api_key:
+    file: ${SECRETS_DIR:?Set the private secret directory}/zerodha_api_key
+  zerodha_api_secret:
+    file: ${SECRETS_DIR:?Set the private secret directory}/zerodha_api_secret
+
+networks:
+  edge: {}
+  frontend: {internal: true}
+  gateway: {internal: true}
+  data: {internal: true}
+  analytics: {internal: true}
+  broker_egress: {}
+  reference_egress: {}
+  backup_egress: {}

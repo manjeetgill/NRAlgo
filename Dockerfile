@@ -28,7 +28,7 @@ COPY --from=backend-build /app/dist/backend ./dist/backend
 RUN mkdir /app/.runtime && chown node:node /app/.runtime
 USER node
 EXPOSE 8000
-CMD ["node", "dist/backend/main.js"]
+CMD ["node", "--import", "./dist/backend/runtime-secrets.js", "dist/backend/main.js"]
 
 FROM node:22-alpine AS web-build
 WORKDIR /app
@@ -52,6 +52,7 @@ FROM node:22-alpine AS backup
 WORKDIR /app
 RUN apk add --no-cache postgresql17-client aws-cli && mkdir /backups && chown node:node /backups
 COPY --from=backend-build /app/dist/backend/backup.js ./dist/backend/backup.js
+COPY --from=backend-build /app/dist/backend/runtime-secrets.js ./dist/backend/runtime-secrets.js
 COPY package.json ./
 USER node
-CMD ["node", "dist/backend/backup.js"]
+CMD ["node", "--import", "./dist/backend/runtime-secrets.js", "dist/backend/backup.js"]

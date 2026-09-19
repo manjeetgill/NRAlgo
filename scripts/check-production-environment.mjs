@@ -2,8 +2,8 @@
  * Fail-closed production deployment preflight.
  * It validates shape and separation only; secret values are never printed.
  */
-import { statSync } from "node:fs";
-import { resolve } from "node:path";
+import { lstatSync, readFileSync, statSync } from "node:fs";
+import { isAbsolute, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const booleanNames = [
@@ -22,6 +22,51 @@ const hexSecretNames = [
 /** Collect every unsafe production setting without disclosing its value. */
 export function productionEnvironmentErrors(env, envPath = ".env") {
   const errors = [];
+  env = { ...env };
+  const secretNames = [
+    ...hexSecretNames,
+    "POSTGRES_PASSWORD",
+    "SETUP_TOKEN",
+    "REGISTRATION_TOKEN",
+    "CALCULATION_SERVICE_TOKEN",
+    "ZERODHA_API_KEY",
+    "ZERODHA_API_SECRET",
+  ];
+  try {
+    const directory = env.SECRETS_DIR || "";
+    const info = lstatSync(directory);
+    if (
+      !isAbsolute(directory) ||
+      !info.isDirectory() ||
+      info.isSymbolicLink() ||
+      info.mode & 0o077
+    ) {
+      throw new Error("Secret directory must be absolute and owner-only");
+    }
+    for (const name of secretNames) {
+      if (env[name]) {
+        errors.push(`${name} must be file-mounted, not stored in .env.`);
+      }
+      const file = resolve(directory, name.toLowerCase());
+      const metadata = lstatSync(file);
+      if (
+        !metadata.isFile() ||
+        metadata.isSymbolicLink() ||
+        metadata.mode & 0o022 ||
+        metadata.size > 8192
+      ) {
+        throw new Error("Invalid secret file permissions or size");
+      }
+      env[name] = readFileSync(file, "utf8").trim();
+      if (env[name].includes("\n")) {
+        throw new Error("Invalid secret content");
+      }
+    }
+  } catch {
+    errors.push(
+      "SECRETS_DIR must contain all scoped secret files in a private 0700 directory; files must not be writable by group/others.",
+    );
+  }
   for (const name of [
     "BACKEND_IMAGE",
     "WEB_IMAGE",
@@ -143,9 +188,13 @@ export function productionEnvironmentErrors(env, envPath = ".env") {
       errors.push("BACKUP_S3_URI must be a private s3:// bucket destination.");
     }
   }
-  if (Boolean(env.AWS_ACCESS_KEY_ID) !== Boolean(env.AWS_SECRET_ACCESS_KEY)) {
+  if (
+    env.AWS_ACCESS_KEY_ID ||
+    env.AWS_SECRET_ACCESS_KEY ||
+    env.AWS_SESSION_TOKEN
+  ) {
     errors.push(
-      "Supply both AWS access-key fields or neither when using an instance role.",
+      "Use a restricted EC2 backup role, not AWS access keys in .env.",
     );
   }
 

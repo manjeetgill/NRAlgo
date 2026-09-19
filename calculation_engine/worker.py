@@ -14,6 +14,7 @@ import hmac
 import json
 import multiprocessing
 import os
+from pathlib import Path
 import resource
 import signal
 import sys
@@ -25,6 +26,12 @@ from . import ENGINE_VERSION
 MAX_INPUT = 8 * 1024 * 1024
 MAX_OUTPUT = 12 * 1024 * 1024
 WALL_SECONDS = 90
+token_file = os.environ.get("CALCULATION_SERVICE_TOKEN_FILE")
+if token_file:
+    if not token_file.startswith("/run/secrets/") or os.environ.get("CALCULATION_SERVICE_TOKEN"):
+        raise RuntimeError("Use only the mounted calculation token")
+    os.environ["CALCULATION_SERVICE_TOKEN"] = Path(token_file).read_text().strip()
+    del os.environ["CALCULATION_SERVICE_TOKEN_FILE"]  # Spawned children inherit the resolved token only.
 TOKEN = os.environ.get("CALCULATION_SERVICE_TOKEN", "")
 if len(TOKEN) < 32:
     raise RuntimeError("CALCULATION_SERVICE_TOKEN requires at least 32 characters")
