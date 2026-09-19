@@ -49,13 +49,15 @@ Automated test files, fixtures, browser-test dependencies and the obsolete speci
 
 Modules document their responsibility at the relevant component, class or function. Related private helpers live with their owning screen. Framework entrypoints and security boundaries remain separate intentionally.
 
+Consolidated frontend modules have explicit owners: `features/overview/account-model.ts` holds shared account contracts and display valuation; `lib/stored-market-data.ts` validates stored instruments and daily reads; `features/workspace/workspace-views.tsx` groups reusable page commands, error containment and help. Snapshot validation stays private to `use-workspace-session.ts`. Broker views share `broker-hooks.ts`; presentation never owns live-order authorization.
+
 | Location | Responsibility |
 | --- | --- |
 | `backend/main.ts` | Express composition, session/authentication and protected route registration |
 | `backend/database.ts`, `types.ts`, `local-database.ts` | Schema migrations, database contracts and development PostgreSQL lifecycle |
 | `backend/backup.ts`, `import-legacy-sqlite.ts` | Encrypted backup/restore and explicit legacy migration; not request handlers |
 | `backend/security.ts`, `mfa.ts` | Password/session protections, second factor and credential encryption |
-| `backend/broker-registry.ts`, `zerodha-connection.ts`, `zerodha-sdk.ts` | Owner-scoped active selection and one-use Zerodha authorization |
+| `backend/broker-registry.ts`, `zerodha-connection.ts` | Owner-scoped active selection and one-use Zerodha authorization with a private SDK adapter |
 | `backend/kotak-*`, `market-data-provider.ts`, `instrument-master.ts` | Kotak adapter, bounded provider contracts, streaming and exact instrument identity |
 | `backend/live/` | Order intent binding, preview/confirmation, risk reservations, adapter dispatch, reconciliation and halt controls |
 | `backend/paper-trading-*` | Separate virtual-account ledger; cannot authorize real orders |
