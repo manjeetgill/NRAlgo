@@ -22,6 +22,20 @@ const hexSecretNames = [
 /** Collect every unsafe production setting without disclosing its value. */
 export function productionEnvironmentErrors(env, envPath = ".env") {
   const errors = [];
+  for (const name of [
+    "BACKEND_IMAGE",
+    "WEB_IMAGE",
+    "CALCULATION_IMAGE",
+    "BACKUP_IMAGE",
+    "POSTGRES_IMAGE",
+    "CADDY_IMAGE",
+  ]) {
+    if (!/^[a-z0-9][a-z0-9._/:-]*@sha256:[a-f0-9]{64}$/.test(env[name] || "")) {
+      errors.push(
+        `${name} must be an immutable image reference from .env.release.`,
+      );
+    }
+  }
   const required = (name) => {
     const value = env[name]?.trim() || "";
     if (!value) {

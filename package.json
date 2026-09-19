@@ -6,7 +6,7 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "check:production": "node --env-file=.env scripts/check-production-environment.mjs",
+    "check:production": "node --env-file=.env --env-file=.env.release scripts/check-production-environment.mjs",
     "preflight:commit": "node scripts/preflight-commit.mjs",
     "hooks:install": "git config core.hooksPath .githooks",
     "format": "prettier --write 'backend/**/*.ts' run.ts 'frontend/src/**/*.{ts,tsx,css}' frontend/next.config.ts frontend/postcss.config.mjs",

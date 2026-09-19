@@ -1,4 +1,5 @@
 # Development shortcuts and explicit single-host deployment lifecycle commands.
+COMPOSE = docker compose --env-file .env --env-file .env.release
 .PHONY: run check install build migrate preflight deploy logs status stop db-start db-stop
 db-start:
 	node --env-file-if-exists=.env --import tsx backend/local-database.ts
@@ -21,15 +22,15 @@ migrate:
 preflight:
 	npm run check:production
 	docker info > /dev/null
-	docker compose config --quiet
+	$(COMPOSE) config --quiet
 deploy:
 	$(MAKE) preflight
-	docker compose build --pull
-	docker compose up -d --wait --wait-timeout 180
-	docker compose exec -T api node -e "fetch('http://127.0.0.1:8000/api/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+	$(COMPOSE) pull
+	$(COMPOSE) up -d --no-build --pull never --wait --wait-timeout 240
+	$(COMPOSE) exec -T api node -e "fetch('http://127.0.0.1:8000/api/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
 logs:
-	docker compose logs --tail=100 -f
+	$(COMPOSE) logs --tail=100 -f
 stop:
-	docker compose stop
+	$(COMPOSE) stop
 status:
-	docker compose ps
+	$(COMPOSE) ps
