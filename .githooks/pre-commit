@@ -1,0 +1,3 @@
+#!/bin/sh
+# Build the staged tree; a failed preflight rejects this commit without changing files.
+exec node scripts/preflight-commit.mjs
