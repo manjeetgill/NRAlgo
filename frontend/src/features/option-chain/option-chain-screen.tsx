@@ -10,7 +10,7 @@ import { useEffect, useRef, useState } from "react";
 import { UnderlyingSearch } from "@/components/underlying-search";
 import { IndependentChart } from "./independent-chart";
 import { LiveOrderTicket } from "@/features/live-trading/live-order-ticket";
-import { useBrokerRegistry } from "@/features/brokers/use-broker-registry";
+import { useBrokerRegistry } from "@/features/brokers/broker-hooks";
 import styles from "./option-chain.module.css";
 /** Initial selection loads metadata/quotes once; subsequent prices use the shared stream cache. */
 export function OptionChainScreen({

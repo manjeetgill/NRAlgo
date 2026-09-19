@@ -1,12 +1,19 @@
 "use client";
-/** Broker connection and explicitly opened read-only reports; no execution ticket is mounted. */
-import { useRef, useState, type FormEvent } from "react";
-import { brokerConnectionAdapters } from "@/features/brokers/broker-connection-adapter";
-import { useBrokerConnection } from "@/features/brokers/use-broker-connection";
+/**
+ * Broker connection views: active-provider selection, Kotak credential dialog and Zerodha setup.
+ * Private views share the connection hooks; portfolio reports remain lazy and read-only.
+ * This screen never mounts an execution ticket or submits a broker order.
+ */
+import { useMemo, useRef, useState, type FormEvent } from "react";
+import {
+  brokerConnectionAdapters,
+  useBrokerConnection,
+  useBrokerRegistry,
+  useZerodhaConnection,
+} from "./broker-hooks";
 import { Button } from "@/components/ui/button";
 import dynamic from "next/dynamic";
-import { ZerodhaConnectionCard } from "./zerodha-connection-card";
-import { ActiveBrokerSelector } from "./active-broker-selector";
+
 /** Broker reports are an explicit, separately loaded read-only tool; connecting never fetches them. */
 const BrokerPortfolioPanel = dynamic(() =>
   import("@/components/broker-portfolio-panel").then(
@@ -233,5 +240,234 @@ export function BrokersScreen({ csrf }: { csrf: string }) {
         </Button>
       </dialog>
     </section>
+  );
+}
+
+const providerNames = { kotak: "Kotak Neo", zerodha: "Zerodha Kite" } as const;
+
+/** Render one owner-scoped radio group for future routing without exposing account identifiers. */
+function ActiveBrokerSelector({
+  csrf,
+  refreshKey,
+}: {
+  csrf: string;
+  refreshKey: number | null;
+}) {
+  const registry = useBrokerRegistry(csrf, refreshKey);
+  const brokers = useMemo(
+    () =>
+      [...registry.brokers].sort((left, right) =>
+        providerNames[left.provider].localeCompare(
+          providerNames[right.provider],
+        ),
+      ),
+    [registry.brokers],
+  );
+
+  return (
+    <article className="panel screen-card active-broker-card">
+      <div className="screen-toolbar">
+        <div>
+          <h2>Active broker</h2>
+          <p>
+            New live order intents will use this broker after authorization.
+          </p>
+        </div>
+        <span className="badge" role="status">
+          {registry.loading ? "Loading…" : `${brokers.length} registered`}
+        </span>
+      </div>
+      {registry.error && (
+        <p role="alert" className="error">
+          {registry.error}
+        </p>
+      )}
+      {registry.warning && (
+        <p role="status" className="warning">
+          {registry.warning}
+        </p>
+      )}
+      {!registry.loading && brokers.length === 0 ? (
+        <p>Connect a broker to create an active-broker preference.</p>
+      ) : (
+        <fieldset
+          className="active-broker-options"
+          disabled={registry.selecting}
+        >
+          <legend className="sr-only">Choose active broker</legend>
+          {brokers.map((broker) => {
+            const connected = broker.status === "connected";
+            return (
+              <label key={broker.id} className="active-broker-option">
+                <input
+                  type="radio"
+                  name="active-broker"
+                  value={broker.id}
+                  checked={registry.activeBrokerId === broker.id}
+                  disabled={!connected || registry.selecting}
+                  onChange={() => void registry.select(broker.id)}
+                />
+                <span>
+                  <strong>{providerNames[broker.provider]}</strong>
+                  <small>
+                    {connected
+                      ? "Connected"
+                      : "Disconnected · reconnect to select"}
+                  </small>
+                </span>
+              </label>
+            );
+          })}
+        </fieldset>
+      )}
+      <p>
+        Changing this preference never moves existing broker orders or
+        positions. Live trading permission is controlled separately.
+      </p>
+    </article>
+  );
+}
+
+/** Redirect authorization and setup view; credentials never enter browser state. */
+function ZerodhaConnectionCard({ csrf }: { csrf: string }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const { connection, busy, error, action } = useZerodhaConnection(csrf);
+  return (
+    <>
+      <article className="panel screen-card" aria-label="Zerodha connection">
+        <div className="screen-toolbar">
+          <h2 className="broker-card-title">
+            <span className="connection-logo">Z</span>Zerodha Kite
+          </h2>
+          <span className="badge" role="status">
+            {!connection
+              ? "Checking connection…"
+              : connection.connected
+                ? "Authorized · connected"
+                : connection.configured
+                  ? "Not authorized"
+                  : "Setup required"}
+          </span>
+        </div>
+        <p>
+          Authorize this app to access your Zerodha account through Kite APIs.
+          Sign in securely on Zerodha, then return here to finish authorization.
+        </p>
+        {error && (
+          <p role="alert" className="error">
+            {error}
+          </p>
+        )}
+        <dl className="broker-connection-facts">
+          <dt>Account</dt>
+          <dd>
+            {connection?.account
+              ? `${connection.account.user_name} · ${connection.account.user_id}`
+              : "No verified Zerodha session"}
+          </dd>
+          <dt>Access</dt>
+          <dd>
+            Authorized API session and profile verification. Portfolio,
+            market-data screens and order routing are not yet integrated with
+            Zerodha.
+          </dd>
+          <dt>Execution</dt>
+          <dd>Disabled · connecting does not authorize trading</dd>
+        </dl>
+        <div className="screen-toolbar">
+          <Button
+            disabled={busy || !connection?.configured}
+            onClick={() => void action("login")}
+          >
+            {busy
+              ? "Please wait…"
+              : connection?.connected
+                ? "Reauthorize with Zerodha"
+                : "Authorize with Zerodha"}
+          </Button>
+          <Button
+            variant="secondary"
+            disabled={busy}
+            onClick={() => void action("verify")}
+          >
+            Verify Zerodha session
+          </Button>
+          {connection?.connected && (
+            <Button
+              variant="secondary"
+              disabled={busy}
+              onClick={() => void action("disconnect")}
+            >
+              Disconnect Zerodha
+            </Button>
+          )}
+          <Button
+            variant="secondary"
+            onClick={() => dialog.current?.showModal()}
+          >
+            Set up Zerodha
+          </Button>
+        </div>
+        <p>
+          Sessions are held only on this server until logout, restart or expiry.
+          Disconnect removes this app’s session, not your login on Zerodha’s
+          website.
+        </p>
+        {connection && !connection.configured && (
+          <p>
+            Configure your Kite app on the server to enable authorization. Open
+            Set up Zerodha for instructions.
+          </p>
+        )}
+      </article>
+      <dialog
+        ref={dialog}
+        className="workspace-dialog"
+        aria-labelledby="zerodha-setup-title"
+      >
+        <div className="screen-toolbar">
+          <h2 id="zerodha-setup-title">Set up Zerodha Kite</h2>
+          <Button variant="secondary" onClick={() => dialog.current?.close()}>
+            Close Zerodha setup
+          </Button>
+        </div>
+        <ol>
+          <li>
+            Create an app in the{" "}
+            <a
+              href="https://developers.kite.trade/"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Kite developer portal
+            </a>
+            .
+          </li>
+          <li>
+            Register this exact redirect URL:
+            <p>
+              <code>
+                {connection?.callbackUrl ??
+                  "Start the updated API to load your callback URL."}
+              </code>
+            </p>
+          </li>
+          <li>
+            Set <code>ZERODHA_API_KEY</code> and <code>ZERODHA_API_SECRET</code>{" "}
+            in the server environment, then restart the API. Set{" "}
+            <code>APP_ORIGIN</code> to your public HTTPS app address in
+            production.
+          </li>
+          <li>
+            Click Authorize with Zerodha, sign in on Zerodha, then click
+            Complete authorization when returned to this app.
+          </li>
+        </ol>
+        <p>
+          Never paste the API secret into chat or frontend code. No passwords or
+          OTPs are collected here. Your Kotak connection is independent.
+        </p>
+      </dialog>
+    </>
   );
 }

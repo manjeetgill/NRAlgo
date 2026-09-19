@@ -70,7 +70,8 @@ Modules document their responsibility at the relevant component, class or functi
 | `calculation_engine/market_insights.py` | Bounded read-only public NSE reference datasets |
 | `frontend/src/app/`, `proxy.ts` | Next.js entrypoints, broker callback, attribution and request boundary |
 | `frontend/src/features/workspace/` | Navigation, session lifecycle, shared layout, dialogs and ordered workspace styles |
-| `frontend/src/features/brokers/`, `live-trading/`, `orders/` | Broker connection UI, explicit execution controls and read-only order records |
+| `frontend/src/features/brokers/broker-hooks.ts`, `brokers-screen.tsx` | Shared connection/selection hooks and grouped broker views; authentication never arms execution |
+| `frontend/src/features/live-trading/`, `orders/` | Explicit execution controls and read-only order records |
 | `frontend/src/features/overview/` | Mode-isolated account snapshots, streamed display marks and explicit market-insight reads |
 | `frontend/src/features/option-chain/` | Live/stored chain selection, exact stored chart reads and chart rendering |
 | `frontend/src/features/backtest-studio/`, `spread-builder/`, `research/` | Form inputs and presentation of Python calculation results |
