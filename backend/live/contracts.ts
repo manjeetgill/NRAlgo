@@ -87,7 +87,12 @@ export const brokerSnapshotSchema = z
   });
 export type BrokerSnapshot = z.infer<typeof brokerSnapshotSchema>;
 export type OrderState =
-  "reserved" | "submitting" | "unknown" | "blocked" | BrokerOrder["status"];
+  | "bound"
+  | "reserved"
+  | "submitting"
+  | "unknown"
+  | "blocked"
+  | BrokerOrder["status"];
 export const terminalStates: ReadonlySet<OrderState> = new Set([
   "blocked",
   "filled",

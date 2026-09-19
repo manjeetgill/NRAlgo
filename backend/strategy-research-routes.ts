@@ -1,6 +1,6 @@
-/** HTTP endpoints for saving strategies, replaying historical candles and previewing quotes.
- * Save/build/replay/quote can never dispatch orders. Broker data is fetched server-side,
- * not supplied by clients; simulation is separate from the paper ledger and real portfolio.
+/** HTTP endpoints for saving strategies, replaying stored daily candles and previewing quotes.
+ * Save/build/replay/quote can never dispatch orders. Stored simulation is broker-independent;
+ * explicit quote previews remain behind the market-data provider boundary.
  */
 import type { Express } from "express";
 import { randomUUID } from "node:crypto";
@@ -11,13 +11,10 @@ import type { MarketDataProvider } from "./market-data-provider.js";
 import { fail, rateLimit } from "./security.js";
 import {
   researchStrategySchema,
-  normalizeHistoricalCandles,
-  simulateHistoricalBasket,
-  summarizeBacktestBatch,
-  type BacktestResult,
-  type HistoricalCandle,
   type ResearchStrategy,
-} from "./historical-strategy-simulator.js";
+} from "./research-contracts.js";
+import { readStoredDailyCandle } from "./eod-market-data.js";
+import { CalculationClient } from "./calculation-client.js";
 
 /** Count one broker request before sending it. The database lock prevents two concurrent
  * routes from spending the same remaining allowance. Production callers also need MFA.
@@ -74,17 +71,9 @@ export function registerResearchRoutes(
   requestCoordinator: BrokerRequestCoordinator,
   requireMfa: boolean,
   brokerDataReader: MarketDataProvider,
+  calculationClient: Pick<CalculationClient, "storedDaily">,
 ) {
   const catalog = brokerDataReader.instruments;
-  /** Reject unsupported historical-data capability before attempting provider research requests. */
-  function requireHistory(interval: "1minute" | "5minute") {
-    if (!brokerDataReader.capabilities.historyIntervals.includes(interval)) {
-      fail(
-        422,
-        "Selected data provider does not support this historical interval.",
-      );
-    }
-  }
   const researchLimit = rateLimit(
     30,
     60000,
@@ -147,6 +136,50 @@ export function registerResearchRoutes(
     }
     return researchStrategySchema.parse(definition);
   }
+  /** Persist one owner-scoped research result only while its saved definition still exists. */
+  async function saveResearchRun(
+    userId: string,
+    strategyId: string,
+    result: unknown,
+  ) {
+    const id = randomUUID();
+    await store.transaction(async (query) => {
+      await lockWorkspaceSettings(query, store, userId);
+      const owner = await query(
+        "SELECT id FROM research_strategies WHERE id=$1 AND user_id=$2 FOR UPDATE",
+        [strategyId, userId],
+      );
+      if (!owner.length) {
+        fail(409, "Strategy was removed during the request.");
+      }
+      await query("INSERT INTO research_runs VALUES($1,$2,$3,$4,$5)", [
+        id,
+        userId,
+        strategyId,
+        JSON.stringify(result),
+        now(),
+      ]);
+      await query(
+        "DELETE FROM research_runs WHERE user_id=$1 AND id NOT IN (SELECT id FROM research_runs WHERE user_id=$1 ORDER BY created_at DESC LIMIT 30)",
+        [userId],
+      );
+    });
+    return id;
+  }
+  /** Reduce a validated saved cash strategy to the broker-free Python contract. */
+  function storedDailyStrategy(strategy: ResearchStrategy) {
+    return {
+      schemaVersion: strategy.schemaVersion,
+      name: strategy.name,
+      quantity: strategy.legs[0].quantity,
+      capital: strategy.capital,
+      marginReserve: strategy.marginReserve,
+      stopLoss: strategy.stopLoss,
+      targetProfit: strategy.targetProfit,
+      slippageBps: strategy.slippageBps,
+      feePerOrder: strategy.feePerOrder,
+    };
+  }
   app.get("/api/research", async (_req, res) => {
     const userId = res.locals.session.user_id;
     const result = await store.transaction(async (query) => ({
@@ -171,6 +204,9 @@ export function registerResearchRoutes(
     const strategy = researchStrategySchema.parse(req.body),
       userId = res.locals.session.user_id,
       id = randomUUID();
+    if (strategy.market === "cash" && !strategy.legs[0].dataInstrumentId) {
+      fail(422, "Select the cash/index scrip from the stored catalog first.");
+    }
     await store.transaction(async (query) => {
       await lockWorkspaceSettings(query, store, userId);
       const [row] = await query<{ count: string }>(
@@ -228,106 +264,74 @@ export function registerResearchRoutes(
       .object({
         strategyId: identity,
         day: z.iso.date(),
-        interval: z.enum(["1minute", "5minute"]),
+        interval: z.literal("day"),
       })
       .strict()
       .parse(req.body);
-    requireHistory(input.interval);
     const userId = res.locals.session.user_id,
       strategy = await loadUserResearchStrategy(userId, input.strategyId);
     if (Date.parse(`${input.day}T15:30:00+05:30`) > Date.now()) {
       fail(422, "Choose a completed historical trading session.");
     }
-    if (
-      strategy.legs.some((leg) => leg.expiryDate && leg.expiryDate < input.day)
-    ) {
-      fail(422, "Selected session is after a contract expiry.");
-    }
-    await requestCoordinator.runExclusiveForUser(userId, async () => {
-      const contracts = await resolveStrategyContracts(
-        strategy,
-        res.locals.session,
+    if (strategy.market !== "cash") {
+      fail(
+        422,
+        "Stored historical data contains daily cash/index candles, not historical option premiums.",
       );
-      const histories = [];
-      for (const contract of contracts) {
-        await reserveBrokerRequestBudget(store, userId, requireMfa);
-        let raw: unknown;
-        try {
-          raw = await brokerDataReader.getHistoricalCandlesForDay(
-            userId,
-            res.locals.session.token_hash,
-            contract.instrument,
-            strategy.market === "cash" ? "nse_cm" : "nse_fo",
-            input.day,
-            input.interval,
-          );
-        } catch {
-          return fail(
-            502,
-            "Selected broker history unavailable. Check the contract, session and historical coverage; no synthetic replacement was used.",
-          );
-        }
-        try {
-          histories.push(
-            normalizeHistoricalCandles(
-              raw,
-              input.day,
-              input.interval === "1minute" ? 1 : 5,
-            ),
-          );
-        } catch (error) {
-          return fail(422, (error as Error).message);
-        }
-      }
-      let result;
-      try {
-        result = {
-          ...simulateHistoricalBasket(strategy, histories, input.day),
-          dataSource: brokerDataReader.id,
-        };
-      } catch (error) {
-        return fail(422, (error as Error).message);
-      }
-      const id = randomUUID();
-      await store.transaction(async (query) => {
-        await lockWorkspaceSettings(query, store, userId);
-        // A deleted template cannot leave an orphan result, even if the data fetch was in flight.
-        const owner = await query(
-          "SELECT id FROM research_strategies WHERE id=$1 AND user_id=$2 FOR UPDATE",
-          [input.strategyId, userId],
-        );
-        if (!owner.length) {
-          fail(409, "Strategy was removed during the request.");
-        }
-        await query("INSERT INTO research_runs VALUES($1,$2,$3,$4,$5)", [
-          id,
-          userId,
-          input.strategyId,
-          JSON.stringify(result),
-          now(),
-        ]);
-        await query(
-          "DELETE FROM research_runs WHERE user_id=$1 AND id NOT IN (SELECT id FROM research_runs WHERE user_id=$1 ORDER BY created_at DESC LIMIT 30)",
-          [userId],
-        );
-      });
-      res.json({ id, ...result });
-    });
+    }
+    const leg = strategy.legs[0],
+      dataInstrumentId = leg.dataInstrumentId;
+    if (!dataInstrumentId) {
+      fail(422, "Reselect this strategy from the stored instrument catalog.");
+    }
+    const candle = await readStoredDailyCandle(
+      store,
+      dataInstrumentId!,
+      leg.stockCode,
+      input.day,
+    );
+    if (!candle) {
+      fail(422, "No stored daily candle exists for this scrip and session.");
+    }
+    let calculation;
+    try {
+      calculation = await calculationClient.storedDaily(
+        storedDailyStrategy(strategy),
+        [
+          {
+            date: candle.day,
+            open: candle.open,
+            high: candle.high,
+            low: candle.low,
+            close: candle.close,
+          },
+        ],
+      );
+    } catch (error) {
+      const status = (error as { status?: number }).status;
+      return fail(status === 503 ? 503 : 422, (error as Error).message);
+    }
+    const result = {
+      ...calculation.sessions[0],
+      strategy,
+      dataSource: "stored-eod",
+      engineVersion: calculation.engineVersion,
+    };
+    const id = await saveResearchRun(userId, input.strategyId, result);
+    res.json({ id, ...result });
   });
-  /** Independent daily replays, sequential and budgeted per leg. All requested dates are
-   * accounted for, including unattempted dates after a budget/time stop. Not live validation.
-   * Missing history skips one session; authorization/database failures remain fatal.
+  /** Independent stored daily replays. Each requested date is accounted for and missing
+   * sessions are skipped; no broker quota, session or network call is involved.
    */
   app.post("/api/research/backtest/batch", async (req, res) => {
     const input = z
       .object({
         strategyId: identity,
-        interval: z.enum(["1minute", "5minute"]),
+        interval: z.literal("day"),
         days: z.array(z.iso.date()).min(1).max(20),
       })
       .strict()
       .parse(req.body);
-    requireHistory(input.interval);
     const days = [...new Set(input.days)].sort();
     if (days.length !== input.days.length) {
       fail(422, "Duplicate dates in batch request.");
@@ -338,142 +342,79 @@ export function registerResearchRoutes(
       if (Date.parse(`${day}T15:30:00+05:30`) > Date.now()) {
         fail(422, `${day} is not a completed historical trading session.`);
       }
-      if (strategy.legs.some((leg) => leg.expiryDate && leg.expiryDate < day)) {
-        fail(422, `Session ${day} is after a contract expiry.`);
-      }
     }
-    await requestCoordinator.runExclusiveForUser(userId, async () => {
-      const contracts = await resolveStrategyContracts(
-        strategy,
-        res.locals.session,
+    if (strategy.market !== "cash") {
+      fail(
+        422,
+        "Stored historical data contains daily cash/index candles, not historical option premiums.",
       );
-      const completed: BacktestResult[] = [],
-        skipped: { day: string; reason: string }[] = [];
-      const deadline = Date.now() + 60000;
-      let stoppedReason: string | null = null,
-        budgetStopped = false;
-      for (const day of days) {
-        if (!stoppedReason && (Date.now() >= deadline || res.destroyed)) {
-          stoppedReason =
-            "Batch time limit or client disconnect; remaining sessions not attempted.";
-        }
-        if (stoppedReason) {
-          skipped.push({ day, reason: stoppedReason });
-          continue;
-        }
-        const histories: HistoricalCandle[][] = [];
-        let sessionIssue: string | null = null;
-        for (const contract of contracts) {
-          if (Date.now() >= deadline || res.destroyed) {
-            stoppedReason =
-              "Batch time limit or client disconnect; remaining sessions not attempted.";
-            break;
-          }
-          try {
-            await reserveBrokerRequestBudget(store, userId, requireMfa);
-          } catch (error) {
-            if ((error as { status?: number }).status !== 429) {
-              throw error;
-            }
-            budgetStopped = true;
-            stoppedReason = "Market-data budget reached; batch stopped early.";
-            break;
-          }
-          let raw: unknown;
-          try {
-            raw = await brokerDataReader.getHistoricalCandlesForDay(
-              userId,
-              res.locals.session.token_hash,
-              contract.instrument,
-              strategy.market === "cash" ? "nse_cm" : "nse_fo",
-              day,
-              input.interval,
-            );
-          } catch {
-            sessionIssue =
-              "Selected broker historical data unavailable. Verify session, contract and historical coverage.";
-            if (
-              !brokerDataReader.isConnected(
-                userId,
-                res.locals.session.token_hash,
-              )
-            ) {
-              stoppedReason =
-                "Broker disconnected; remaining sessions not attempted. Reconnect before retrying.";
-            }
-            break;
-          }
-          try {
-            histories.push(
-              normalizeHistoricalCandles(
-                raw,
-                day,
-                input.interval === "1minute" ? 1 : 5,
-              ),
-            );
-          } catch {
-            sessionIssue =
-              "Missing or invalid historical candles for this session.";
-            break;
-          }
-        }
-        if (stoppedReason || sessionIssue) {
-          skipped.push({ day, reason: stoppedReason || sessionIssue! });
-          continue;
-        }
-        try {
-          completed.push(simulateHistoricalBasket(strategy, histories, day));
-        } catch {
-          skipped.push({
-            day,
-            reason:
-              "The strategy could not complete a funded entry and exit with this session's history.",
-          });
-        }
+    }
+    const leg = strategy.legs[0],
+      dataInstrumentId = leg.dataInstrumentId;
+    if (!dataInstrumentId) {
+      fail(422, "Reselect this strategy from the stored instrument catalog.");
+    }
+    const candles: {
+      date: string;
+      open: number;
+      high: number;
+      low: number;
+      close: number;
+    }[] = [];
+    const skipped: { day: string; reason: string }[] = [];
+    for (const day of days) {
+      const candle = await readStoredDailyCandle(
+        store,
+        dataInstrumentId!,
+        leg.stockCode,
+        day,
+      );
+      if (!candle) {
+        skipped.push({ day, reason: "No stored daily candle." });
+        continue;
       }
-      if (!completed.length) {
-        fail(
-          budgetStopped ? 429 : 422,
-          `No requested session could be completed. First issue: ${skipped[0]?.reason || "unknown"}`,
-        );
-      }
-      const summary = summarizeBacktestBatch(completed),
-        id = randomUUID();
-      const result = {
-        dataSource: brokerDataReader.id,
-        mode: "batch" as const,
-        interval: input.interval,
-        requestedDays: days,
-        summary,
-        skipped,
-        sessions: completed,
-        stoppedReason,
-      };
-      await store.transaction(async (query) => {
-        await lockWorkspaceSettings(query, store, userId);
-        const owner = await query(
-          "SELECT id FROM research_strategies WHERE id=$1 AND user_id=$2 FOR UPDATE",
-          [input.strategyId, userId],
-        );
-        if (!owner.length) {
-          fail(409, "Strategy was removed during the request.");
-        }
-        await query("INSERT INTO research_runs VALUES($1,$2,$3,$4,$5)", [
-          id,
-          userId,
-          input.strategyId,
-          JSON.stringify(result),
-          now(),
-        ]);
-        await query(
-          "DELETE FROM research_runs WHERE user_id=$1 AND id NOT IN (SELECT id FROM research_runs WHERE user_id=$1 ORDER BY created_at DESC LIMIT 30)",
-          [userId],
-        );
+      candles.push({
+        date: candle.day,
+        open: candle.open,
+        high: candle.high,
+        low: candle.low,
+        close: candle.close,
       });
-      if (!res.destroyed) {
-        res.json({ id, ...result });
-      }
-    });
+    }
+    if (!candles.length) {
+      fail(
+        422,
+        `No requested stored session could be completed. First issue: ${skipped[0]?.reason || "unknown"}`,
+      );
+    }
+    let calculation;
+    try {
+      calculation = await calculationClient.storedDaily(
+        storedDailyStrategy(strategy),
+        candles,
+      );
+    } catch (error) {
+      const status = (error as { status?: number }).status;
+      return fail(status === 503 ? 503 : 422, (error as Error).message);
+    }
+    skipped.push(...calculation.rejected);
+    const completed = calculation.sessions.map((session) => ({
+      ...session,
+      strategy,
+    }));
+    const result = {
+      dataSource: "stored-eod",
+      mode: "batch" as const,
+      interval: "day" as const,
+      requestedDays: days,
+      summary: calculation.summary,
+      skipped,
+      sessions: completed,
+      stoppedReason: null,
+      engineVersion: calculation.engineVersion,
+    };
+    const id = await saveResearchRun(userId, input.strategyId, result);
+    res.json({ id, ...result });
   });
   app.post("/api/research/quotes", async (req, res) => {
     const input = z.object({ strategyId: identity }).strict().parse(req.body),

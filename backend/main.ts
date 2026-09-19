@@ -36,8 +36,23 @@ import { InstrumentCatalog } from "./instrument-master.js";
 import { KotakMarketDataClient } from "./kotak-market-data-client.js";
 import { registerMfaRoutes, verifySecondFactor } from "./mfa.js";
 import { KotakLiveManager } from "./live/kotak-live-manager.js";
-import { registerKotakLiveRoutes } from "./live/kotak-live-routes.js";
+import { registerLiveTradingRoutes } from "./live/live-trading-routes.js";
 import { registerDatabaseBrowserRoutes } from "./database-browser-routes.js";
+import { createZerodhaConnection } from "./zerodha-connection.js";
+import { registerEodRoutes } from "./eod-market-data.js";
+import {
+  recordBrokerConnected,
+  recordBrokerDisconnected,
+  registerBrokerRegistryRoutes,
+} from "./broker-registry.js";
+import {
+  CalculationClient,
+  marketInsightDatasetSchema,
+} from "./calculation-client.js";
+import {
+  CalculationJobRunner,
+  registerCalculationRoutes,
+} from "./calculation-jobs.js";
 import type { User, LoginSession, Job, Settings } from "./types.js";
 
 declare global {
@@ -79,6 +94,11 @@ export function createApiApplication(
   kotakData?: KotakMarketDataClient,
   instrumentCatalog?: InstrumentCatalog,
   additionalMarketDataProviders: readonly MarketDataProvider[] = [],
+  injectedCalculationClient?: Pick<
+    CalculationClient,
+    "dailyBacktest" | "payoff" | "storedDaily"
+  > &
+    Partial<Pick<CalculationClient, "marketInsights">>,
 ) {
   const production =
     env.APP_ENV === "production" || env.NODE_ENV === "production";
@@ -101,6 +121,17 @@ export function createApiApplication(
   // Runtime presentation setting, deliberately independent of real-money execution permission.
   const paperTradingEnabled = env.PAPER_TRADING_ENABLED === "true";
   const brokerAccess = new BrokerRequestCoordinator();
+  const calculationClient =
+    injectedCalculationClient || new CalculationClient(env);
+  const calculationRunner = new CalculationJobRunner(store, calculationClient);
+  const zerodha = createZerodhaConnection(env, undefined, {
+    connected: (userId, accountBinding) =>
+      recordBrokerConnected(store, userId, "zerodha", accountBinding).then(
+        () => undefined,
+      ),
+    disconnected: (userId) =>
+      recordBrokerDisconnected(store, userId, "zerodha").then(() => undefined),
+  });
   const kotakClient = kotakData || new KotakMarketDataClient();
   // Share one public catalog between paper tickets and research contract resolution.
   const catalog = instrumentCatalog || new InstrumentCatalog();
@@ -118,6 +149,7 @@ export function createApiApplication(
   );
   /** Revoke live permission and release provider sessions when application authentication changes. */
   function disconnectUserData(userId: string) {
+    zerodha.disconnect(userId);
     liveManager.revoke(userId);
     marketData.disconnect(userId);
     if (marketData !== kotakMarketData) {
@@ -131,6 +163,8 @@ export function createApiApplication(
     openRegistration || Boolean(env.REGISTRATION_TOKEN);
   const app = express();
   app.locals.shutdown = async () => {
+    calculationRunner.close();
+    zerodha.close();
     await liveManager.close();
     marketData.close();
     if (marketData !== kotakMarketData) {
@@ -220,7 +254,7 @@ export function createApiApplication(
     });
     return { csrf };
   }
-  /** Readiness checks the schema; real historical research needs no generated-price worker. */
+  /** Readiness checks the schema; Compose independently health-gates the Python service. */
   async function databaseReady() {
     return store.transaction(async (query) =>
       Boolean((await query("SELECT id FROM settings WHERE id=1")).length),
@@ -236,9 +270,10 @@ export function createApiApplication(
         service: "nexus-node",
         live_enabled: liveManager.enabled,
         live_capability: liveManager.enabled
-          ? "kotak-limit-orders-explicit-arm"
+          ? "active-broker-limit-orders-explicit-arm"
           : "disabled",
-        worker: "not-required",
+        worker: "calculation-jobs",
+        calculation_service: "private",
       });
     } catch {
       res.status(503).json({ detail: "Database not ready" });
@@ -247,7 +282,7 @@ export function createApiApplication(
   app.get("/api/ready", async (req, res) => {
     try {
       const ready = await databaseReady();
-      res.status(ready ? 200 : 503).json({ ready, worker: "not-required" });
+      res.status(ready ? 200 : 503).json({ ready, worker: "calculation-jobs" });
     } catch {
       res.status(503).json({ ready: false, detail: "Database not ready" });
     }
@@ -588,6 +623,17 @@ export function createApiApplication(
       })),
     );
   });
+  /** Serve public exchange reference data only after an authenticated, explicit request. */
+  app.get("/api/market/insights/:dataset", async (req, res) => {
+    const dataset = marketInsightDatasetSchema.parse(req.params.dataset);
+    const readInsights =
+      calculationClient.marketInsights?.bind(calculationClient);
+    if (!readInsights) {
+      fail(503, "Market intelligence is unavailable.");
+      return;
+    }
+    res.json(await readInsights(dataset));
+  });
   // Apply account quotas while holding the account lock, including concurrent requests.
   app.post("/api/strategies", async (req, res) => {
     const strategy = strategyInput.parse(req.body),
@@ -665,7 +711,15 @@ export function createApiApplication(
   registerMfaRoutes(app, store, vault, (userId) => {
     disconnectUserData(userId);
   });
-  registerResearchRoutes(app, store, brokerAccess, production, marketData);
+  registerResearchRoutes(
+    app,
+    store,
+    brokerAccess,
+    production,
+    marketData,
+    calculationClient,
+  );
+  registerCalculationRoutes(app, store, calculationRunner, calculationClient);
   registerHistoricalMarketDataRoutes(
     app,
     store,
@@ -673,7 +727,12 @@ export function createApiApplication(
     marketData,
     production,
   );
-  registerKotakLiveRoutes(app, liveManager);
+  registerLiveTradingRoutes(app, liveManager);
+  registerBrokerRegistryRoutes(app, store, (provider, userId, sessionHash) =>
+    provider === "kotak"
+      ? kotakClient.isConnected(userId, sessionHash)
+      : zerodha.isConnected(userId, sessionHash),
+  );
   registerPaperRoutes(
     app,
     store,
@@ -683,6 +742,9 @@ export function createApiApplication(
     marketData,
   );
   registerDatabaseBrowserRoutes(app, store);
+  zerodha.register(app);
+  registerEodRoutes(app, store);
+  calculationRunner.start();
   app.use((req, res) => res.status(404).json({ detail: "Not found" }));
   const errorHandler: ErrorRequestHandler = (err: unknown, req, res, next) => {
     const error = err as {

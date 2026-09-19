@@ -171,6 +171,11 @@ const numeric = z
       Number.isFinite(value) && Math.abs(value) <= Number.MAX_SAFE_INTEGER,
   );
 const nullableNumber = numeric.nullish().transform((value) => value ?? null);
+/** Accept success spelling/case variants without treating arbitrary status values as success. */
+export const kotakHistoryStatus = z.preprocess(
+  (value) => (typeof value === "string" ? value.trim().toLowerCase() : value),
+  z.enum(["success", "ok"]).optional(),
+);
 const label = z.string().max(160);
 // Explicit field lists are intentional. They are easier to compare with Kotak's docs,
 // and Zod removes every unlisted field, including accidental credential/debug fields.
@@ -324,8 +329,10 @@ function parseHistoricalCandles(
 ) {
   const result = z
     .object({
-      status: z.literal("success"),
-      interval: z.literal(input.interval),
+      // Some data hosts omit the envelope echoes. The exact request still owns
+      // this response; validate all candles and reject explicit errors/mismatches.
+      status: kotakHistoryStatus,
+      interval: z.literal(input.interval).optional(),
       data: z.object({
         candles: z
           .array(

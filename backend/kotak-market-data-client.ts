@@ -13,6 +13,7 @@ import {
   marketRequestSchema,
   buildKotakMarketDataPath,
   parseKotakMarketDataResponse,
+  kotakHistoryStatus,
   type MarketRequest,
 } from "./kotak-market-data-contracts.js";
 import {
@@ -761,8 +762,10 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
     }
     const parsed = z
       .object({
-        status: z.literal("success"),
-        interval: z.literal(interval === "1minute" ? "1min" : "5min"),
+        status: kotakHistoryStatus,
+        interval: z
+          .literal(interval === "1minute" ? "1min" : "5min")
+          .optional(),
         data: z.object({
           candles: z.array(z.array(z.unknown()).min(5).max(7)).min(2).max(999),
         }),
@@ -1035,6 +1038,7 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
       });
     }
     const session = this.sessions.get(userId)!;
+    let historyShape = "";
     try {
       const raw = await this.transport(
         `${session.baseUrl}${buildKotakMarketDataPath(input)}`,
@@ -1056,6 +1060,48 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
         throw new Error("Session changed.");
       }
       const envelope = raw as Record<string, unknown> | null;
+      if (input.operation === "history" && envelope) {
+        // Diagnostics describe only an allowlisted status and candle-container shape.
+        // Never return arbitrary broker strings, response bodies or session identifiers.
+        const status = envelope.status;
+        const normalized =
+          typeof status === "string" ? status.trim().toLowerCase() : status;
+        const known = [
+          "success",
+          "ok",
+          "error",
+          "failed",
+          "failure",
+          "not_ok",
+          "200",
+          "400",
+          "401",
+          "403",
+          "500",
+          200,
+          400,
+          401,
+          403,
+          500,
+          0,
+          1,
+          true,
+          false,
+        ];
+        const statusKind = known.includes(
+          normalized as string | number | boolean,
+        )
+          ? `${typeof status}:${String(normalized)}`
+          : status === null
+            ? "null"
+            : typeof status;
+        const data = envelope.data;
+        const candles =
+          data && typeof data === "object"
+            ? (data as Record<string, unknown>).candles
+            : undefined;
+        historyShape = ` History shape: status=${statusKind}, candles=${Array.isArray(candles) ? "array" : typeof candles}.`;
+      }
       if (
         envelope &&
         (envelope.stat === "Not_Ok" || envelope.status === "ERROR")
@@ -1082,7 +1128,22 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
       const reason =
         error instanceof KotakTransportError
           ? error.category
-          : "INVALID_RESPONSE";
+          : error instanceof z.ZodError
+            ? `INVALID_RESPONSE:${error.issues
+                .slice(0, 3)
+                .map(
+                  (issue) =>
+                    `${issue.path.filter((part) => typeof part === "number" || ["status", "interval", "data", "candles"].includes(String(part))).join(".")}:${issue.code}`,
+                )
+                .join(",")}`
+            : error instanceof Error &&
+                [
+                  "Invalid candle time.",
+                  "Unordered or invalid candles.",
+                  "Invalid candle range or values.",
+                ].includes(error.message)
+              ? `INVALID_RESPONSE:${error.message}`
+              : "INVALID_RESPONSE";
       const brokerDetail =
         error instanceof KotakTransportError && error.brokerDetail
           ? extractSafeBrokerErrorMessage({ message: error.brokerDetail }, [
@@ -1094,7 +1155,7 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
           : "";
       throw Object.assign(new Error(), {
         status: 502,
-        detail: `Kotak market data unavailable [${reason}]. ${brokerDetail ? `Broker: ${brokerDetail}. ` : ""}Check connection, instrument and data access; for large history requests, shorten the date range.`,
+        detail: `Kotak market data unavailable [${reason}].${historyShape} ${brokerDetail ? `Broker: ${brokerDetail}. ` : ""}Check connection, instrument and data access; for large history requests, shorten the date range.`,
       });
     }
   }

@@ -5,6 +5,7 @@
  */
 import { randomUUID } from "node:crypto";
 import type { Query, Store } from "../database.js";
+import { resolveActiveBroker } from "../broker-registry.js";
 import {
   brokerOrderSchema,
   brokerSnapshotSchema,
@@ -39,6 +40,7 @@ interface AccountRow {
   snapshot: string;
   limits: string;
   reconciled_at: number;
+  broker_id: string | null;
 }
 export interface OrderRow {
   id: string;
@@ -49,6 +51,7 @@ export interface OrderRow {
   broker_order: string;
   reserved_paise: string;
   created_at: number;
+  broker_id: string | null;
 }
 
 /** Provision a separate live control record, initially halted. This does not connect a broker
@@ -59,6 +62,7 @@ export async function createLiveAccount(
   userId: string,
   brokerBinding: string,
   limits: RiskLimits,
+  brokerId: string | null = null,
 ) {
   const id = randomUUID();
   if (!brokerBinding || brokerBinding.length > 200) {
@@ -66,13 +70,14 @@ export async function createLiveAccount(
   }
   await store.transaction((query) =>
     query(
-      "INSERT INTO live_accounts(id,user_id,broker_binding,halt_reason,limits) VALUES($1,$2,$3,$4,$5)",
+      "INSERT INTO live_accounts(id,user_id,broker_binding,halt_reason,limits,broker_id) VALUES($1,$2,$3,$4,$5,$6)",
       [
         id,
         userId,
         brokerBinding,
         "Initial reconciliation and explicit resume required",
         JSON.stringify(riskLimitsSchema.parse(limits)),
+        brokerId,
       ],
     ),
   );
@@ -169,6 +174,7 @@ export class LiveExecutionService {
     private readonly adapter: ExecutionBrokerAdapter,
     private readonly deadlineMs = 1500,
     private readonly authorizeSubmission?: (query: Query) => Promise<void>,
+    private readonly brokerId?: string,
   ) {
     if (deadlineMs < 1 || deadlineMs > 3000) {
       throw new Error("Broker deadline must be between 1 and 3000 ms");
@@ -183,7 +189,11 @@ export class LiveExecutionService {
         [this.accountId, this.userId],
       )
     )[0];
-    if (!account || account.broker_binding !== this.adapter.accountBinding) {
+    if (
+      !account ||
+      account.broker_binding !== this.adapter.accountBinding ||
+      (this.brokerId !== undefined && account.broker_id !== this.brokerId)
+    ) {
       throw new Error("Live account unavailable");
     }
     return account;
@@ -217,6 +227,123 @@ export class LiveExecutionService {
     });
   }
 
+  /** Persist the currently active broker with an immutable intent before any broker I/O.
+   * The settings row and broker row are locked in this transaction, so a concurrent active
+   * selection either happens before this binding or after it—never halfway through it.
+   */
+  public async bindIntent(rawIntent: OrderIntent): Promise<OrderRow> {
+    if (this.brokerId === undefined) {
+      throw new Error("Durable broker identity is required");
+    }
+    const intent = orderIntentSchema.parse(rawIntent);
+    return this.store.transaction(async (query) => {
+      const account = await this.lockAccount(query);
+      await this.authorizeSubmission?.(query);
+      const active = await resolveActiveBroker(query, this.userId, true);
+      if (
+        active.id !== this.brokerId ||
+        active.accountBinding !== this.adapter.accountBinding
+      ) {
+        throw new Error(
+          "Active broker changed before the order intent was bound",
+        );
+      }
+      const [existing] = await query<OrderRow>(
+        "SELECT * FROM live_orders WHERE account_id=$1 AND intent_key=$2",
+        [this.accountId, intent.key],
+      );
+      if (existing) {
+        if (
+          existing.intent !== JSON.stringify(intent) ||
+          existing.broker_id !== this.brokerId
+        ) {
+          throw new Error("Intent key already used for different content");
+        }
+        return existing;
+      }
+      if (account.halted) {
+        throw new Error("Live account halted");
+      }
+      const [order] = await query<OrderRow>(
+        "INSERT INTO live_orders(id,account_id,intent_key,intent,state,reserved_paise,created_at,broker_id) VALUES($1,$2,$3,$4,'bound',0,$5,$6) RETURNING *",
+        [
+          randomUUID(),
+          this.accountId,
+          intent.key,
+          JSON.stringify(intent),
+          Date.now(),
+          this.brokerId,
+        ],
+      );
+      await recordLiveEvent(query, this.accountId, "bound", order.id);
+      return order;
+    });
+  }
+
+  /** Risk-reserve a previously broker-bound intent after a fresh broker reconciliation. */
+  public async reserveBoundIntent(orderId: string): Promise<OrderRow> {
+    if (this.brokerId === undefined) {
+      throw new Error("Durable broker identity is required");
+    }
+    return this.store.transaction(async (query) => {
+      const account = await this.lockAccount(query);
+      await this.authorizeSubmission?.(query);
+      const [order] = await query<OrderRow>(
+        "SELECT * FROM live_orders WHERE id=$1 AND account_id=$2 FOR UPDATE",
+        [orderId, this.accountId],
+      );
+      if (!order || order.broker_id !== this.brokerId) {
+        throw new Error("Bound order intent is unavailable");
+      }
+      if (order.state === "reserved") {
+        return order;
+      }
+      if (order.state !== "bound") {
+        throw new Error("Bound order intent is no longer reservable");
+      }
+      if (
+        account.halted ||
+        Date.now() - account.reconciled_at > maximumSnapshotAgeMs
+      ) {
+        throw new Error("Live account halted or reconciliation stale");
+      }
+      const orders = await query<OrderRow>(
+        "SELECT * FROM live_orders WHERE account_id=$1 AND id<>$2",
+        [this.accountId, orderId],
+      );
+      const outstanding = orders.filter(
+        (candidate) =>
+          candidate.state !== "bound" && !terminalStates.has(candidate.state),
+      );
+      const outstandingUnits: Record<string, number> = {};
+      for (const candidate of outstanding) {
+        const request = orderIntentSchema.parse(JSON.parse(candidate.intent));
+        outstandingUnits[request.instrument] =
+          (outstandingUnits[request.instrument] || 0) + request.quantity;
+      }
+      const intent = orderIntentSchema.parse(JSON.parse(order.intent));
+      const reserved = evaluateLiveRisk(intent, {
+        snapshot: brokerSnapshotSchema.parse(JSON.parse(account.snapshot)),
+        limits: riskLimitsSchema.parse(JSON.parse(account.limits)),
+        reservedPaise: outstanding.reduce(
+          (total, candidate) => total + Number(candidate.reserved_paise),
+          0,
+        ),
+        outstandingUnits,
+        ordersLastMinute: orders.filter(
+          (candidate) => candidate.created_at > Date.now() - 60000,
+        ).length,
+        now: Date.now(),
+      });
+      const [updated] = await query<OrderRow>(
+        "UPDATE live_orders SET state='reserved',reserved_paise=$2 WHERE id=$1 AND state='bound' RETURNING *",
+        [orderId, reserved],
+      );
+      await recordLiveEvent(query, this.accountId, "reserved", order.id);
+      return updated;
+    });
+  }
+
   /** Atomically risk-check and reserve capital. Reusing an intent key returns the same order,
    * never a second submission; reusing it with changed content is rejected.
    */
@@ -225,6 +352,17 @@ export class LiveExecutionService {
     return this.store.transaction(async (query) => {
       const account = await this.lockAccount(query);
       await this.authorizeSubmission?.(query);
+      if (this.brokerId !== undefined) {
+        const active = await resolveActiveBroker(query, this.userId, true);
+        if (
+          active.id !== this.brokerId ||
+          active.accountBinding !== this.adapter.accountBinding
+        ) {
+          throw new Error(
+            "Active broker changed before the order intent was reserved",
+          );
+        }
+      }
       const orders = await query<OrderRow>(
         "SELECT * FROM live_orders WHERE account_id=$1",
         [this.accountId],
@@ -243,7 +381,7 @@ export class LiveExecutionService {
         throw new Error("Live account halted or reconciliation stale");
       }
       const outstanding = orders.filter(
-        (order) => !terminalStates.has(order.state),
+        (order) => order.state !== "bound" && !terminalStates.has(order.state),
       );
       const outstandingUnits: Record<string, number> = {};
       for (const order of outstanding) {
@@ -266,7 +404,7 @@ export class LiveExecutionService {
       });
       const order = (
         await query<OrderRow>(
-          "INSERT INTO live_orders(id,account_id,intent_key,intent,state,reserved_paise,created_at) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *",
+          "INSERT INTO live_orders(id,account_id,intent_key,intent,state,reserved_paise,created_at,broker_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *",
           [
             randomUUID(),
             this.accountId,
@@ -275,6 +413,7 @@ export class LiveExecutionService {
             "reserved",
             reserved,
             Date.now(),
+            this.brokerId ?? null,
           ],
         )
       )[0];
@@ -299,6 +438,9 @@ export class LiveExecutionService {
       )[0];
       if (!order) {
         throw new Error("Order unavailable");
+      }
+      if (this.brokerId !== undefined && order.broker_id !== this.brokerId) {
+        throw new Error("Order belongs to another execution broker");
       }
       if (order.state !== "reserved") {
         return false;
@@ -325,6 +467,9 @@ export class LiveExecutionService {
             [orderId, this.accountId],
           )
         )[0];
+        if (this.brokerId !== undefined && order.broker_id !== this.brokerId) {
+          throw new Error("Order belongs to another execution broker");
+        }
         // The DB gate remains held across bounded I/O, so a committed kill cannot be bypassed
         // by a worker that cached an earlier permission. Already-in-flight calls cannot be unsent.
         if (
@@ -483,6 +628,21 @@ export class LiveExecutionService {
     }
   }
 
+  /** Permanently retire a broker-bound intent that failed before broker dispatch. */
+  public async blockReservedOrder(orderId: string, reason: string) {
+    return this.store.transaction(async (query) => {
+      await this.lockAccount(query);
+      const rows = await query<OrderRow>(
+        "UPDATE live_orders SET state='blocked' WHERE id=$1 AND account_id=$2 AND state IN ('bound','reserved') AND ($3::varchar IS NULL OR broker_id=$3) RETURNING *",
+        [orderId, this.accountId, this.brokerId ?? null],
+      );
+      if (rows.length) {
+        await recordLiveEvent(query, this.accountId, "blocked", reason);
+      }
+      return rows[0] ?? null;
+    });
+  }
+
   /** Latch first, then attempt cancellation. A cancel acknowledgement is NOT proof of cancel;
    * only a later snapshot may mark it terminal. Retry polls keep cancelling visible rests.
    * Existing positions are NOT flattened automatically by a kill switch.
@@ -492,7 +652,7 @@ export class LiveExecutionService {
       await this.lockAccount(query);
       await this.latchHalt(query, reason);
       await query(
-        "UPDATE live_orders SET state='blocked' WHERE account_id=$1 AND state='reserved'",
+        "UPDATE live_orders SET state='blocked' WHERE account_id=$1 AND state IN ('bound','reserved')",
         [this.accountId],
       );
     });
@@ -789,12 +949,23 @@ export class LiveExecutionService {
     });
     await this.store.transaction(async (query) => {
       const account = await this.lockAccount(query);
+      if (this.brokerId !== undefined) {
+        const active = await resolveActiveBroker(query, this.userId, true);
+        if (
+          active.id !== this.brokerId ||
+          active.accountBinding !== this.adapter.accountBinding
+        ) {
+          throw new Error(
+            "Active broker changed before the spread plan was bound",
+          );
+        }
+      }
       if (account.halted) {
         throw new Error("Live account halted");
       }
       await query(
-        "INSERT INTO live_spreads(id,account_id,plan,state) VALUES($1,$2,$3,'hedge_pending')",
-        [id, this.accountId, JSON.stringify(plan)],
+        "INSERT INTO live_spreads(id,account_id,plan,state,broker_id) VALUES($1,$2,$3,'hedge_pending',$4)",
+        [id, this.accountId, JSON.stringify(plan), this.brokerId ?? null],
       );
     });
     return id;
@@ -808,12 +979,15 @@ export class LiveExecutionService {
     const record = await this.store.transaction(async (query) => {
       await this.lockAccount(query);
       const row = (
-        await query<{ plan: string; state: string }>(
-          "SELECT plan,state FROM live_spreads WHERE id=$1 AND account_id=$2",
+        await query<{ plan: string; state: string; broker_id: string | null }>(
+          "SELECT plan,state,broker_id FROM live_spreads WHERE id=$1 AND account_id=$2",
           [planId, this.accountId],
         )
       )[0];
-      if (!row) {
+      if (
+        !row ||
+        (this.brokerId !== undefined && row.broker_id !== this.brokerId)
+      ) {
         throw new Error("Spread unavailable");
       }
       return row;

@@ -3,6 +3,7 @@
  * Matching is explicit/polled by the active page, not a background strategy scheduler.
  */
 import type { Express } from "express";
+import { optionChainSessionOpen } from "./option-chain-session.js";
 import { z } from "zod";
 import type { Store } from "./database.js";
 import type { BrokerRequestCoordinator } from "./broker-data-access.js";
@@ -16,6 +17,16 @@ import { reserveBrokerRequestBudget } from "./strategy-research-routes.js";
 import { fail, rateLimit } from "./security.js";
 import { instrumentSearchSchema } from "./instrument-master.js";
 import {
+  recordBrokerConnected,
+  recordBrokerDisconnected,
+  resolveActiveBroker,
+} from "./broker-registry.js";
+import {
+  readOptionChainSnapshot,
+  saveOptionChainSnapshot,
+  searchStoredOptionUnderlyings,
+} from "./option-chain-snapshots.js";
+import {
   paperBrokerSchema,
   paperOrderInput,
   newPaperLedger,
@@ -28,6 +39,7 @@ import {
   freshPaperQuote,
   paperInstrumentKey,
   paperOptionSchema,
+  paperMarketOpen,
   paperTradingDay,
   type PaperInput,
   type PaperBroker,
@@ -49,6 +61,7 @@ export function registerPaperRoutes(
     | "isConnected"
     | "getPortfolioRows"
     | "getAccountReport"
+    | "executionSession"
   >,
   production: boolean,
   marketData: MarketDataProvider,
@@ -75,6 +88,51 @@ export function registerPaperRoutes(
       rows: Awaited<ReturnType<KotakMarketDataClient["getPortfolioRows"]>>;
     }
   >();
+  const workspaceExperienceSchema = z.enum(["simulator", "builder", "chain"]);
+  // Simulator instruments are index derivatives only; builder retains stock support.
+  const simulatorIndexes = new Set([
+    "NIFTY",
+    "BANKNIFTY",
+    "FINNIFTY",
+    "MIDCPNIFTY",
+    "NIFTYNXT50",
+    "SENSEX",
+    "BANKEX",
+  ]);
+
+  /** Select the data plane once at the API boundary. Simulator never reaches a
+   * broker; builder reaches only the owner-selected active provider during NSE
+   * weekday hours and otherwise reads durable snapshots.
+   */
+  async function resolveWorkspaceDataMode(
+    experience: z.infer<typeof workspaceExperienceSchema> | undefined,
+    session: { user_id: string; token_hash: string },
+  ) {
+    if (!experience) {
+      return "live" as const;
+    }
+    if (
+      experience === "simulator" ||
+      !(experience === "chain"
+        ? optionChainSessionOpen(Date.now())
+        : paperMarketOpen(Date.now()))
+    ) {
+      return "historical" as const;
+    }
+    const active = await store.transaction((query) =>
+      resolveActiveBroker(query, session.user_id),
+    );
+    if (active.provider !== marketData.id) {
+      fail(
+        409,
+        `The active broker (${active.provider}) has no configured market-data adapter.`,
+      );
+    }
+    if (!marketData.isConnected(session.user_id, session.token_hash)) {
+      fail(409, "Reconnect the active broker before loading live market data.");
+    }
+    return "live" as const;
+  }
   app.use("/api/paper", (req, res, next) =>
     req.path.endsWith("/cancel") || req.method === "DELETE"
       ? next()
@@ -163,6 +221,21 @@ export function registerPaperRoutes(
               session.expires * 1000,
               input,
             );
+            const brokerSession = kotak.executionSession(
+              session.user_id,
+              session.token_hash,
+            );
+            try {
+              await recordBrokerConnected(
+                store,
+                session.user_id,
+                "kotak",
+                brokerSession.accountBinding,
+              );
+            } catch (error) {
+              kotak.disconnect(session.user_id);
+              throw error;
+            }
           } catch (error) {
             if (error instanceof KotakConnectionError) {
               throw error;
@@ -179,9 +252,14 @@ export function registerPaperRoutes(
   );
   app.delete(
     ["/api/paper/kotak/connect", "/api/brokers/kotak/connect"],
-    (req, res) => {
+    async (req, res) => {
       kotak.disconnect(res.locals.session.user_id);
       openPositionCache.delete(res.locals.session.user_id);
+      await recordBrokerDisconnected(
+        store,
+        res.locals.session.user_id,
+        "kotak",
+      );
       res.json({ connected: false });
     },
   );
@@ -209,8 +287,18 @@ export function registerPaperRoutes(
   app.post(
     ["/api/market/instruments", "/api/paper/:broker/instruments"],
     async (req, res) => {
+      const workspaceRequest = z
+        .object({
+          experience: workspaceExperienceSchema.optional(),
+          asOf: z.iso.date().optional(),
+        })
+        .passthrough()
+        .parse(req.body);
+      const instrumentBody = { ...req.body };
+      delete instrumentBody.experience;
+      delete instrumentBody.asOf;
       const broker = paperBrokerSchema.parse(req.params.broker || "kotak"),
-        input = instrumentSearchSchema.parse(req.body),
+        input = instrumentSearchSchema.parse(instrumentBody),
         session = res.locals.session;
       if (
         input.query.length < 2 &&
@@ -218,13 +306,43 @@ export function registerPaperRoutes(
       ) {
         fail(422, "Enter at least two characters for this instrument search.");
       }
+      const dataMode = await resolveWorkspaceDataMode(
+        workspaceRequest.experience,
+        session,
+      );
+      if (dataMode === "historical") {
+        if (input.market !== "options") {
+          fail(422, "Use the stored-instrument API for historical cash data.");
+        }
+        const storedUnderlyings = await searchStoredOptionUnderlyings(
+          store,
+          session.user_id,
+          input.query,
+          workspaceRequest.asOf,
+        );
+        const underlyings =
+          workspaceRequest.experience === "simulator"
+            ? storedUnderlyings.filter((symbol) => simulatorIndexes.has(symbol))
+            : storedUnderlyings;
+        res.json({
+          items: [],
+          underlyings,
+          expiries: [],
+          total: underlyings.length,
+          nextOffset: null,
+          source: "stored-database",
+          dataMode,
+        });
+        return;
+      }
       if (
         !isPaperDataBrokerConnected(session.user_id, broker, session.token_hash)
       ) {
         fail(409, "Connect the selected broker before instrument search.");
       }
-      await requestCoordinator.runExclusiveForUser(
+      await requestCoordinator.runQueuedForUser(
         session.user_id,
+        AbortSignal.timeout(60000),
         async () => {
           if (!catalog.isFresh(input.market)) {
             try {
@@ -270,10 +388,42 @@ export function registerPaperRoutes(
           underlying: z.string().trim().toUpperCase().min(2).max(40),
           expiryDate: z.iso.date().optional(),
           offset: z.number().int().min(0).max(250000).default(0),
+          experience: workspaceExperienceSchema.optional(),
+          asOf: z.iso.date().optional(),
         })
         .strict()
         .parse(req.body);
       const session = res.locals.session;
+      if (
+        input.experience === "simulator" &&
+        !simulatorIndexes.has(input.underlying)
+      ) {
+        fail(422, "Historical simulator supports index options only.");
+      }
+      const dataMode = await resolveWorkspaceDataMode(
+        input.experience,
+        session,
+      );
+      if (dataMode === "historical") {
+        const result = await readOptionChainSnapshot(store, {
+          userId: session.user_id,
+          underlying: input.underlying,
+          expiryDate: input.expiryDate,
+          offset: input.offset,
+          asOf: input.asOf,
+          closingOnly: input.experience === "chain",
+        });
+        if (!result) {
+          fail(
+            404,
+            input.experience === "chain"
+              ? "No imported closing option-chain data exists for this selection. Import NSE F&O bhavcopy data; equity/index history cannot supply option premiums."
+              : "No stored broker option-chain snapshot exists for this selection. Connect the active broker during market hours to capture real prices first.",
+          );
+        }
+        res.json(result);
+        return;
+      }
       if (!marketData.isConnected(session.user_id, session.token_hash)) {
         fail(409, "Connect the selected market-data provider first.");
       }
@@ -360,7 +510,7 @@ export function registerPaperRoutes(
             });
             return;
           }
-          res.json({
+          const response = {
             ...result,
             items: result.items.map((item, index) => ({
               ...item,
@@ -368,7 +518,19 @@ export function registerPaperRoutes(
             })),
             source: marketData.id,
             receivedAt: Date.now(),
+            dataMode: "live" as const,
+            observedAt: Date.now(),
+          };
+          await saveOptionChainSnapshot(store, {
+            userId: session.user_id,
+            provider: marketData.id,
+            underlying: input.underlying,
+            expiryDate: input.expiryDate,
+            offset: input.offset,
+            observedAt: response.observedAt,
+            chain: response,
           });
+          res.json(response);
         },
       );
     },
@@ -591,9 +753,13 @@ export function registerPaperRoutes(
         readOnly: true,
         observedAt: Date.now(),
       };
-      await requestCoordinator.runExclusiveForUser(
+      await requestCoordinator.runQueuedForUser(
         session.user_id,
+        AbortSignal.timeout(30000),
         async () => {
+          if (!kotak.isConnected(session.user_id, session.token_hash)) {
+            fail(409, "Connect Kotak first.");
+          }
           for (const kind of ["limits", "positions"] as const) {
             await reserveBrokerRequestBudget(
               store,

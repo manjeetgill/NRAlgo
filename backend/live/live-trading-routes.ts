@@ -1,15 +1,40 @@
-/** Mounted only behind main.ts authentication + CSRF. No caller-controlled owner or broker URL. */
+/** Broker-neutral HTTP commands for the active live-execution control plane.
+ * Provider managers remain behind this interface; browser requests never choose a broker.
+ */
 import type { Express, Request, Response } from "express";
 import { z } from "zod";
 import { rateLimit } from "../security.js";
-import { instrumentSearchSchema } from "../instrument-master.js";
-import { orderIntentSchema, riskLimitsSchema } from "./contracts.js";
-import type { KotakLiveManager } from "./kotak-live-manager.js";
+import {
+  instrumentSearchSchema,
+  type InstrumentSearch,
+} from "../instrument-master.js";
+import type { LoginSession } from "../types.js";
+import {
+  orderIntentSchema,
+  riskLimitsSchema,
+  type OrderIntent,
+  type RiskLimits,
+} from "./contracts.js";
+
+/** Minimal active-broker orchestration contract consumed by HTTP routing. */
+export interface LiveTradingManager {
+  status(session: LoginSession): Promise<unknown>;
+  instruments(session: LoginSession, input: InstrumentSearch): Promise<unknown>;
+  configure(session: LoginSession, limits: RiskLimits): Promise<unknown>;
+  reconcile(session: LoginSession): Promise<unknown>;
+  arm(session: LoginSession, token: string): Promise<unknown>;
+  preview(
+    session: LoginSession,
+    input: Omit<OrderIntent, "key">,
+  ): Promise<unknown>;
+  submit(session: LoginSession, previewId: string): Promise<unknown>;
+  halt(session: LoginSession): Promise<unknown>;
+}
 
 /** Mount strict, authenticated live commands with explicit confirmations and sanitized errors. */
-export function registerKotakLiveRoutes(
+export function registerLiveTradingRoutes(
   app: Express,
-  manager: KotakLiveManager,
+  manager: LiveTradingManager,
 ) {
   // Halt is deliberately not subjected to the lower per-live-action budget.
   const limit = rateLimit(20, 60000, (req) => req.res!.locals.session.user_id);
@@ -27,7 +52,7 @@ export function registerKotakLiveRoutes(
         res.status(safe.status ?? 409).json({
           detail:
             safe.detail ??
-            "Live action blocked. Check connection, current contract master, risk limits and reconciliation status. No automatic order retry.",
+            "Live action blocked. Check the active broker, current contract master, risk limits and reconciliation status. No automatic order retry.",
         });
       }
     };

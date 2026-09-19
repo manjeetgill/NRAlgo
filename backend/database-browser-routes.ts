@@ -42,7 +42,7 @@ export function registerDatabaseBrowserRoutes(app: Express, store: Store) {
       switch (table) {
         case "live_orders":
           return query(
-            "SELECT o.id,o.intent_key,o.state,o.reserved_paise,o.created_at,o.intent,o.broker_order FROM live_orders o JOIN live_accounts a ON a.id=o.account_id WHERE a.user_id=$1 ORDER BY o.created_at DESC LIMIT 100",
+            "SELECT o.id,o.broker_id,o.intent_key,o.state,o.reserved_paise,o.created_at,o.intent,o.broker_order FROM live_orders o JOIN live_accounts a ON a.id=o.account_id WHERE a.user_id=$1 ORDER BY o.created_at DESC LIMIT 100",
             [userId],
           );
         case "live_spreads":

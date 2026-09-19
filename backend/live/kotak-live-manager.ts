@@ -12,6 +12,10 @@ import type {
 } from "../instrument-master.js";
 import type { KotakMarketDataClient } from "../kotak-market-data-client.js";
 import { paperTradingDay } from "../paper-trading-ledger.js";
+import {
+  resolveActiveBroker,
+  type ActiveBrokerBinding,
+} from "../broker-registry.js";
 import { LiveExecutionService } from "./execution.js";
 import {
   KotakLiveAdapter,
@@ -28,6 +32,7 @@ import {
 
 type Entry = {
   id: string;
+  brokerId: string;
   session: LoginSession;
   connection: KotakExecutionSession;
   adapter: KotakLiveAdapter;
@@ -38,6 +43,7 @@ type Entry = {
   timer?: ReturnType<typeof setTimeout>;
 };
 export class KotakLiveManager {
+  public readonly provider = "kotak" as const;
   readonly enabled: boolean;
   private readonly bootId = randomUUID();
   private readonly entries = new Map<string, Entry>();
@@ -73,7 +79,10 @@ export class KotakLiveManager {
   private async authorize(query: Query, entry: Entry) {
     this.requireEnabled();
     if (entry.revoked || !entry.connection.isCurrent()) {
-      fail(409, "Reconnect Kotak and explicitly arm live execution again.");
+      fail(
+        409,
+        "Reconnect the active broker and explicitly arm live execution again.",
+      );
     }
     const [permission] = await query<{
       armed_until: number;
@@ -101,7 +110,19 @@ export class KotakLiveManager {
     limits?: RiskLimits,
   ): Promise<Entry> {
     this.requireEnabled();
-    const current = this.entries.get(session.user_id);
+    const active = await this.store.transaction((query) =>
+      resolveActiveBroker(query, session.user_id),
+    );
+    if (active.provider !== this.provider) {
+      fail(
+        409,
+        `Live execution is not implemented for the active ${active.provider} broker.`,
+      );
+    }
+    if (!this.client.isConnected(session.user_id, session.token_hash)) {
+      fail(409, "Reconnect the active Kotak broker first.");
+    }
+    const current = this.entries.get(active.id);
     if (
       current &&
       !current.revoked &&
@@ -114,44 +135,52 @@ export class KotakLiveManager {
       current.revoked = true;
       clearTimeout(current.timer);
     }
-    const previous = this.pending.get(session.user_id);
+    const previous = this.pending.get(active.id);
     if (previous) {
       await previous;
       return this.entry(session, limits);
     }
-    const work = this.open(session, limits);
-    this.pending.set(session.user_id, work);
+    const work = this.open(session, active, limits);
+    this.pending.set(active.id, work);
     try {
       return await work;
     } finally {
-      this.pending.delete(session.user_id);
+      this.pending.delete(active.id);
     }
   }
   /** Initialize an explicitly requested control session with a durable halt and bounded monitoring. */
   private async open(
     session: LoginSession,
+    active: ActiveBrokerBinding,
     limits?: RiskLimits,
   ): Promise<Entry> {
     const connection = this.client.executionSession(
       session.user_id,
       session.token_hash,
     );
+    if (connection.accountBinding !== active.accountBinding) {
+      fail(
+        409,
+        "The active broker account does not match the authenticated execution session.",
+      );
+    }
     const id = await this.store.transaction(async (query) => {
       if (limits) {
         await query(
-          "INSERT INTO live_accounts(id,user_id,broker_binding,halt_reason,limits) VALUES($1,$2,$3,$4,$5) ON CONFLICT(broker_binding) DO NOTHING",
+          "INSERT INTO live_accounts(id,user_id,broker_binding,halt_reason,limits,broker_id) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(broker_binding) DO UPDATE SET broker_id=COALESCE(live_accounts.broker_id,EXCLUDED.broker_id)",
           [
             randomUUID(),
             session.user_id,
             connection.accountBinding,
             "Explicit reconciliation and arming required",
             JSON.stringify(riskLimitsSchema.parse(limits)),
+            active.id,
           ],
         );
       }
       const [account] = await query<{ id: string }>(
-        "SELECT id FROM live_accounts WHERE user_id=$1 AND broker_binding=$2 FOR UPDATE",
-        [session.user_id, connection.accountBinding],
+        "SELECT id FROM live_accounts WHERE user_id=$1 AND broker_binding=$2 AND broker_id=$3 FOR UPDATE",
+        [session.user_id, connection.accountBinding, active.id],
       );
       if (!account) {
         fail(
@@ -165,6 +194,10 @@ export class KotakLiveManager {
       await query(
         "UPDATE live_accounts SET halted=TRUE,halt_reason=$2,reconciled_at=0 WHERE id=$1",
         [account.id, "New server/broker session: explicit re-arming required"],
+      );
+      await query(
+        "UPDATE live_orders SET state='blocked' WHERE account_id=$1 AND broker_id=$2 AND state='bound'",
+        [account.id, active.id],
       );
       return account.id;
     });
@@ -198,6 +231,7 @@ export class KotakLiveManager {
     );
     const entry = {
       id,
+      brokerId: active.id,
       session,
       connection,
       adapter,
@@ -214,8 +248,9 @@ export class KotakLiveManager {
       adapter,
       3000,
       (query) => this.authorize(query, entry),
+      active.id,
     );
-    this.entries.set(session.user_id, entry);
+    this.entries.set(active.id, entry);
     this.schedule(entry);
     return entry;
   }
@@ -278,8 +313,17 @@ export class KotakLiveManager {
   /** Resolve current supported contracts for the authenticated session without submitting orders. */
   public async instruments(session: LoginSession, input: InstrumentSearch) {
     this.requireEnabled();
+    const active = await this.store.transaction((query) =>
+      resolveActiveBroker(query, session.user_id),
+    );
+    if (active.provider !== this.provider) {
+      fail(
+        409,
+        `Live execution is not implemented for the active ${active.provider} broker.`,
+      );
+    }
     if (!this.client.isConnected(session.user_id, session.token_hash)) {
-      fail(409, "Connect Kotak first.");
+      fail(409, "Reconnect the active Kotak broker first.");
     }
     if (!this.catalog.isFresh("kotak", input.market)) {
       const url = await this.client.getInstrumentMasterUrl(
@@ -301,14 +345,41 @@ export class KotakLiveManager {
         reason: "Live execution disabled",
       };
     }
-    const entry = existing ?? this.entries.get(session.user_id);
+    let active: ActiveBrokerBinding;
+    try {
+      active = await this.store.transaction((query) =>
+        resolveActiveBroker(query, session.user_id),
+      );
+    } catch (error) {
+      return {
+        enabled: true,
+        armed: false,
+        halted: true,
+        reason:
+          (error as { detail?: string }).detail ??
+          "Connect and select an active broker first.",
+        orders: [],
+      };
+    }
+    if (active.provider !== this.provider) {
+      return {
+        enabled: true,
+        armed: false,
+        halted: true,
+        activeBrokerId: active.id,
+        provider: active.provider,
+        reason: `Live execution is not implemented for the active ${active.provider} broker.`,
+        orders: [],
+      };
+    }
+    const entry = existing ?? this.entries.get(active.id);
     if (
       !entry ||
       entry.revoked ||
       entry.session.token_hash !== session.token_hash ||
       !entry.connection.isCurrent()
     ) {
-      return this.readDormantStatus(session);
+      return this.readDormantStatus(session, active);
     }
     const status = await entry.service.status();
     const [account] = await this.store.transaction((q) =>
@@ -327,6 +398,8 @@ export class KotakLiveManager {
     return {
       ...status,
       accountId: entry.id,
+      activeBrokerId: entry.brokerId,
+      provider: this.provider,
       enabled: true,
       armed,
       limits: JSON.parse(account.limits),
@@ -334,6 +407,7 @@ export class KotakLiveManager {
       accounting: "broker-rms (cash-ledger drift checks unavailable)",
       orders: status.orders.map((o) => ({
         id: o.id,
+        brokerId: o.broker_id,
         state: o.state,
         intent: JSON.parse(o.intent),
         brokerOrder: o.broker_order ? JSON.parse(o.broker_order) : null,
@@ -341,19 +415,18 @@ export class KotakLiveManager {
     };
   }
   /** A disconnected/restarted control plane may display its own saved records, but never imply it is armed. */
-  private async readDormantStatus(session: LoginSession) {
-    const connection = this.client.executionSession(
-      session.user_id,
-      session.token_hash,
-    );
+  private async readDormantStatus(
+    session: LoginSession,
+    active: ActiveBrokerBinding,
+  ) {
     return this.store.transaction(async (query) => {
       const [account] = await query<{
         id: string;
         limits: string;
         snapshot: string;
       }>(
-        "SELECT id,limits,snapshot FROM live_accounts WHERE user_id=$1 AND broker_binding=$2",
-        [session.user_id, connection.accountBinding],
+        "SELECT id,limits,snapshot FROM live_accounts WHERE user_id=$1 AND broker_binding=$2 AND broker_id=$3",
+        [session.user_id, active.accountBinding, active.id],
       );
       if (!account) {
         return {
@@ -363,6 +436,8 @@ export class KotakLiveManager {
           reason:
             "Configure live risk limits before reconciliation and arming.",
           orders: [],
+          activeBrokerId: active.id,
+          provider: active.provider,
         };
       }
       const orders = await query<{
@@ -370,8 +445,9 @@ export class KotakLiveManager {
         state: string;
         intent: string;
         broker_order: string;
+        broker_id: string | null;
       }>(
-        "SELECT id,state,intent,broker_order FROM live_orders WHERE account_id=$1 ORDER BY created_at",
+        "SELECT id,state,intent,broker_order,broker_id FROM live_orders WHERE account_id=$1 ORDER BY created_at",
         [account.id],
       );
       return {
@@ -379,6 +455,8 @@ export class KotakLiveManager {
         armed: false,
         halted: true,
         accountId: account.id,
+        activeBrokerId: active.id,
+        provider: active.provider,
         reason:
           "Execution session inactive. Explicit reconciliation and arming required; check broker exposure.",
         limits: JSON.parse(account.limits),
@@ -389,6 +467,7 @@ export class KotakLiveManager {
             order,
           ) => ({
             id: order.id,
+            brokerId: order.broker_id,
             state: order.state,
             intent: JSON.parse(order.intent),
             brokerOrder: order.broker_order
@@ -476,29 +555,59 @@ export class KotakLiveManager {
       if (!Number.isSafeInteger(intent.quantity * intent.limitPaise)) {
         fail(422, "Order notional exceeds safe arithmetic.");
       }
-      const quote = await withBrokerDeadline(
-        (s) => entry.adapter.getQuote(intent.instrument, intent.side, s),
-        3000,
-      );
-      if (
-        Math.abs(intent.limitPaise - quote.pricePaise) / quote.pricePaise >
-        0.05
-      ) {
-        fail(422, "Limit price must be within 5% of the current broker quote.");
-      }
       const id = randomUUID(),
         expires = Date.now() + 30000;
       await this.store.transaction(async (q) => {
         await this.authorize(q, entry);
+        const active = await resolveActiveBroker(q, session.user_id, true);
+        if (
+          active.id !== entry.brokerId ||
+          active.accountBinding !== entry.adapter.accountBinding
+        ) {
+          fail(409, "Active broker changed. Start a new live-order review.");
+        }
         await q(
           "DELETE FROM live_previews WHERE account_id=$1 AND expires<$2",
           [entry.id, Date.now()],
         );
         await q(
-          "INSERT INTO live_previews(id,account_id,session_hash,intent,expires) VALUES($1,$2,$3,$4,$5)",
-          [id, entry.id, entry.permissionKey, JSON.stringify(intent), expires],
+          "INSERT INTO live_previews(id,account_id,session_hash,intent,expires,broker_id) VALUES($1,$2,$3,$4,$5,$6)",
+          [
+            id,
+            entry.id,
+            entry.permissionKey,
+            JSON.stringify(intent),
+            expires,
+            entry.brokerId,
+          ],
         );
       });
+      let quote;
+      try {
+        quote = await withBrokerDeadline(
+          (s) => entry.adapter.getQuote(intent.instrument, intent.side, s),
+          3000,
+        );
+        if (
+          Math.abs(intent.limitPaise - quote.pricePaise) / quote.pricePaise >
+          0.05
+        ) {
+          fail(
+            422,
+            "Limit price must be within 5% of the current broker quote.",
+          );
+        }
+      } catch (error) {
+        await this.store
+          .transaction((q) =>
+            q(
+              "DELETE FROM live_previews WHERE id=$1 AND account_id=$2 AND broker_id=$3",
+              [id, entry.id, entry.brokerId],
+            ),
+          )
+          .catch(() => {});
+        throw error;
+      }
       return {
         previewId: id,
         expires,
@@ -518,12 +627,19 @@ export class KotakLiveManager {
     return this.serial(entry, async () => {
       const intent = await this.store.transaction(async (q) => {
         await this.authorize(q, entry);
-        const [preview] = await q<{ intent: string; expires: number }>(
-          "SELECT intent,expires FROM live_previews WHERE id=$1 AND account_id=$2 AND session_hash=$3",
+        const [preview] = await q<{
+          intent: string;
+          expires: number;
+          broker_id: string | null;
+        }>(
+          "SELECT intent,expires,broker_id FROM live_previews WHERE id=$1 AND account_id=$2 AND session_hash=$3",
           [previewId, entry.id, entry.permissionKey],
         );
         if (!preview || preview.expires <= Date.now()) {
           fail(409, "Order preview expired. Review a new preview.");
+        }
+        if (preview.broker_id !== entry.brokerId) {
+          fail(409, "Order preview belongs to another broker.");
         }
         return orderIntentSchema.parse(JSON.parse(preview.intent));
       });
@@ -531,28 +647,42 @@ export class KotakLiveManager {
       const prior = (await entry.service.status()).orders.find(
         (o) => o.intent_key === intent.key,
       );
-      if (prior && prior.state !== "reserved") {
+      if (prior && !new Set(["bound", "reserved"]).has(prior.state)) {
         return prior;
       }
-      entry.adapter.validateIntent(intent);
-      const quote = await withBrokerDeadline(
-        (s) => entry.adapter.getQuote(intent.instrument, intent.side, s),
-        3000,
-      );
-      if (
-        Math.abs(intent.limitPaise - quote.pricePaise) / quote.pricePaise >
-        0.05
-      ) {
-        fail(
-          409,
-          "Price moved outside the preview guard; review a fresh preview.",
+      const bound = await entry.service.bindIntent(intent);
+      if (!new Set(["bound", "reserved"]).has(bound.state)) {
+        return bound;
+      }
+      try {
+        entry.adapter.validateIntent(intent);
+        const quote = await withBrokerDeadline(
+          (s) => entry.adapter.getQuote(intent.instrument, intent.side, s),
+          3000,
         );
+        if (
+          Math.abs(intent.limitPaise - quote.pricePaise) / quote.pricePaise >
+          0.05
+        ) {
+          fail(
+            409,
+            "Price moved outside the preview guard; review a fresh preview.",
+          );
+        }
+        if (!(await entry.service.reconcile()).clean) {
+          fail(409, "Reconciliation failed; order not submitted.");
+        }
+        const order = await entry.service.reserveBoundIntent(bound.id);
+        return entry.service.submitReservedOrder(order.id);
+      } catch (error) {
+        await entry.service
+          .blockReservedOrder(
+            bound.id,
+            "Pre-dispatch quote or reconciliation gate failed",
+          )
+          .catch(() => {});
+        throw error;
       }
-      if (!(await entry.service.reconcile()).clean) {
-        fail(409, "Reconciliation failed; order not submitted.");
-      }
-      const order = await entry.service.reserveIntent(intent);
-      return entry.service.submitReservedOrder(order.id);
     });
   }
   /** Revoke permission before cancellation work; never auto-flatten positions or queue the kill behind previews. */
@@ -570,25 +700,28 @@ export class KotakLiveManager {
   }
   /** Block dispatch immediately and persist revocation best effort; outstanding broker exposure may remain. */
   public revoke(userId: string) {
-    const entry = this.entries.get(userId);
-    if (!entry) {
-      return;
-    }
-    entry.revoked = true;
-    clearTimeout(entry.timer);
-    // Synchronous memory gate blocks dispatch immediately. Durable halt follows best effort.
-    void this.store
-      .transaction(async (q) => {
-        await q("DELETE FROM live_permissions WHERE account_id=$1", [entry.id]);
-        await q(
-          "UPDATE live_accounts SET halted=TRUE,halt_reason=$2,reconciled_at=0 WHERE id=$1",
-          [
+    for (const entry of this.entries.values()) {
+      if (entry.session.user_id !== userId) {
+        continue;
+      }
+      entry.revoked = true;
+      clearTimeout(entry.timer);
+      // Synchronous memory gate blocks dispatch immediately. Durable halt follows best effort.
+      void this.store
+        .transaction(async (q) => {
+          await q("DELETE FROM live_permissions WHERE account_id=$1", [
             entry.id,
-            "Session revoked: check and cancel remaining orders at Kotak",
-          ],
-        );
-      })
-      .catch(() => {});
+          ]);
+          await q(
+            "UPDATE live_accounts SET halted=TRUE,halt_reason=$2,reconciled_at=0 WHERE id=$1",
+            [
+              entry.id,
+              "Session revoked: check and cancel remaining orders at the bound broker",
+            ],
+          );
+        })
+        .catch(() => {});
+    }
   }
   /** Stop monitoring and attempt owned-order cancellation; failure never implies broker exposure is closed. */
   public async close() {
