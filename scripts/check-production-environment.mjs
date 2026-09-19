@@ -91,6 +91,12 @@ export function productionEnvironmentErrors(env, envPath = ".env") {
       errors.push(`${name} must contain at least 32 characters.`);
     }
   }
+  const calculationToken = required("CALCULATION_SERVICE_TOKEN");
+  if (calculationToken && calculationToken.length < 32) {
+    errors.push(
+      "CALCULATION_SERVICE_TOKEN must contain at least 32 characters.",
+    );
+  }
   const secrets = [
     "POSTGRES_PASSWORD",
     "APP_DATABASE_PASSWORD",
@@ -99,6 +105,7 @@ export function productionEnvironmentErrors(env, envPath = ".env") {
     "BROKER_ENCRYPTION_KEY",
     "BACKUP_ENCRYPTION_KEY",
     "REGISTRATION_TOKEN",
+    "CALCULATION_SERVICE_TOKEN",
   ].filter((name) => env[name]);
   if (new Set(secrets.map((name) => env[name])).size !== secrets.length) {
     errors.push(

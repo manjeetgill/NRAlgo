@@ -2,6 +2,7 @@
  * Child processes share the environment but remain independently stoppable process groups.
  */
 import { spawn, type ChildProcess } from "node:child_process";
+import { existsSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
 import { ensureLocalPostgres } from "./backend/local-database.js";
 import {
@@ -31,6 +32,14 @@ if (localPostgres) {
 }
 const children: ChildProcess[] = [];
 let stopping = false;
+const python = `${root}.runtime/python-venv/bin/python`;
+if (!existsSync(python)) {
+  throw new Error(
+    "Python calculation environment is missing. Run `make install` first.",
+  );
+}
+process.env.CALCULATION_SERVICE_TOKEN ||=
+  "local-development-calculation-token-change-me";
 /** Stop the entire development stack once; escalate to SIGKILL only for our unresponsive children. */
 function stop(code = 0) {
   if (stopping) {
@@ -61,6 +70,20 @@ function stop(code = 0) {
   }, 30000).unref();
 }
 const commands: [string, string[], string, NodeJS.ProcessEnv?][] = [
+  [
+    python,
+    [
+      "-m",
+      "uvicorn",
+      "calculation_engine.app:app",
+      "--host",
+      "127.0.0.1",
+      "--port",
+      "8010",
+      "--no-server-header",
+    ],
+    root,
+  ],
   [process.execPath, ["--import", "tsx", "backend/main.ts"], root],
   ["npm", ["run", "dev"], `${root}frontend`],
   [

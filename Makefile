@@ -11,6 +11,8 @@ check:
 install:
 	npm ci --registry=https://registry.npmjs.org
 	npm ci --prefix frontend --registry=https://registry.npmjs.org
+	python3 -m venv .runtime/python-venv
+	.runtime/python-venv/bin/pip install --requirement calculation_engine/requirements.lock
 build:
 	npm run build
 migrate:

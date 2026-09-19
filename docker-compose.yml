@@ -55,6 +55,8 @@ services:
       <<: *database
       APP_ORIGIN: https://${APP_DOMAIN:?Set APP_DOMAIN to your hostname}
       MARKET_DATA_PROVIDER: ${MARKET_DATA_PROVIDER:-kotak}
+      ZERODHA_API_KEY: ${ZERODHA_API_KEY:-}
+      ZERODHA_API_SECRET: ${ZERODHA_API_SECRET:-}
       LIVE_TRADING_ENABLED: ${LIVE_TRADING_ENABLED:-false}
       PAPER_TRADING_ENABLED: ${PAPER_TRADING_ENABLED:-false}
       KOTAK_STATIC_IP_CONFIRMED: ${KOTAK_STATIC_IP_CONFIRMED:-false}
@@ -63,15 +65,44 @@ services:
       REGISTRATION_TOKEN: ${REGISTRATION_TOKEN:-}
       ALLOW_PUBLIC_REGISTRATION: ${ALLOW_PUBLIC_REGISTRATION:-false}
       TRUST_EDGE_IP: "true"
+      CALCULATION_SERVICE_URL: http://calculator:8010
+      CALCULATION_SERVICE_TOKEN: ${CALCULATION_SERVICE_TOKEN:?Set a separate calculation-service token}
     depends_on:
       migrate:
         condition: service_completed_successfully
+      calculator:
+        condition: service_healthy
     healthcheck:
-      test: [CMD, node, -e, "fetch('http://127.0.0.1:8000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://127.0.0.1:8000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
       interval: 15s
       timeout: 5s
       retries: 5
       start_period: 20s
+  calculator:
+    <<: *app
+    build:
+      context: .
+      target: calculation
+    environment:
+      CALCULATION_SERVICE_TOKEN: ${CALCULATION_SERVICE_TOKEN:?Set a separate calculation-service token}
+    healthcheck:
+      test:
+        [
+          CMD,
+          python,
+          -c,
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8010/health', timeout=3)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
   web:
     <<: *app
     build:
@@ -81,7 +112,13 @@ services:
       api:
         condition: service_healthy
     healthcheck:
-      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
       interval: 15s
       timeout: 5s
       retries: 5
