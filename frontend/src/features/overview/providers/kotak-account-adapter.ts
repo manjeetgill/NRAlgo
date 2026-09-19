@@ -201,3 +201,8 @@ export const kotakAccountAdapter: BrokerAccountAdapter = {
     );
   },
 };
+
+/** Only implemented account adapters are selectable; no placeholder balances. */
+export const availableBrokers: readonly BrokerAccountAdapter[] = [
+  kotakAccountAdapter,
+];

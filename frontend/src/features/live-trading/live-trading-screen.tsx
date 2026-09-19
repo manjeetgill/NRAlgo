@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import { LiveOrderTicket } from "./live-order-ticket";
 import { Button } from "@/components/ui/button";
 import { useOverviewAccount } from "@/features/overview/use-overview-account";
-import { availableBrokers } from "@/features/overview/broker-registry";
+import { availableBrokers } from "@/features/overview/providers/kotak-account-adapter";
 import { formatAccountMoney } from "@/features/overview/overview-model";
 import type { AccountPosition } from "@/features/overview/overview-types";
 /** No order is placed or account armed by opening this screen. */

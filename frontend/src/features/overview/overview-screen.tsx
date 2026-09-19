@@ -13,12 +13,13 @@ import {
   Wallet,
   X,
 } from "lucide-react";
-import { availableBrokers } from "@/features/overview/broker-registry";
+import { availableBrokers } from "@/features/overview/providers/kotak-account-adapter";
 import {
   formatAccountMoney,
   formatActivityTime,
 } from "@/features/overview/overview-model";
 import { useOverviewAccount } from "@/features/overview/use-overview-account";
+import { MarketInsightsPanel } from "@/features/overview/market-insights-panel";
 import { getTradingMode, isTradingEventVisible } from "@/lib/trading-mode";
 import { orderAuditEvents } from "@/features/activity/audit-model";
 import type {
@@ -371,6 +372,8 @@ export function OverviewScreen({
           </div>
         )}
       </section>
+
+      <MarketInsightsPanel />
 
       {/* Activity stays read-only; quick actions navigate to their dedicated workflows. */}
       <div className={styles.contentGrid}>
