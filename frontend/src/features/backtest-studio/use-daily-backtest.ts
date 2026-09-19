@@ -1,73 +1,111 @@
 "use client";
-/** Broker dataset loading and generation-fenced local calculations; no uploads or background history polling. */
+/** Stored-history loading plus owner-scoped Python job lifecycle; no calculation runs in React. */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { requestApiJson } from "@/lib/api";
+import type { HistoryDataset } from "@/lib/market-history";
+import { fetchStoredDailyHistory } from "@/lib/stored-market-history";
+import type { StoredInstrument } from "@/lib/stored-instruments";
+import type { BacktestSettings, DailyBar } from "./backtest-report";
 import {
-  fetchMarketHistory,
-  type HistoryRequest,
-  type HistoryDataset,
-} from "@/lib/market-history";
-import type { BacktestSettings, DailyBar } from "./daily-backtest";
-import { createBacktestReport, dailyBarsFromHistory } from "./backtest-report";
+  backtestReportSchema,
+  backtestSettingsPayload,
+  dailyBarsFromHistory,
+  type BacktestReport,
+} from "./backtest-report";
 
-/** Abort obsolete reads and invalidate reports whenever selected contract/range/settings change. */
+/** Resolve after a cancellable browser delay between bounded status reads. */
+function wait(milliseconds: number, signal: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(resolve, milliseconds);
+    signal.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        reject(signal.reason);
+      },
+      { once: true },
+    );
+  });
+}
+
+/** Abort obsolete reads/jobs and bind every result to one selected stored dataset. */
 export function useDailyBacktest(csrf: string) {
   const [dataset, setDataset] = useState<{
     history: HistoryDataset;
     bars: DailyBar[];
   } | null>(null);
-  const [report, setReport] = useState<Awaited<
-    ReturnType<typeof createBacktestReport>
-  > | null>(null);
+  const [report, setReport] = useState<BacktestReport | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [running, setRunning] = useState(false);
-  const generation = useRef(0),
-    runGeneration = useRef(0),
-    pending = useRef(false);
-  const request = useRef<AbortController | null>(null);
-  const mounted = useRef(false);
+  const [progress, setProgress] = useState(0);
+  const generation = useRef(0);
+  const pending = useRef(false);
+  const historyRequest = useRef<AbortController | null>(null);
+  const jobRequest = useRef<AbortController | null>(null);
+  const jobId = useRef("");
 
-  /** Dispose HTTP work and ignore late hashing results when the screen/session leaves. */
-  useEffect(() => {
-    mounted.current = true;
-    const reads = generation,
-      runs = runGeneration;
-    return () => {
-      mounted.current = false;
-      reads.current++;
-      runs.current++;
-      request.current?.abort();
-    };
-  }, []);
+  /** Request durable cancellation best effort; generation fencing still rejects late results. */
+  const cancelJob = useCallback(() => {
+    const id = jobId.current;
+    jobId.current = "";
+    jobRequest.current?.abort();
+    jobRequest.current = null;
+    if (id) {
+      void requestApiJson(
+        `/calculations/jobs/${encodeURIComponent(id)}`,
+        "DELETE",
+        undefined,
+        csrf,
+        15000,
+      ).catch(() => {});
+    }
+    pending.current = false;
+    setRunning(false);
+    setProgress(0);
+  }, [csrf]);
+
+  /** Dispose all in-flight HTTP work when the screen or authenticated workspace changes. */
+  useEffect(
+    () => () => {
+      generation.current++;
+      historyRequest.current?.abort();
+      cancelJob();
+    },
+    [cancelJob],
+  );
 
   /** A rules edit cannot leave a result labelled with newer settings. */
   const invalidateReport = useCallback(() => {
-    runGeneration.current++;
+    generation.current++;
+    cancelJob();
     setReport(null);
-  }, []);
+  }, [cancelJob]);
 
   /** Selection edits remove old data immediately, including a pending response for another contract. */
   const clearDataset = useCallback(() => {
     generation.current++;
-    request.current?.abort();
+    historyRequest.current?.abort();
     setDataset(null);
     setLoading(false);
     setError("");
-    invalidateReport();
-  }, [invalidateReport]);
+    cancelJob();
+    setReport(null);
+  }, [cancelJob]);
 
-  /** Fetch once from the configured provider; accept the complete response only after daily validation. */
+  /** Fetch stored history for visual confirmation; the job later re-reads it on Node. */
   const loadHistory = useCallback(
-    async (input: HistoryRequest) => {
+    async (instrument: StoredInstrument, from: string, to: string) => {
       clearDataset();
       const current = ++generation.current;
       const controller = new AbortController();
-      request.current = controller;
+      historyRequest.current = controller;
       setLoading(true);
       try {
-        const history = await fetchMarketHistory(
-          input,
-          csrf,
+        const history = await fetchStoredDailyHistory(
+          instrument,
+          from,
+          to,
           controller.signal,
         );
         const bars = dailyBarsFromHistory(history);
@@ -75,11 +113,11 @@ export function useDailyBacktest(csrf: string) {
           setDataset({ history, bars });
         }
       } catch (cause) {
-        if (current === generation.current) {
+        if (current === generation.current && !controller.signal.aborted) {
           setError(
             cause instanceof Error
               ? cause.message
-              : "Broker history unavailable.",
+              : "Stored history unavailable.",
           );
         }
       } finally {
@@ -88,41 +126,81 @@ export function useDailyBacktest(csrf: string) {
         }
       }
     },
-    [csrf, clearDataset],
+    [clearDataset],
   );
 
-  /** Bind each calculation/export to copied broker data and settings; no order API is reachable here. */
+  /** Create a durable job, poll owned state, and accept only a schema-valid terminal result. */
   const run = useCallback(
     async (settings: BacktestSettings) => {
       if (pending.current || loading || !dataset) {
         return;
       }
       pending.current = true;
-      const current = ++runGeneration.current;
+      const current = ++generation.current;
+      const controller = new AbortController();
+      jobRequest.current = controller;
       setRunning(true);
+      setProgress(0);
       setError("");
       setReport(null);
       try {
-        const next = await createBacktestReport(
-          dataset.bars,
-          settings,
-          dataset.history,
+        const request = dataset.history.request;
+        const created = await requestApiJson(
+          "/calculations/backtests",
+          "POST",
+          {
+            instrumentId: request.instrument,
+            symbol: request.stockCode,
+            from: request.from,
+            to: request.to,
+            settings: backtestSettingsPayload(settings),
+          },
+          csrf,
+          30000,
+          controller.signal,
         );
-        if (current === runGeneration.current) {
-          setReport(next);
+        jobId.current = String(created.id);
+        for (;;) {
+          await wait(500, controller.signal);
+          const state = await requestApiJson(
+            `/calculations/jobs/${encodeURIComponent(jobId.current)}`,
+            "GET",
+            undefined,
+            undefined,
+            30000,
+            controller.signal,
+          );
+          if (current !== generation.current) {
+            return;
+          }
+          setProgress(Number(state.progress) || 0);
+          if (state.status === "completed") {
+            setReport(backtestReportSchema.parse(state.result));
+            jobId.current = "";
+            return;
+          }
+          if (state.status === "failed" || state.status === "cancelled") {
+            throw new Error(
+              state.error ||
+                (state.status === "cancelled"
+                  ? "Backtest cancelled."
+                  : "Backtest failed."),
+            );
+          }
         }
       } catch (cause) {
-        if (current === runGeneration.current) {
+        if (current === generation.current && !controller.signal.aborted) {
           setError(cause instanceof Error ? cause.message : "Backtest failed.");
         }
       } finally {
-        pending.current = false;
-        if (mounted.current) {
+        if (current === generation.current) {
+          pending.current = false;
+          jobRequest.current = null;
           setRunning(false);
         }
       }
     },
-    [dataset, loading],
+    [csrf, dataset, loading],
   );
   return {
     bars: dataset?.bars ?? [],
@@ -131,9 +209,11 @@ export function useDailyBacktest(csrf: string) {
     error,
     loading,
     running,
+    progress,
     loadHistory,
     clearDataset,
     run,
+    cancelJob,
     invalidateReport,
   };
 }

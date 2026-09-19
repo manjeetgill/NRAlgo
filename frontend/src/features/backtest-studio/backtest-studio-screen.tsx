@@ -1,5 +1,5 @@
 "use client";
-/** Broker historical workbench. No uploaded/generated prices or execution side effects. */
+/** Stored historical workbench. No broker login, uploaded/generated prices or execution side effects. */
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { PageActions } from "@/features/workspace/page-actions";
@@ -7,17 +7,14 @@ import {
   strategyTemplates,
   type TemplateId,
 } from "@/features/strategy-library/strategy-templates";
-import type { BacktestSettings } from "./daily-backtest";
+import type { BacktestSettings } from "./backtest-report";
 import { useDailyBacktest } from "./use-daily-backtest";
 import { formatInr } from "@/lib/format";
 import { downloadText } from "@/lib/download";
-import {
-  InstrumentPicker,
-  type BrokerInstrument,
-} from "@/components/instrument-picker";
-import { historyDay, historyRequestFor } from "@/lib/market-history";
+import { StoredInstrumentPicker } from "@/components/stored-instrument-picker";
+import type { StoredInstrument } from "@/lib/stored-instruments";
 
-/** Keep provider data/results private to this mounted screen; changing input invalidates the report. */
+/** Keep stored data/results private to this mounted screen; changing input invalidates the report. */
 export function BacktestStudioScreen({
   csrf,
   templateId = "ema",
@@ -28,9 +25,9 @@ export function BacktestStudioScreen({
   onBrowse: () => void;
 }) {
   const template = strategyTemplates.find((item) => item.id === templateId)!;
-  const [instrument, setInstrument] = useState<BrokerInstrument | null>(null);
-  const [from, setFrom] = useState(() => historyDay(-180));
-  const [to, setTo] = useState(() => historyDay(-1));
+  const [instrument, setInstrument] = useState<StoredInstrument | null>(null);
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
   const [settings, setSettings] = useState<BacktestSettings>({
     template: templateId,
     first: template.defaults[0],
@@ -49,12 +46,14 @@ export function BacktestStudioScreen({
     error,
     loading,
     running,
+    progress,
     loadHistory,
     clearDataset,
     run,
+    cancelJob,
     invalidateReport,
   } = useDailyBacktest(csrf);
-  /** Start local calculation; the hook owns validation, failure state and immutable input binding. */
+  /** Create a durable Python job; the hook owns polling, cancellation and result validation. */
   function onRun() {
     void run(settings);
   }
@@ -87,30 +86,35 @@ export function BacktestStudioScreen({
           <strong>
             {history
               ? `${history.instrument.symbol} · ${history.source}`
-              : "Broker historical data required"}
+              : "Stored historical data required"}
           </strong>
           <span>
             {bars.length
-              ? `${bars.length} broker daily candles · ${bars[0].date} to ${bars.at(-1)!.date}`
-              : "Connect your broker, select an instrument and load completed daily candles. Calculation does not place orders."}
+              ? `${bars.length} stored daily candles · ${bars[0].date} to ${bars.at(-1)!.date}`
+              : "Select an instrument from the stored catalog. No broker connection is required and calculation does not place orders."}
           </span>
         </div>
       </div>
       <section className="panel screen-card">
-        <h2>Broker historical data</h2>
-        <InstrumentPicker
-          market="cash"
-          csrf={csrf}
+        <h2>Stored historical data</h2>
+        <StoredInstrumentPicker
           disabled={running}
+          onClear={() => {
+            setInstrument(null);
+            clearDataset();
+          }}
           onSelect={(selected) => {
             clearDataset();
             setInstrument(selected);
+            setFrom(selected.first_day);
+            setTo(selected.last_day);
+            void loadHistory(selected, selected.first_day, selected.last_day);
           }}
         />
         <p>
           Selected:{" "}
           {instrument
-            ? `${instrument.symbol} · NSE cash · ${instrument.instrument}`
+            ? `${instrument.symbol} · ${instrument.kind} · ${instrument.id}`
             : "Choose a cash instrument above"}
         </p>
         <div className="research-fields">
@@ -119,7 +123,8 @@ export function BacktestStudioScreen({
             <input
               type="date"
               value={from}
-              max={to}
+              min={instrument?.first_day}
+              max={to || instrument?.last_day}
               onChange={(event) => {
                 clearDataset();
                 setFrom(event.target.value);
@@ -131,8 +136,8 @@ export function BacktestStudioScreen({
             <input
               type="date"
               value={to}
-              min={from}
-              max={historyDay(-1)}
+              min={from || instrument?.first_day}
+              max={instrument?.last_day}
               onChange={(event) => {
                 clearDataset();
                 setTo(event.target.value);
@@ -144,16 +149,15 @@ export function BacktestStudioScreen({
           disabled={!instrument || loading || running || !from || !to}
           onClick={() => {
             if (instrument) {
-              void loadHistory(historyRequestFor(instrument, from, to, "day"));
+              void loadHistory(instrument, from, to);
             }
           }}
         >
-          {loading ? "Loading broker history…" : "Load broker history"}
+          {loading ? "Loading stored history…" : "Load stored history"}
         </Button>
         <p>
-          Daily cash history · up to 180 calendar days per request · at least 60
-          valid trading candles required. Current-master contracts only; no
-          expired-contract substitutions or missing-session padding.
+          Stored daily equity/index history · up to 10,000 sessions · at least
+          60 valid trading candles required. Missing sessions are not padded.
         </p>
         {history && (
           <p>
@@ -188,13 +192,18 @@ export function BacktestStudioScreen({
         </div>
         <div className="screen-toolbar">
           <Button disabled={!bars.length || loading || running} onClick={onRun}>
-            {running ? "Calculating…" : "Run calculated backtest"}
+            {running ? `Calculating… ${progress}%` : "Run Python backtest"}
           </Button>
+          {running && (
+            <Button variant="secondary" onClick={cancelJob}>
+              Cancel calculation
+            </Button>
+          )}
         </div>
         <p>
-          Broker history is held only in this browser tab and cleared when you
-          leave this screen. Review the provider adjustment policy before
-          relying on results.
+          Node selects the stored dataset again for the durable Python job. No
+          broker credentials or order capability are sent to the calculation
+          service.
         </p>
         {loading && <p role="status">Validating historical data…</p>}
         {error && (
@@ -223,7 +232,7 @@ export function BacktestStudioScreen({
         <article className="panel screen-card">
           <h2>Ready to test</h2>
           <p>
-            Load broker historical data and run the selected rules. Results will
+            Load stored historical data and run the selected rules. Results will
             be calculated from those candles and your parameters.
           </p>
         </article>
@@ -262,8 +271,7 @@ export function BacktestStudioScreen({
               <br />
               Configuration SHA-256: {report.manifest.configurationHash}
               <br />
-              Engine: {report.manifest.engineVersion} · Local result; download
-              to retain.
+              Engine: {report.manifest.engineVersion} · Durable calculation job.
             </p>
             <svg
               viewBox="0 0 760 210"
