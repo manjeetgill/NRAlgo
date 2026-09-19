@@ -97,6 +97,33 @@ class PayoffRequest(StrictModel):
     totalFees: float = Field(ge=0, le=1_000_000)
 
 
+class OptionGreekContract(StrictModel):
+    """One observed option premium identified by the provider's stable instrument key."""
+
+    key: str = Field(min_length=1, max_length=160)
+    right: Literal["call", "put"]
+    strike: float = Field(gt=0, le=10_000_000)
+    premium: float = Field(gt=0, le=10_000_000)
+
+
+class OptionGreeksRequest(StrictModel):
+    """Bound one option-chain Greek calculation without broker credentials."""
+
+    spot: float = Field(gt=0, le=10_000_000)
+    days: float = Field(gt=0, le=3_650)
+    rate: float = Field(ge=-1, le=1)
+    dividend: float = Field(ge=0, le=1)
+    contracts: list[OptionGreekContract] = Field(min_length=1, max_length=200)
+
+    @model_validator(mode="after")
+    def validate_unique_keys(self) -> "OptionGreeksRequest":
+        """Reject ambiguous response mapping before numerical work starts."""
+        keys = [contract.key for contract in self.contracts]
+        if len(keys) != len(set(keys)):
+            raise ValueError("Option Greek contract keys must be unique")
+        return self
+
+
 class StoredDailyStrategy(StrictModel):
     """Subset of saved research settings used by the stored-daily model."""
 

@@ -96,7 +96,7 @@ export function createApiApplication(
   additionalMarketDataProviders: readonly MarketDataProvider[] = [],
   injectedCalculationClient?: Pick<
     CalculationClient,
-    "dailyBacktest" | "payoff" | "storedDaily"
+    "dailyBacktest" | "optionGreeks" | "payoff" | "storedDaily"
   > &
     Partial<Pick<CalculationClient, "marketInsights" | "healthy">>,
 ) {

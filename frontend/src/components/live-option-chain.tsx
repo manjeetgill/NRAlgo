@@ -10,6 +10,7 @@ import {
   type LiveTick,
   type OptionChainSnapshot,
 } from "@/features/option-chain/use-option-chain";
+import { useOptionGreeks } from "@/features/option-chain/use-option-greeks";
 
 export type {
   ChainContract,
@@ -443,6 +444,16 @@ export function LiveOptionChain({
   ]);
 
   const optionChain = useOptionChain(chain, ticks);
+  const valuationDate =
+    chain?.sessionDay ??
+    asOf ??
+    new Date(Date.now() + 19_800_000).toISOString().slice(0, 10);
+  const greeks = useOptionGreeks(csrf, {
+    spot: analytics ? chain?.underlyingPrice : null,
+    expiry,
+    valuationDate,
+    contracts: analytics ? optionChain.items : [],
+  });
   const maxOi = optionChain.maxOpenInterest;
   /** Append the next contract page when the user reaches the chain's lower edge. */
   const loadMoreContracts = useCallback(
@@ -507,10 +518,30 @@ export function LiveOptionChain({
         )}
       </td>
     );
+    const greek = greeks.values.get(item?.instrument ?? "");
+    const greekCell = (
+      label: "Delta" | "Gamma" | "Theta" | "Vega" | "IV",
+      value: number | null | undefined,
+      digits: number,
+    ) => (
+      <td
+        className="chain-greek"
+        title={
+          value === null || value === undefined
+            ? `${label} unavailable for this premium`
+            : `${label} derived by ${label === "IV" ? "implied-volatility inversion" : "Black-76 synthetic-forward analytics"}`
+        }
+      >
+        {typeof value === "number" && Number.isFinite(value)
+          ? value.toFixed(digits)
+          : "—"}
+      </td>
+    );
+    const gamma = greekCell("Gamma", greek?.gamma, 4);
+    const vega = greekCell("Vega", greek?.vega, 2);
+    const theta = greekCell("Theta", greek?.theta, 2);
+    const delta = greekCell("Delta", greek?.delta, 3);
     if (analytics) {
-      const unavailable = (label: string) => (
-        <td title={`${label} unavailable from this feed`}>—</td>
-      );
       const actions = (
         <td className="chain-trade-actions">
           {item && (
@@ -537,24 +568,24 @@ export function LiveOptionChain({
       );
       return right === "call" ? (
         <>
-          {unavailable("Gamma")}
-          {unavailable("Vega")}
-          {unavailable("Theta")}
-          {unavailable("Delta")}
+          {gamma}
+          {vega}
+          {theta}
+          {delta}
           {oi}
           {actions}
           {mark}
-          {unavailable("IV")}
+          {greekCell("IV", greek?.impliedVolatility, 2)}
         </>
       ) : (
         <>
           {mark}
           {actions}
           {oi}
-          {unavailable("Delta")}
-          {unavailable("Theta")}
-          {unavailable("Vega")}
-          {unavailable("Gamma")}
+          {delta}
+          {theta}
+          {vega}
+          {gamma}
         </>
       );
     }
@@ -790,8 +821,9 @@ export function LiveOptionChain({
               </tbody>
             </table>
             <p>
-              Only available broker depth is shown. Greeks and IV are
-              unavailable from this feed.
+              {analytics
+                ? "Only available broker depth is shown. IV and Greeks are derived from the displayed premium by the calculation service."
+                : "Only available broker depth is shown."}
             </p>
             {draftError && <p role="alert">{draftError}</p>}
             {onAddLeg && (
@@ -924,6 +956,7 @@ export function LiveOptionChain({
       {error && <p role="alert">{error}</p>}
       {feedError && <p role="alert">Feed: {feedError}</p>}
       {draftError && <p role="alert">{draftError}</p>}
+      {analytics && greeks.error && <p role="alert">Greeks: {greeks.error}</p>}
       {chain?.warning && !optionChain.items.some((item) => item.tickAt) && (
         <p role="status">{chain.warning}</p>
       )}
@@ -1036,8 +1069,12 @@ export function LiveOptionChain({
       )}
       <p className="chain-note">
         {sourceInfo.dataMode === "historical"
-          ? "Stored premiums are replay observations, not executable quotes. Missing strikes and dates are never filled or estimated."
-          : "Prices and OI update from the same tick batch as dashboard P&L. This page streams up to 50 chain contracts alongside up to 50 open positions. Snapshot or stale prices are labelled. No repeated position/report API calls."}
+          ? analytics
+            ? "Stored premiums are replay observations, not executable quotes. Greeks are derived from observed premiums; missing values are never filled."
+            : "Stored premiums are replay observations, not executable quotes. Missing strikes and dates are never filled or estimated."
+          : analytics
+            ? "Prices and OI update from the shared tick batch. Greeks are derived from displayed premiums by the calculation service."
+            : "Prices and OI update from the same tick batch as dashboard P&L. This page streams up to 50 chain contracts alongside up to 50 open positions."}
       </p>
     </section>
   );

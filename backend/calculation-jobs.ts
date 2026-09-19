@@ -8,6 +8,7 @@ import type { Store } from "./database.js";
 import {
   CalculationClient,
   calculationBacktestSettingsSchema,
+  optionGreeksRequestSchema,
   payoffRequestSchema,
 } from "./calculation-client.js";
 import { fail, rateLimit } from "./security.js";
@@ -365,7 +366,7 @@ export function registerCalculationRoutes(
   app: Express,
   store: Store,
   runner: CalculationJobRunner,
-  client: Pick<CalculationClient, "payoff">,
+  client: Pick<CalculationClient, "payoff" | "optionGreeks">,
 ) {
   const limit = rateLimit(30, 60000, (req) => req.res!.locals.session.user_id);
   app.post("/api/calculations/backtests", limit, async (req, res) => {
@@ -426,6 +427,26 @@ export function registerCalculationRoutes(
     try {
       const response = await client.payoff(
         payoffRequestSchema.parse(req.body),
+        cancellation.signal,
+      );
+      res.json(response);
+    } finally {
+      res.removeListener("close", close);
+    }
+  });
+  app.post("/api/calculations/option-greeks", limit, async (req, res) => {
+    const cancellation = new AbortController();
+    const close = () => {
+      if (!res.writableEnded) {
+        cancellation.abort(
+          new DOMException("Client disconnected", "AbortError"),
+        );
+      }
+    };
+    res.once("close", close);
+    try {
+      const response = await client.optionGreeks(
+        optionGreeksRequestSchema.parse(req.body),
         cancellation.signal,
       );
       res.json(response);

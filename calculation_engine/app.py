@@ -13,11 +13,12 @@ from .backtest import run_daily_backtest, run_stored_daily_session
 from .contracts import (
     DailyBacktestRequest,
     MarketInsightRequest,
+    OptionGreeksRequest,
     PayoffRequest,
     StoredDailyRequest,
 )
 from .market_insights import load_market_insight
-from .payoff import calculate_payoff
+from .payoff import calculate_option_greeks, calculate_payoff
 
 MAX_REQUEST_BYTES = 8 * 1024 * 1024
 TOKEN = os.environ.get("CALCULATION_SERVICE_TOKEN", "")
@@ -116,6 +117,12 @@ def stored_daily(payload: StoredDailyRequest) -> dict[str, object]:
 def options_payoff(payload: PayoffRequest) -> dict[str, object]:
     """Calculate expiry payoff, target-date marks and portfolio Greeks."""
     return {"engineVersion": ENGINE_VERSION, "result": calculate_payoff(payload)}
+
+
+@app.post("/v1/options/greeks", dependencies=[Depends(authorize)])
+def option_greeks(payload: OptionGreeksRequest) -> dict[str, object]:
+    """Derive bounded per-contract Greeks from observed option premiums."""
+    return {"engineVersion": ENGINE_VERSION, "result": calculate_option_greeks(payload)}
 
 
 @app.post("/v1/market/insights", dependencies=[Depends(authorize)])

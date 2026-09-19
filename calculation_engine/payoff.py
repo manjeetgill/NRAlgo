@@ -2,21 +2,26 @@
 
 from __future__ import annotations
 
-from math import erf, pi
-
 import numpy as np
+from scipy.optimize import brentq
+from scipy.stats import norm
 
-from .contracts import OptionLeg, PayoffRequest
+from .contracts import (
+    OptionGreekContract,
+    OptionGreeksRequest,
+    OptionLeg,
+    PayoffRequest,
+)
 
 
 def _normal_cdf(value: np.ndarray) -> np.ndarray:
-    """Evaluate the standard-normal CDF on a small bounded scenario grid."""
-    return 0.5 * (1 + np.vectorize(erf)(value / np.sqrt(2.0)))
+    """Evaluate the standard-normal CDF with SciPy's tested implementation."""
+    return norm.cdf(value)
 
 
 def _normal_pdf(value: np.ndarray) -> np.ndarray:
-    """Evaluate the standard-normal density without a heavyweight optimizer stack."""
-    return np.exp(-(value**2) / 2) / np.sqrt(2 * pi)
+    """Evaluate the standard-normal density with SciPy's tested implementation."""
+    return norm.pdf(value)
 
 
 def option_payoff(
@@ -133,6 +138,134 @@ def _black_scholes(
         / 365.0,
         "vega": spot_discounted * _normal_pdf(d1) * root / 100.0,
     }
+
+
+def _black_76(
+    forward: float,
+    contract: OptionGreekContract,
+    days: float,
+    rate: float,
+    volatility: float,
+) -> dict[str, float]:
+    """Return a Black-76 index-option mark and Greeks from a synthetic forward."""
+    sign = 1.0 if contract.right == "call" else -1.0
+    years = days / 365.0
+    root = np.sqrt(years)
+    discount = np.exp(-rate * years)
+    d1 = (
+        np.log(forward / contract.strike) + volatility**2 * years / 2.0
+    ) / (volatility * root)
+    d2 = d1 - volatility * root
+    price = discount * sign * (
+        forward * norm.cdf(sign * d1)
+        - contract.strike * norm.cdf(sign * d2)
+    )
+    density = norm.pdf(d1)
+    return {
+        "price": float(max(0.0, price)),
+        "delta": float(sign * discount * norm.cdf(sign * d1)),
+        "gamma": float(discount * density / (forward * volatility * root)),
+        "theta": float(
+            (rate * price - discount * forward * density * volatility / (2.0 * root))
+            / 365.0
+        ),
+        "vega": float(discount * forward * density * root / 100.0),
+    }
+
+
+def _implied_volatility(
+    forward: float,
+    contract: OptionGreekContract,
+    days: float,
+    rate: float,
+) -> float | None:
+    """Invert one Black-76 premium with SciPy's bounded Brent solver."""
+    low = 0.0001
+    high = 5.0
+    low_mark = _black_76(forward, contract, days, rate, low)["price"]
+    high_mark = _black_76(forward, contract, days, rate, high)["price"]
+    if contract.premium < low_mark - 0.01 or contract.premium > high_mark + 0.01:
+        return None
+    if abs(contract.premium - low_mark) <= 0.01:
+        return low
+    return float(
+        brentq(
+            lambda volatility: _black_76(
+                forward, contract, days, rate, volatility
+            )["price"]
+            - contract.premium,
+            low,
+            high,
+            xtol=1e-12,
+            maxiter=100,
+        )
+    )
+
+
+def calculate_option_greeks(payload: OptionGreeksRequest) -> dict[str, object]:
+    """Return per-contract IV and Greeks derived from the exact observed premium.
+
+    Index-option analytics use a synthetic forward derived from the closest
+    strike's call/put parity. This avoids incorrectly applying spot carry twice
+    and keeps paired call/put theta consistent. The closest listed strike uses
+    the conventional chain delta of +0.5/-0.5.
+    """
+    atm_strike = min(
+        {contract.strike for contract in payload.contracts},
+        key=lambda strike: (abs(strike - payload.spot), strike),
+    )
+    atm_contracts = {
+        contract.right: contract
+        for contract in payload.contracts
+        if contract.strike == atm_strike
+    }
+    years = payload.days / 365.0
+    if "call" in atm_contracts and "put" in atm_contracts:
+        forward = atm_strike + np.exp(payload.rate * years) * (
+            atm_contracts["call"].premium - atm_contracts["put"].premium
+        )
+    else:
+        forward = payload.spot * np.exp(
+            (payload.rate - payload.dividend) * years
+        )
+    results: list[dict[str, float | str | None]] = []
+    for contract in payload.contracts:
+        volatility = _implied_volatility(
+            float(forward),
+            contract,
+            payload.days,
+            payload.rate,
+        )
+        if volatility is None:
+            results.append(
+                {
+                    "key": contract.key,
+                    "impliedVolatility": None,
+                    "delta": None,
+                    "gamma": None,
+                    "theta": None,
+                    "vega": None,
+                }
+            )
+            continue
+        values = _black_76(
+            float(forward), contract, payload.days, payload.rate, volatility
+        )
+        model_delta = values["delta"]
+        display_delta = (
+            0.5 if contract.right == "call" else -0.5
+        ) if contract.strike == atm_strike else model_delta
+        results.append(
+            {
+                "key": contract.key,
+                "impliedVolatility": volatility * 100.0,
+                "delta": display_delta,
+                "gamma": values["gamma"],
+                "theta": values["theta"],
+                "vega": values["vega"],
+            }
+        )
+    return {"model": "black-76-synthetic-forward-v1", "items": results}
 
 
 def calculate_payoff(request: PayoffRequest) -> dict[str, object]:

@@ -75,7 +75,7 @@ Consolidated frontend modules have explicit owners: `features/overview/account-m
 | `frontend/src/features/brokers/broker-hooks.ts`, `brokers-screen.tsx` | Shared connection/selection hooks and grouped broker views; authentication never arms execution |
 | `frontend/src/features/live-trading/`, `orders/` | Explicit execution controls and read-only order records |
 | `frontend/src/features/overview/` | Mode-isolated account snapshots, streamed display marks and explicit market-insight reads |
-| `frontend/src/features/option-chain/` | Live/stored chain selection, exact stored chart reads and chart rendering |
+| `frontend/src/features/option-chain/` | Live/stored chain selection, exact stored chart reads, chart rendering and standalone-chain Python-derived IV/Greeks; Builder and Simulator do not request chain Greeks |
 | `frontend/src/features/backtest-studio/`, `spread-builder/`, `research/` | Form inputs and presentation of Python calculation results |
 | Other `frontend/src/features/` folders | Account, audit, database, learning and saved-strategy screens, each with its own screen entrypoint |
 | `frontend/src/components/`, `lib/` | Shared controls, instrument pickers, request validation and presentation utilities |

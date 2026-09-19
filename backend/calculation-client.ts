@@ -79,6 +79,35 @@ export const payoffRequestSchema = z
   .strict();
 export type PayoffRequest = z.infer<typeof payoffRequestSchema>;
 
+export const optionGreeksRequestSchema = z
+  .object({
+    spot: z.number().positive().finite().max(10000000),
+    days: z.number().positive().finite().max(3650),
+    rate: z.number().finite().min(-1).max(1),
+    dividend: z.number().finite().min(0).max(1),
+    contracts: z
+      .array(
+        z
+          .object({
+            key: z.string().min(1).max(160),
+            right: z.enum(["call", "put"]),
+            strike: z.number().positive().finite().max(10000000),
+            premium: z.number().positive().finite().max(10000000),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(200),
+  })
+  .strict()
+  .refine(
+    (input) =>
+      new Set(input.contracts.map((contract) => contract.key)).size ===
+      input.contracts.length,
+    "Option Greek contract keys must be unique.",
+  );
+export type OptionGreeksRequest = z.infer<typeof optionGreeksRequestSchema>;
+
 const finiteNumber = z.number().finite();
 const backtestResultSchema = z
   .object({
@@ -156,8 +185,29 @@ const payoffResultSchema = z
   })
   .strict();
 
+const optionGreeksResultSchema = z
+  .object({
+    model: z.literal("black-76-synthetic-forward-v1"),
+    items: z
+      .array(
+        z
+          .object({
+            key: z.string().min(1).max(160),
+            impliedVolatility: finiteNumber.nullable(),
+            delta: finiteNumber.nullable(),
+            gamma: finiteNumber.nullable(),
+            theta: finiteNumber.nullable(),
+            vega: finiteNumber.nullable(),
+          })
+          .strict(),
+      )
+      .max(200),
+  })
+  .strict();
+
 export type PythonBacktestResult = z.infer<typeof backtestResultSchema>;
 export type PythonPayoffResult = z.infer<typeof payoffResultSchema>;
+export type PythonOptionGreeksResult = z.infer<typeof optionGreeksResultSchema>;
 
 const storedDailyStrategySchema = z
   .object({
@@ -469,6 +519,27 @@ export class CalculationClient {
         .object({
           engineVersion: z.string().min(1).max(80),
           result: payoffResultSchema,
+        })
+        .strict(),
+      response,
+    );
+  }
+
+  /** Derive option-chain IV and Greeks from bounded observed premiums. */
+  public async optionGreeks(
+    input: OptionGreeksRequest,
+    signal?: AbortSignal,
+  ): Promise<{ engineVersion: string; result: PythonOptionGreeksResult }> {
+    const response = await this.request(
+      "/v1/options/greeks",
+      optionGreeksRequestSchema.parse(input),
+      signal,
+    );
+    return parseServiceResponse(
+      z
+        .object({
+          engineVersion: z.string().min(1).max(80),
+          result: optionGreeksResultSchema,
         })
         .strict(),
       response,
