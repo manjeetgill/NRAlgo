@@ -39,6 +39,7 @@ import { KotakLiveManager } from "./live/kotak-live-manager.js";
 import { registerLiveTradingRoutes } from "./live/live-trading-routes.js";
 import { registerDatabaseBrowserRoutes } from "./database-browser-routes.js";
 import { createZerodhaConnection } from "./zerodha-connection.js";
+import { BrokerSessionStore } from "./broker-session-store.js";
 import { registerEodRoutes } from "./stored-market-data.js";
 import {
   recordBrokerConnected,
@@ -118,6 +119,9 @@ export function createApiApplication(
     throw new Error("REGISTRATION_TOKEN must contain at least 32 characters.");
   }
   const vault = credentialVault(env);
+  const savedBrokerSessions = new BrokerSessionStore(store, vault);
+  const restoreEpoch = new Map<string, number>();
+  const restores = new Map<string, { until: number; promise: Promise<void> }>();
   // Runtime presentation setting, deliberately independent of real-money execution permission.
   const paperTradingEnabled = env.PAPER_TRADING_ENABLED === "true";
   const brokerAccess = new BrokerRequestCoordinator();
@@ -128,14 +132,21 @@ export function createApiApplication(
     calculationClient,
     env.LIVE_TRADING_ENABLED !== "true",
   );
-  const zerodha = createZerodhaConnection(env, undefined, {
-    connected: (userId, accountBinding) =>
-      recordBrokerConnected(store, userId, "zerodha", accountBinding).then(
-        () => undefined,
-      ),
-    disconnected: (userId) =>
-      recordBrokerDisconnected(store, userId, "zerodha").then(() => undefined),
-  });
+  const zerodha = createZerodhaConnection(
+    env,
+    undefined,
+    {
+      connected: (userId, accountBinding) =>
+        recordBrokerConnected(store, userId, "zerodha", accountBinding).then(
+          () => undefined,
+        ),
+      disconnected: (userId) =>
+        recordBrokerDisconnected(store, userId, "zerodha").then(
+          () => undefined,
+        ),
+    },
+    savedBrokerSessions,
+  );
   const kotakClient = kotakData || new KotakMarketDataClient();
   // Share one public catalog between paper tickets and research contract resolution.
   const catalog = instrumentCatalog || new InstrumentCatalog();
@@ -152,13 +163,16 @@ export function createApiApplication(
     [kotakMarketData, ...additionalMarketDataProviders],
   );
   /** Revoke live permission and release provider sessions when application authentication changes. */
-  function disconnectUserData(userId: string) {
-    zerodha.disconnect(userId);
+  async function disconnectUserData(userId: string) {
+    restoreEpoch.set(userId, (restoreEpoch.get(userId) || 0) + 1);
+    const revocation = zerodha.disconnect(userId);
     liveManager.revoke(userId);
     marketData.disconnect(userId);
     if (marketData !== kotakMarketData) {
       kotakClient.disconnect(userId);
     }
+    await savedBrokerSessions.remove(userId);
+    await revocation;
   }
   const openRegistration =
     env.ALLOW_PUBLIC_REGISTRATION === "true" ||
@@ -424,6 +438,60 @@ export function createApiApplication(
       next,
     ),
   );
+  // Lazy verification only for broker/data reads. Never delay logout, risk controls or order cancellation.
+  const restoreBrokerSessions: express.RequestHandler = async (
+    req,
+    res,
+    next,
+  ) => {
+    if (
+      req.method !== "GET" ||
+      !/^\/(brokers|market|portfolio)(\/|$)/.test(req.path)
+    ) {
+      return next();
+    }
+    const owner = res.locals.session;
+    const now = Date.now();
+    for (const [key, value] of restores) {
+      if (value.until <= now) {
+        restores.delete(key);
+      }
+    }
+    let entry = restores.get(owner.token_hash);
+    if (!entry) {
+      const epoch = restoreEpoch.get(owner.user_id) || 0;
+      const revision = savedBrokerSessions.revision(owner.user_id);
+      const promise = (async () => {
+        const saved = await savedBrokerSessions.load(owner, "kotak");
+        if (
+          (restoreEpoch.get(owner.user_id) || 0) !== epoch ||
+          savedBrokerSessions.revision(owner.user_id) !== revision
+        ) {
+          return;
+        }
+        await Promise.all([
+          saved
+            ? kotakClient.restoreSession(
+                owner.user_id,
+                owner.token_hash,
+                saved.expires,
+                saved.value,
+              )
+            : Promise.resolve(),
+          zerodha.restore(owner),
+        ]);
+      })();
+      entry = { until: Math.min(owner.expires * 1000, now + 60000), promise };
+      restores.set(owner.token_hash, entry);
+    }
+    try {
+      await entry.promise;
+    } catch {
+      // A timeout is not proof of revoked credentials. Keep encrypted tokens until expiry,
+      // report no verified connection, and retry only a bounded read after the cooldown.
+    }
+    next();
+  };
   app.use("/api", async (req, res, next) => {
     const raw =
       (req.headers.cookie || "")
@@ -472,7 +540,7 @@ export function createApiApplication(
         res.locals.session.token_hash,
       ]);
     });
-    disconnectUserData(res.locals.session.user_id);
+    await disconnectUserData(res.locals.session.user_id);
     res
       .clearCookie("nexus_session", {
         path: "/",
@@ -527,7 +595,7 @@ export function createApiApplication(
       ]);
       await audit(query, "Revoked another account session.", session.user_id);
     });
-    disconnectUserData(session.user_id);
+    await disconnectUserData(session.user_id);
     res.json({ ok: true });
   });
   app.post("/api/auth/revoke-sessions", async (req, res) => {
@@ -540,7 +608,7 @@ export function createApiApplication(
       ]);
       await audit(query, "Revoked other account sessions.", user_id);
     });
-    disconnectUserData(user_id);
+    await disconnectUserData(user_id);
     res.json({ ok: true });
   });
   // Password changes require current-password/MFA proof and replace all existing sessions.
@@ -590,7 +658,7 @@ export function createApiApplication(
       );
       return issueSession(query, res, userId);
     });
-    disconnectUserData(userId);
+    await disconnectUserData(userId);
     res.json(result);
   });
   // Browser snapshots are bounded and tenant-scoped; broker credentials never appear here.
@@ -630,7 +698,7 @@ export function createApiApplication(
       })),
     );
   });
-  /** Serve public exchange reference data only after an authenticated, explicit request. */
+  /** Serve one authenticated, allowlisted public-exchange reference dataset. */
   app.get("/api/market/insights/:dataset", async (req, res) => {
     const dataset = marketInsightDatasetSchema.parse(req.params.dataset);
     const readInsights =
@@ -715,9 +783,8 @@ export function createApiApplication(
     });
     res.json({ ok: true });
   });
-  registerMfaRoutes(app, store, vault, (userId) => {
-    disconnectUserData(userId);
-  });
+  registerMfaRoutes(app, store, vault, disconnectUserData);
+  app.use("/api", restoreBrokerSessions);
   registerResearchRoutes(
     app,
     store,
@@ -747,6 +814,7 @@ export function createApiApplication(
     kotakClient,
     production,
     marketData,
+    savedBrokerSessions,
   );
   registerDatabaseBrowserRoutes(app, store);
   zerodha.register(app);

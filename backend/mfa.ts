@@ -92,7 +92,7 @@ export function registerMfaRoutes(
   app: Express,
   store: Store,
   vault: Vault,
-  disconnectBroker: (userId: string) => void,
+  disconnectBroker: (userId: string) => void | Promise<void>,
 ) {
   const proofAttemptLimit = rateLimit(
     10,
@@ -222,7 +222,7 @@ export function registerMfaRoutes(
         userId,
       );
     });
-    disconnectBroker(userId);
+    await disconnectBroker(userId);
     res.json({ enabled: true, recovery_codes: recoveryCodes });
   });
   app.post("/api/auth/mfa/disable", async (req, res) => {
@@ -250,7 +250,7 @@ export function registerMfaRoutes(
         userId,
       );
     });
-    disconnectBroker(userId);
+    await disconnectBroker(userId);
     res.json({ enabled: false });
   });
 }

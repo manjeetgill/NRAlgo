@@ -7,6 +7,7 @@ export type { TradingMode as AccountMode } from "@/lib/trading-mode";
 import type { TradingMode as AccountMode } from "@/lib/trading-mode";
 /** Navigation targets understood by the workspace shell; no execution commands are exposed. */
 export type OverviewDestination =
+  | "Portfolio"
   | "Strategies"
   | "Strategy lab"
   | "Broker paper"

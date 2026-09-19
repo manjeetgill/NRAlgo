@@ -6,6 +6,7 @@ import {
   Database,
   FlaskConical,
   LayoutDashboard,
+  BriefcaseBusiness,
   Radio,
   ShieldCheck,
   Wallet,
@@ -16,6 +17,7 @@ export const workspaceNavigation: ReadonlyArray<{
   icon: typeof Blocks;
 }> = [
   { name: "Overview", icon: LayoutDashboard },
+  { name: "Portfolio", icon: BriefcaseBusiness },
   { name: "Strategies", icon: Blocks },
   { name: "Strategy library", icon: Blocks },
   { name: "Backtest studio", icon: FlaskConical },
@@ -50,7 +52,11 @@ export const workspaceSections: ReadonlyArray<{
     ],
   },
   { label: "Backtesting", icon: FlaskConical, pages: ["Backtest studio"] },
-  { label: "Markets", icon: Database, pages: ["Option chain"] },
+  {
+    label: "Markets",
+    icon: Database,
+    pages: ["Portfolio", "Option chain"],
+  },
   {
     label: "Trading",
     icon: ArrowDownLeft,
@@ -90,6 +96,7 @@ export const workspacePageDescriptions: Partial<Record<WorkspacePage, string>> =
       "Review quote-driven orders in your separate virtual account.",
     "Option chain":
       "Explore listed contracts and prices from the shared market feed.",
+    Portfolio: "View one connected broker portfolio or club all real accounts.",
     "Orders & trades":
       "Search and inspect records from the selected account domain.",
     Brokers:

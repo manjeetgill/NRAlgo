@@ -14,6 +14,13 @@ const OptionChainScreen = dynamic(
     ),
   { loading: ScreenLoading },
 );
+const PortfolioScreen = dynamic(
+  () =>
+    import("@/features/portfolio/portfolio-screen").then(
+      (module) => module.PortfolioScreen,
+    ),
+  { loading: ScreenLoading },
+);
 /** Historical calculations have no dependencies on order execution. */
 const BacktestStudioScreen = dynamic(
   () =>
@@ -149,6 +156,8 @@ export function WorkspaceContent({
           onExploreOptionChain={onExploreOptionChain}
         />
       );
+    case "Portfolio":
+      return <PortfolioScreen csrf={workspace.csrf} />;
     case "Strategies":
       return (
         <StrategiesScreen

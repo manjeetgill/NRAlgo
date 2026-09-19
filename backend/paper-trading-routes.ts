@@ -62,9 +62,11 @@ export function registerPaperRoutes(
     | "getPortfolioRows"
     | "getAccountReport"
     | "executionSession"
+    | "savedSession"
   >,
   production: boolean,
   marketData: MarketDataProvider,
+  savedSessions?: import("./broker-session-store.js").BrokerSessionStore,
 ) {
   const catalog = marketData.instruments;
   const limit = rateLimit(30, 60000, (req) => req.res!.locals.session.user_id);
@@ -215,6 +217,7 @@ export function registerPaperRoutes(
         async () => {
           try {
             openPositionCache.delete(res.locals.session.user_id);
+            await savedSessions?.remove(session.user_id, "kotak");
             await kotak.connect(
               session.user_id,
               session.token_hash,
@@ -232,6 +235,18 @@ export function registerPaperRoutes(
                 "kotak",
                 brokerSession.accountBinding,
               );
+              const saved = kotak.savedSession(
+                session.user_id,
+                session.token_hash,
+              );
+              if (saved) {
+                await savedSessions?.save(
+                  session,
+                  "kotak",
+                  saved.expires,
+                  saved,
+                );
+              }
             } catch (error) {
               kotak.disconnect(session.user_id);
               throw error;
@@ -254,6 +269,7 @@ export function registerPaperRoutes(
     ["/api/paper/kotak/connect", "/api/brokers/kotak/connect"],
     async (req, res) => {
       kotak.disconnect(res.locals.session.user_id);
+      await savedSessions?.remove(res.locals.session.user_id, "kotak");
       openPositionCache.delete(res.locals.session.user_id);
       await recordBrokerDisconnected(
         store,
@@ -268,6 +284,9 @@ export function registerPaperRoutes(
     const session = res.locals.session;
     res.json({
       connected: kotak.isConnected(session.user_id, session.token_hash),
+      expiresAt:
+        kotak.savedSession(session.user_id, session.token_hash)?.expires ??
+        null,
     });
   });
   app.get("/api/paper/:broker", async (req, res) => {
@@ -982,8 +1001,8 @@ export function registerPaperRoutes(
     });
   });
   /** Owner-scoped account reads never create or modify a paper wallet or submit orders. */
-  app.post("/api/portfolio/:broker/refresh", limit, async (req, res) => {
-    const broker = paperBrokerSchema.parse(req.params.broker),
+  app.post("/api/portfolio/kotak/refresh", limit, async (_req, res) => {
+    const broker: PaperBroker = "kotak",
       session = res.locals.session;
     if (!kotak.isConnected(session.user_id, session.token_hash)) {
       fail(409, "Connect the selected broker first.");

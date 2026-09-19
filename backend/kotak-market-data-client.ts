@@ -414,6 +414,7 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
   private pending = new Map<string, symbol>();
   private closed = false;
   private feeds = new Map<string, KotakMarketDataStream>();
+  private feedRetries = new Map<string, { attempts: number; nextAt: number }>();
   /** Inject an offline transport only in tests; production uses bounded, TLS-verified fetch. */
   constructor(
     private transport: KotakHttpRequest = sendKotakHttpRequest,
@@ -562,6 +563,62 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
       session.expires >= Date.now() &&
       session.sessionHash === sessionHash,
     );
+  }
+  /** Server-only persistence payload: never contains MPIN, TOTP or a password. */
+  public savedSession(userId: string, sessionHash: string) {
+    return this.isConnected(userId, sessionHash)
+      ? this.sessions.get(userId)!
+      : null;
+  }
+  /** Verify in an isolated client before publishing restored access to any consumer. */
+  public async restoreSession(
+    userId: string,
+    sessionHash: string,
+    expires: number,
+    value: unknown,
+  ) {
+    if (this.closed || this.pending.has(userId) || this.sessions.has(userId)) {
+      return;
+    }
+    const data = z
+      .object({
+        sessionHash: z.string(),
+        expires: z.number().finite(),
+        accessToken: z.string().min(1).max(4096),
+        baseUrl: z.string(),
+        token: z.string().min(1).max(8192),
+        sid: z.string().min(1).max(256),
+        ucc: z.string().min(1).max(32),
+        feedUrl: z.string().optional(),
+      })
+      .parse(value);
+    if (
+      data.sessionHash !== sessionHash ||
+      Math.min(data.expires, expires) <= Date.now()
+    ) {
+      return;
+    }
+    data.baseUrl = validateKotakOrigin(data.baseUrl);
+    data.expires = Math.min(data.expires, expires);
+    const marker = Symbol("restore");
+    this.pending.set(userId, marker);
+    const probe = new KotakMarketDataClient(this.transport);
+    probe.sessions.set(userId, data);
+    try {
+      await probe.getPortfolioRows(userId, sessionHash, "positions");
+      if (
+        !this.closed &&
+        this.pending.get(userId) === marker &&
+        data.expires > Date.now()
+      ) {
+        this.sessions.set(userId, data);
+      }
+    } finally {
+      probe.close();
+      if (this.pending.get(userId) === marker) {
+        this.pending.delete(userId);
+      }
+    }
   }
   /** Server-only capability; credentials never leave this closure. No HTTP route accepts
    * arbitrary paths. Capturing the exact session object fences reconnects and revocations. */
@@ -1225,6 +1282,31 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
         detail: "Connect Kotak first.",
       });
     }
+    const snapshot = this.feeds.get(userId)?.getLatestSnapshot();
+    if (
+      snapshot &&
+      ["network-error", "disconnected"].includes(snapshot.state)
+    ) {
+      const retry = this.feedRetries.get(userId) ?? {
+        attempts: 0,
+        nextAt: Date.now() + 1000,
+      };
+      this.feedRetries.set(userId, retry);
+      if (retry.attempts < 5 && Date.now() >= retry.nextAt) {
+        retry.attempts++;
+        retry.nextAt = Date.now() + Math.min(30000, 1000 * 2 ** retry.attempts);
+        try {
+          this.startMarketDataStream(userId, sessionHash, {
+            kind: snapshot.kind,
+            mode: snapshot.mode,
+            instruments: snapshot.instruments,
+          });
+        } catch {
+          // No credential retries, no order calls, no raw socket errors in responses.
+        }
+        this.feedRetries.set(userId, retry);
+      }
+    }
     return (
       this.feeds.get(userId)?.getLatestSnapshot() ?? {
         state: "stopped",
@@ -1264,10 +1346,12 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
     }
     this.feeds.get(userId)?.closeConnection();
     this.feeds.delete(userId);
+    this.feedRetries.delete(userId);
   }
 
   /** Remove local token access without invoking any trading endpoint. */
   public disconnect(userId: string) {
+    this.feedRetries.delete(userId);
     this.feeds.get(userId)?.closeConnection();
     this.feeds.delete(userId);
     this.sessions.delete(userId);
@@ -1280,6 +1364,7 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
       feed.closeConnection();
     }
     this.feeds.clear();
+    this.feedRetries.clear();
     this.sessions.clear();
     this.pending.clear();
   }

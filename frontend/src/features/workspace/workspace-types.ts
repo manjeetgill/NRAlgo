@@ -42,6 +42,7 @@ export type WorkspaceSnapshot = {
   events: { id: number; message: string; created_at: string }[];
 };
 export type WorkspacePage =
+  | "Portfolio"
   | "Option chain"
   | "Backtest studio"
   | "Strategy library"

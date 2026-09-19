@@ -61,7 +61,7 @@ export function BrokersScreen({ csrf }: { csrf: string }) {
                 ? "Unknown"
                 : connection.connected
                   ? "Connected"
-                  : "Not connected"}
+                  : "Authorization required"}
             </span>
           </div>
           <p>
@@ -77,7 +77,7 @@ export function BrokersScreen({ csrf }: { csrf: string }) {
               ? "Connection status unknown"
               : connection.connected
                 ? "Connected"
-                : "Not connected"}
+                : "Authorize to use live broker data. Historical data remains available."}
           </p>
           {connection.error && <p role="alert">{connection.error}</p>}
           <dl className="broker-connection-facts">
@@ -101,6 +101,15 @@ export function BrokersScreen({ csrf }: { csrf: string }) {
                 : "—"}
             </dd>
           </dl>
+          {connection.connected && connection.expiresAt && (
+            <p>
+              Session valid until{" "}
+              {new Date(connection.expiresAt).toLocaleString("en-IN", {
+                timeZone: "Asia/Kolkata",
+              })}{" "}
+              IST, unless revoked earlier.
+            </p>
+          )}
           <div className="screen-toolbar">
             <Button
               variant="secondary"
@@ -200,8 +209,9 @@ export function BrokersScreen({ csrf }: { csrf: string }) {
             )}
           </div>
           <p>
-            Credentials are not saved. Reconnect after logout or a server
-            restart.
+            Passwords, MPIN and TOTP are never saved. Session tokens are
+            encrypted on the server and verified after a restart. Authorize
+            again after logout or expiry.
           </p>
           <Button type="submit" disabled={connection.busy}>
             {connection.busy ? "Please wait…" : `Connect ${adapter.name}`}
@@ -345,7 +355,7 @@ function ZerodhaConnectionCard({ csrf }: { csrf: string }) {
               : connection.connected
                 ? "Authorized · connected"
                 : connection.configured
-                  ? "Not authorized"
+                  ? "Ready to authorize"
                   : "Setup required"}
           </span>
         </div>
@@ -358,6 +368,15 @@ function ZerodhaConnectionCard({ csrf }: { csrf: string }) {
             {error}
           </p>
         )}
+        {connection?.connected && connection.expiresAt && (
+          <p>
+            Session valid until{" "}
+            {new Date(connection.expiresAt).toLocaleString("en-IN", {
+              timeZone: "Asia/Kolkata",
+            })}{" "}
+            IST, unless revoked earlier.
+          </p>
+        )}
         <dl className="broker-connection-facts">
           <dt>Account</dt>
           <dd>
@@ -367,9 +386,9 @@ function ZerodhaConnectionCard({ csrf }: { csrf: string }) {
           </dd>
           <dt>Access</dt>
           <dd>
-            Authorized API session and profile verification. Portfolio,
-            market-data screens and order routing are not yet integrated with
-            Zerodha.
+            Authorized API session, profile verification and read-only portfolio
+            snapshots. Market-data screens and order routing are not yet
+            integrated with Zerodha.
           </dd>
           <dt>Execution</dt>
           <dd>Disabled · connecting does not authorize trading</dd>
@@ -409,7 +428,8 @@ function ZerodhaConnectionCard({ csrf }: { csrf: string }) {
           </Button>
         </div>
         <p>
-          Sessions are held only on this server until logout, restart or expiry.
+          Session tokens are encrypted on the server and verified after a
+          restart. Logout, disconnect or expiry requires fresh authorization.
           Disconnect removes this app’s session, not your login on Zerodha’s
           website.
         </p>

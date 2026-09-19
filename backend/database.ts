@@ -389,6 +389,18 @@ export async function runDatabaseMigrations(
       await query("INSERT INTO schema_migrations VALUES(15)");
     }
   });
+  await store.transaction(async (query) => {
+    await query("SELECT pg_advisory_xact_lock(684201)");
+    if (
+      !(await query("SELECT version FROM schema_migrations WHERE version=16"))
+        .length
+    ) {
+      await query(
+        "CREATE TABLE broker_sessions (user_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE, session_hash VARCHAR(64) NOT NULL REFERENCES sessions(token_hash) ON DELETE CASCADE, provider VARCHAR(20) NOT NULL CHECK(provider IN ('kotak','zerodha')), expires DOUBLE PRECISION NOT NULL, ciphertext TEXT NOT NULL, PRIMARY KEY(session_hash,provider))",
+      );
+      await query("INSERT INTO schema_migrations VALUES(16)");
+    }
+  });
   // The migration container owns DDL; API/worker use a separate non-superuser role.
   if (options.runtimePassword) {
     const password = options.runtimePassword;
@@ -410,6 +422,9 @@ export async function runDatabaseMigrations(
       // Restricted hex input above is necessary because role passwords cannot be SQL parameters.
       await query(`ALTER ROLE nexus_app PASSWORD '${password}'`);
       await query("GRANT USAGE ON SCHEMA public TO nexus_app");
+      await query(
+        "GRANT SELECT,INSERT,UPDATE,DELETE ON broker_sessions TO nexus_app",
+      );
       await query(
         "GRANT SELECT ON eod_instruments,eod_candles,option_eod_instruments,option_eod_candles TO nexus_app",
       );

@@ -21,7 +21,7 @@ import {
   type OverviewWorkspace,
 } from "@/features/overview/account-model";
 import { useOverviewAccount } from "@/features/overview/use-overview-account";
-import { MarketInsightsPanel } from "@/features/overview/market-insights-panel";
+import { NseMarketIntelligence } from "@/features/overview/nse-market-intelligence";
 import { getTradingMode, isTradingEventVisible } from "@/lib/trading-mode";
 import { orderAuditEvents } from "@/features/activity/audit-model";
 import styles from "@/features/overview/overview-screen.module.css";
@@ -371,7 +371,7 @@ export function OverviewScreen({
         )}
       </section>
 
-      <MarketInsightsPanel />
+      <NseMarketIntelligence />
 
       {/* Activity stays read-only; quick actions navigate to their dedicated workflows. */}
       <div className={styles.contentGrid}>
@@ -427,6 +427,9 @@ export function OverviewScreen({
               </button>
               <button onClick={onExploreOptionChain}>
                 Explore option chain
+              </button>
+              <button onClick={onNavigateTo("Portfolio")}>
+                View portfolio
               </button>
             </div>
           </section>

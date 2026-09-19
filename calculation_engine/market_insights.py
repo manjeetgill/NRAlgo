@@ -189,7 +189,7 @@ def load_market_insight(
         if cached and now - cached[0] < CACHE_SECONDS:
             return cached[1]
         # nsefin creates its NSE session during import, so import only after an
-        # authenticated user explicitly asks for public reference data.
+        # authenticated application request reaches this private service.
         client = importlib.import_module("nsefin").nse
         # nsefin 0.1.5 omitted the leading slash from this one endpoint. Keep
         # the pinned library's public method while correcting its immutable URL table.

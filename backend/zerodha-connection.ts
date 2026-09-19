@@ -8,10 +8,18 @@ import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 import { KiteConnect, type Connect } from "kiteconnect";
 import { fail, rateLimit } from "./security.js";
+import { normalizeZerodhaPortfolioRows } from "./broker-portfolio-normalizer.js";
+import type { BrokerSessionStore } from "./broker-session-store.js";
 
 type Client = Pick<
   Connect,
-  "getLoginURL" | "generateSession" | "setAccessToken" | "getProfile"
+  | "getLoginURL"
+  | "generateSession"
+  | "setAccessToken"
+  | "getProfile"
+  | "getHoldings"
+  | "getPositions"
+  | "invalidateAccessToken"
 >;
 const credential = z.string().trim().min(1).max(256);
 const profile = z.object({
@@ -27,7 +35,52 @@ function createZerodhaSdk(
 ) {
   const key = credential.parse(env.ZERODHA_API_KEY);
   const secret = credential.parse(env.ZERODHA_API_SECRET);
+  function restore(value: unknown) {
+    const saved = z
+      .object({ accessToken: credential, account: profile })
+      .parse(value);
+    const client = factory(key);
+    client.setAccessToken(saved.accessToken);
+    return {
+      account: saved.account,
+      saved: () => saved,
+      async revoke() {
+        try {
+          await client.invalidateAccessToken(saved.accessToken);
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      async verify() {
+        try {
+          const current = profile.parse(await client.getProfile());
+          if (current.user_id !== saved.account.user_id) {
+            throw new Error();
+          }
+          return current;
+        } catch {
+          throw new Error(
+            "Zerodha session verification unavailable. Try again or authorize your account.",
+          );
+        }
+      },
+      async portfolio(kind: "positions" | "holdings") {
+        try {
+          return normalizeZerodhaPortfolioRows(
+            kind,
+            kind === "holdings"
+              ? await client.getHoldings()
+              : (await client.getPositions()).net,
+          );
+        } catch {
+          throw new Error(`Zerodha ${kind} are unavailable.`);
+        }
+      },
+    };
+  }
   return {
+    restore,
     loginUrl(state: string) {
       z.string()
         .regex(/^[A-Za-z0-9_-]{43,128}$/)
@@ -51,23 +104,7 @@ function createZerodhaSdk(
       try {
         const session = await client.generateSession(requestToken, secret);
         const account = profile.parse(session);
-        client.setAccessToken(credential.parse(session.access_token));
-        return {
-          account,
-          async verify() {
-            try {
-              const current = profile.parse(await client.getProfile());
-              if (current.user_id !== account.user_id) {
-                throw new Error("Account changed");
-              }
-              return current;
-            } catch {
-              throw new Error(
-                "Zerodha session verification failed. Reconnect your account.",
-              );
-            }
-          },
-        };
+        return restore({ account, accessToken: session.access_token });
       } catch {
         // SDK errors can include authorization headers; never propagate raw errors.
         throw new Error(
@@ -96,6 +133,7 @@ export function createZerodhaConnection(
   env: NodeJS.ProcessEnv,
   injected?: Sdk,
   events?: ZerodhaConnectionEvents,
+  savedSessions?: BrokerSessionStore,
 ) {
   const sdk =
     injected ??
@@ -128,11 +166,13 @@ export function createZerodhaConnection(
     return {
       configured: Boolean(sdk),
       connected: Boolean(connected),
+      expiresAt: connected?.deadline ?? null,
       callbackUrl,
       account: connected?.client.account ?? null,
     };
   }
   function disconnect(userId: string) {
+    const revocations: Promise<boolean>[] = [];
     for (const [key, value] of pending) {
       if (value.owner.user_id === userId) {
         pending.delete(key);
@@ -141,9 +181,11 @@ export function createZerodhaConnection(
     for (const [key, value] of connections) {
       if (value.owner.user_id === userId) {
         connections.delete(key);
+        revocations.push(value.client.revoke());
       }
     }
     void events?.disconnected(userId).catch(() => {});
+    return Promise.all(revocations);
   }
   /** Runtime connectivity is session-bound; durable registry state alone never proves access. */
   function isConnected(userId: string, sessionHash: string) {
@@ -152,6 +194,43 @@ export function createZerodhaConnection(
     return Boolean(connection && connection.owner.user_id === userId);
   }
   return {
+    async restore(owner: Owner) {
+      if (
+        !sdk ||
+        connections.has(owner.token_hash) ||
+        pending.has(owner.token_hash)
+      ) {
+        return;
+      }
+      const marker = {
+        owner,
+        state: "restoring",
+        deadline: owner.expires * 1000,
+      };
+      pending.set(owner.token_hash, marker);
+      try {
+        const saved = await savedSessions?.load(owner, "zerodha");
+        if (!saved) {
+          return;
+        }
+        const client = sdk.restore(saved.value);
+        await client.verify();
+        if (
+          pending.get(owner.token_hash) === marker &&
+          saved.expires > Date.now()
+        ) {
+          connections.set(owner.token_hash, {
+            owner,
+            client,
+            deadline: Math.min(saved.expires, owner.expires * 1000),
+          });
+        }
+      } finally {
+        if (pending.get(owner.token_hash) === marker) {
+          pending.delete(owner.token_hash);
+        }
+      }
+    },
     disconnect,
     isConnected,
     close() {
@@ -170,7 +249,7 @@ export function createZerodhaConnection(
           csrf: res.locals.session.csrf,
         });
       });
-      app.post("/api/brokers/zerodha/login", (_req, res) => {
+      app.post("/api/brokers/zerodha/login", async (_req, res) => {
         if (!sdk) {
           return fail(
             409,
@@ -182,6 +261,8 @@ export function createZerodhaConnection(
           return fail(503, "Login capacity reached. Try again later.");
         }
         const owner: Owner = res.locals.session;
+        connections.delete(owner.token_hash);
+        await savedSessions?.remove(owner.user_id, "zerodha");
         const state = randomBytes(32).toString("base64url");
         pending.set(owner.token_hash, {
           owner,
@@ -238,9 +319,16 @@ export function createZerodhaConnection(
             owner.user_id,
             `zerodha:${createHash("sha256").update(client.account.user_id.trim().toUpperCase()).digest("hex")}`,
           );
+          await savedSessions?.save(
+            owner,
+            "zerodha",
+            connections.get(owner.token_hash)!.deadline,
+            client.saved(),
+          );
           res.json(status(owner));
         } catch {
           connections.delete(owner.token_hash);
+          await savedSessions?.remove(owner.user_id, "zerodha");
           return fail(
             502,
             "Zerodha login could not be completed. Start a new login; do not retry this callback.",
@@ -271,11 +359,50 @@ export function createZerodhaConnection(
         res.json(status(owner));
       });
       app.post("/api/brokers/zerodha/disconnect", async (_req, res) => {
+        const current = connections.get(res.locals.session.token_hash);
         pending.delete(res.locals.session.token_hash);
         connections.delete(res.locals.session.token_hash);
+        await savedSessions?.remove(res.locals.session.user_id, "zerodha");
         await events?.disconnected(res.locals.session.user_id);
-        res.json(status(res.locals.session));
+        const revoked = current ? await current.client.revoke() : true;
+        res.json({
+          ...status(res.locals.session),
+          warning: revoked
+            ? null
+            : "Disconnected locally. Broker revocation could not be confirmed; revoke access in Kite if needed.",
+        });
       });
+      app.post(
+        "/api/portfolio/zerodha/refresh",
+        rateLimit(12, 60000, (req) => req.res!.locals.session.user_id),
+        async (_req, res) => {
+          const owner: Owner = res.locals.session;
+          prune();
+          const current = connections.get(owner.token_hash);
+          if (!current || current.owner.user_id !== owner.user_id) {
+            return fail(409, "Connect Zerodha before loading its portfolio.");
+          }
+          const result: Record<string, unknown> = {
+            broker: "zerodha",
+            readOnly: true,
+            observedAt: Date.now(),
+          };
+          for (const kind of ["positions", "holdings"] as const) {
+            try {
+              result[kind] = {
+                rows: await current.client.portfolio(kind),
+                error: null,
+              };
+            } catch {
+              result[kind] = {
+                rows: null,
+                error: `Zerodha ${kind} unavailable. Verify your broker session; this is not an empty portfolio.`,
+              };
+            }
+          }
+          res.json(result);
+        },
+      );
     },
   };
 }

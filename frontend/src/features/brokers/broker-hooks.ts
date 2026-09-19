@@ -13,7 +13,7 @@ export interface BrokerConnectionAdapter {
   id: string;
   name: string;
   fields: readonly { name: string; label: string; type: "text" | "password" }[];
-  loadStatus(): Promise<boolean>;
+  loadStatus(): Promise<{ connected: boolean; expiresAt: number | null }>;
   connect(credentials: Record<string, string>, csrf: string): Promise<unknown>;
   disconnect(csrf: string): Promise<unknown>;
 }
@@ -36,7 +36,11 @@ export const brokerConnectionAdapters: readonly BrokerConnectionAdapter[] = [
       if (typeof response.connected !== "boolean") {
         throw new Error("Broker connection status is unavailable.");
       }
-      return response.connected;
+      return {
+        connected: response.connected,
+        expiresAt:
+          typeof response.expiresAt === "number" ? response.expiresAt : null,
+      };
     },
     /** POST authenticates with the broker; CSRF is required and no orders are submitted or armed. */
     connect(credentials, csrf) {
@@ -69,6 +73,7 @@ export function useBrokerConnection(
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [checkedAt, setCheckedAt] = useState<number | null>(null);
+  const [expiresAt, setExpiresAt] = useState<number | null>(null);
   const generation = useRef(0);
   const pending = useRef(false);
 
@@ -87,7 +92,8 @@ export function useBrokerConnection(
           status,
         ) => {
           if (version === generation.current) {
-            setConnected(status);
+            setConnected(status.connected);
+            setExpiresAt(status.expiresAt);
             setCheckedAt(Date.now());
           }
         },
@@ -124,7 +130,8 @@ export function useBrokerConnection(
     try {
       const status = await adapter.loadStatus();
       if (version === generation.current) {
-        setConnected(status);
+        setConnected(status.connected);
+        setExpiresAt(status.expiresAt);
         setCheckedAt(Date.now());
       }
     } catch (failure) {
@@ -163,9 +170,10 @@ export function useBrokerConnection(
         }
         const status = await adapter.loadStatus();
         if (version === generation.current) {
-          setConnected(status);
+          setConnected(status.connected);
+          setExpiresAt(status.expiresAt);
           setCheckedAt(Date.now());
-          return status === Boolean(credentials);
+          return status.connected === Boolean(credentials);
         }
       } catch (failure) {
         if (version === generation.current) {
@@ -185,7 +193,15 @@ export function useBrokerConnection(
     },
     [adapter, csrf],
   );
-  return { connected, busy, error, checkedAt, refreshStatus, changeConnection };
+  return {
+    connected,
+    busy,
+    error,
+    checkedAt,
+    expiresAt,
+    refreshStatus,
+    changeConnection,
+  };
 }
 
 /** Provider-neutral registry metadata contains no broker credentials. */
@@ -325,6 +341,7 @@ export function useBrokerRegistry(csrf: string, refreshKey: number | null) {
 const connectionSchema = z.object({
   configured: z.boolean(),
   connected: z.boolean(),
+  expiresAt: z.number().nullable().optional(),
   callbackUrl: z.string().url(),
   account: z.object({ user_id: z.string(), user_name: z.string() }).nullable(),
 });
@@ -386,6 +403,9 @@ export function useZerodhaConnection(csrf: string) {
         window.location.assign(url.href);
       } else {
         setConnection(connectionSchema.parse(result));
+        if (typeof result.warning === "string") {
+          setError(result.warning);
+        }
       }
     } catch (e) {
       setError(

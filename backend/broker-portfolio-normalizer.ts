@@ -149,3 +149,58 @@ export function normalizePortfolioRows(
     };
   });
 }
+
+/** Normalize Kite holdings/positions into the same safe browser contract as Kotak. */
+export function normalizeZerodhaPortfolioRows(
+  kind: "positions" | "holdings",
+  raw: unknown,
+): PortfolioRow[] {
+  if (!Array.isArray(raw) || raw.length >= 10000) {
+    throw new Error("Portfolio missing or potentially truncated");
+  }
+  return raw.map((value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error("Invalid portfolio row");
+    }
+    const row = value as Record<string, unknown>;
+    const symbol = readPortfolioDisplayText(row.tradingsymbol);
+    const rawExchange = readPortfolioDisplayText(row.exchange).toUpperCase();
+    const exchange =
+      {
+        NSE: "nse_cm",
+        NFO: "nse_fo",
+        BSE: "bse_cm",
+        BFO: "bse_fo",
+        MCX: "mcx_fo",
+        CDS: "cde_fo",
+      }[rawExchange] ?? rawExchange.toLowerCase();
+    const quantity = parseOptionalPortfolioNumber(row.quantity);
+    const instrumentToken = parseOptionalPortfolioNumber(row.instrument_token);
+    if (
+      !symbol ||
+      !exchange ||
+      quantity === null ||
+      !Number.isSafeInteger(quantity) ||
+      instrumentToken === null ||
+      !Number.isSafeInteger(instrumentToken) ||
+      instrumentToken <= 0
+    ) {
+      throw new Error("Missing portfolio identity/quantity");
+    }
+    return {
+      symbol,
+      instrumentToken: String(instrumentToken),
+      exchange,
+      product: readPortfolioDisplayText(row.product),
+      quantity,
+      averagePrice: parseOptionalPortfolioNumber(row.average_price),
+      markPrice: parseOptionalPortfolioNumber(row.last_price),
+      pnl: parseOptionalPortfolioNumber(row.pnl),
+      pnlBase: null,
+      pnlPerMark: null,
+      expiry: "",
+      right: "",
+      strike: "",
+    };
+  });
+}

@@ -391,8 +391,8 @@ export class KotakMarketDataStream {
     });
     this.socket.addEventListener("error", () =>
       this.closeConnection(
-        "error",
-        "Broker feed connection failed. Reconnect explicitly.",
+        "network-error",
+        "Broker feed connection interrupted. Waiting for bounded recovery.",
       ),
     );
     this.socket.addEventListener("close", () =>
