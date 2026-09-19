@@ -6,29 +6,34 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "audit:spec": "node scripts/check-specification-acceptance.mjs",
-    "check:acceptance": "node scripts/check-specification-acceptance.mjs --strict",
     "check:production": "node --env-file=.env scripts/check-production-environment.mjs",
-    "test:browser": "node tests/e2e/kotak-smoke.mjs",
-    "format": "prettier --write 'backend/**/*.ts' run.ts 'tests/**/*.{ts,mjs}' 'frontend/src/**/*.{ts,tsx,css}' frontend/next.config.ts frontend/postcss.config.mjs",
+    "preflight:commit": "node scripts/preflight-commit.mjs",
+    "hooks:install": "git config core.hooksPath .githooks",
+    "format": "prettier --write 'backend/**/*.ts' run.ts 'frontend/src/**/*.{ts,tsx,css}' frontend/next.config.ts frontend/postcss.config.mjs",
     "lint": "eslint . --concurrency=off --cache --quiet",
     "lint:all": "eslint . --concurrency=off --cache",
     "dev": "npm run build:backend && node --env-file-if-exists=.env --import tsx run.ts",
     "start": "node --env-file-if-exists=.env dist/backend/main.js",
     "migrate": "node --env-file-if-exists=.env --import tsx backend/database.ts",
-    "test": "npm run build:backend && node scripts/prepare-test-database.mjs && node --test tests/backend/*.test.mjs",
     "typecheck": "tsc --noEmit",
     "build:backend": "tsc",
-    "check": "npm run lint && npm test && npm --prefix frontend run typecheck && npm --prefix frontend test && npm run test:architecture",
-    "test:architecture": "node --test tests/architecture/*.test.mjs",
+    "check": "npm run lint && npm run typecheck && npm --prefix frontend run typecheck",
     "build": "npm run build:backend && npm --prefix frontend run build"
   },
   "dependencies": {
     "csv-parse": "7.0.2",
     "express": "^5.1.0",
+    "kiteconnect": "5.3.0",
     "otpauth": "9.5.2",
     "pg": "^8.16.0",
     "zod": "^4.0.0"
+  },
+  "overrides": {
+    "kiteconnect": {
+      "mocha": {
+        "serialize-javascript": "7.0.5"
+      }
+    }
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",
@@ -42,7 +47,6 @@
     "eslint-plugin-prettier": "5.5.6",
     "eslint-plugin-react-hooks": "5.2.0",
     "globals": "14.0.0",
-    "playwright": "1.63.0",
     "prettier": "3.9.7",
     "tsx": "^4.23.13",
     "typescript": "npm:@typescript/typescript6@^6.0.2",

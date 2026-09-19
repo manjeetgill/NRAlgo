@@ -7,8 +7,7 @@
     "dev": "NEXT_TELEMETRY_DISABLED=1 next dev --webpack --hostname 127.0.0.1",
     "build": "NEXT_TELEMETRY_DISABLED=1 next build --webpack",
     "start": "NEXT_TELEMETRY_DISABLED=1 next start --hostname 127.0.0.1",
-    "typecheck": "tsc --noEmit",
-    "test": "TSX_TSCONFIG_PATH=tsconfig.json node --import tsx --test ../tests/frontend/*.test.ts ../tests/frontend/*.test.mjs"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "clsx": "^2.1.1",

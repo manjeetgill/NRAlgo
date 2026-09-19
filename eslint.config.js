@@ -9,8 +9,10 @@ export default tseslint.config(
   {
     ignores: [
       "**/.next/**",
+      "**/.next-*/**",
       "**/dist/**",
       "**/node_modules/**",
+      "**/.runtime/**",
       "**/playwright-report/**",
       "**/test-results/**",
     ],

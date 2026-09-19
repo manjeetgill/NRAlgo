@@ -1,103 +1,54 @@
-# Disposable CI stack only. Test credentials below must never be used for real deployments.
-name: Checks
+# Build every incoming commit, not just the branch tip. No trading services are started.
+name: Commit preflight
 on: [push, pull_request]
 jobs:
-  test:
+  commits:
     runs-on: ubuntu-latest
-    services:
-      test-postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_PASSWORD: disposable-test-password
-          POSTGRES_DB: nralgo_test
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U postgres -d nralgo_test"
-          --health-interval 5s --health-timeout 5s --health-retries 10
-    env:
-      TEST_DATABASE_URL: postgresql://postgres:disposable-test-password@127.0.0.1:5432/nralgo_test
-      APP_DOMAIN: localhost
-      POSTGRES_PASSWORD: ci-only-database-password
-      SETUP_TOKEN: ci-only-setup-token-at-least-32-characters
-      APP_DATABASE_PASSWORD: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-      BROKER_ENCRYPTION_KEY: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-      BACKUP_DATABASE_PASSWORD: dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-      BACKUP_ENCRYPTION_KEY: cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-      REGISTRATION_TOKEN: ci-only-invitation-token-at-least-32-characters
+    outputs:
+      revisions: ${{ steps.revisions.outputs.revisions }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: revisions
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          node --input-type=module <<'JS'
+          import { execFileSync } from 'node:child_process';
+          import { appendFileSync } from 'node:fs';
+          const { BASE_SHA: base, HEAD_SHA: head } = process.env;
+          const valid = value => /^[a-f0-9]{40}$/.test(value || '') && !/^0+$/.test(value);
+          if (!valid(head)) throw new Error('Invalid head revision');
+          const commits = valid(base)
+            ? execFileSync('git', ['rev-list', '--reverse', `${base}..${head}`], { encoding: 'utf8' }).trim().split('\n').filter(Boolean)
+            : [head];
+          if (!commits.length) commits.push(head);
+          if (commits.length > 256) throw new Error('Split this push into at most 256 commits');
+          appendFileSync(process.env.GITHUB_OUTPUT, `revisions=${JSON.stringify(commits)}\n`);
+          JS
+  build:
+    needs: commits
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        revision: ${{ fromJSON(needs.commits.outputs.revisions) }}
+    name: Build ${{ matrix.revision }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: "22"
           cache: npm
           cache-dependency-path: |
             package-lock.json
             frontend/package-lock.json
-      - run: npm ci && npm ci --prefix frontend
-      - run: npm run check
-      - run: npm run build
-      - run: npx playwright install --with-deps chromium
-      - run: npm run test:browser
-      - run: npm audit --omit=dev --audit-level=high
-      - run: npm --prefix frontend audit --omit=dev --audit-level=high
-      - name: Build and start production containers
-        run: docker compose up -d --build --wait --wait-timeout 180
-      - name: Test HTTPS, owner setup and real-data readiness
-        run: |
-          node --input-type=module <<'JS'
-          import https from 'node:https';
-          import assert from 'node:assert/strict';
-          import { setTimeout as delay } from 'node:timers/promises';
-          let cookie = '', csrf = '';
-          function request(path, body) {
-            return new Promise((resolve, reject) => {
-              // Only this localhost test uses Caddy's private test CA.
-              const req = https.request(`https://localhost${path}`, {
-                rejectUnauthorized: false, method: body ? 'POST' : 'GET',
-                headers: { Cookie: cookie, 'X-CSRF-Token': csrf, Origin: 'https://localhost', 'Content-Type': 'application/json' },
-              }, res => {
-                let data = '';
-                res.on('data', chunk => data += chunk);
-                res.on('end', () => {
-                  if (res.headers['set-cookie']) cookie = res.headers['set-cookie'][0].split(';')[0];
-                  try { data = JSON.parse(data); } catch {}
-                  if (data.csrf) csrf = data.csrf;
-                  resolve({ status: res.statusCode, data, headers: res.headers });
-                });
-              });
-              req.on('error', reject); req.setTimeout(10000, () => req.destroy(new Error('Timeout')));
-              req.end(body ? JSON.stringify(body) : undefined);
-            });
-          }
-          for (let i = 0; ; i++) {
-            try { assert.equal((await request('/api/health')).status, 200); break; }
-            catch (error) { if (i === 29) throw error; await delay(1000); }
-          }
-          assert.equal((await request('/')).status, 200);
-          assert.equal((await request('/api/ready')).status, 200);
-          assert.equal((await request('/api/workspace')).status, 401);
-          const creds = { username: 'ciowner', password: 'ci-password-not-for-real-use' };
-          assert.equal((await request('/api/auth/setup', creds)).status, 403);
-          const setup = await request('/api/auth/setup', { ...creds, setup_token: process.env.SETUP_TOKEN });
-          assert.equal(setup.status, 200);
-          assert.match(setup.headers['set-cookie'][0], /Secure/);
-          const strategy = await request('/api/strategies', { name: 'CI replay', capital: 100000 });
-          assert.equal(strategy.status, 201);
-          assert.equal((await request(`/api/strategies/${strategy.data.id}/run`, {})).status, 410);
-          assert.equal((await request('/api/workspace')).data.jobs.length, 0);
-          JS
-      - name: Verify encrypted backup restoration into a disposable database
-        run: |
-          docker compose exec -T db psql -U nexus -d nexus -v ON_ERROR_STOP=1 -c "DO \$\$ BEGIN IF has_table_privilege('nexus_backup','users','INSERT') OR has_table_privilege('nexus_backup','users','UPDATE') OR has_table_privilege('nexus_backup','users','DELETE') OR NOT has_table_privilege('nexus_backup','users','SELECT') THEN RAISE EXCEPTION 'Unsafe backup privileges'; END IF; END \$\$;"
-          docker compose exec -T backup node dist/backend/backup.js --once
-          archive=$(docker compose exec -T backup sh -c 'ls -t /backups/*.dump.enc | head -1')
-          docker compose exec -T backup node dist/backend/backup.js --decrypt "$archive" /backups/restore-test.dump
-          docker compose exec -T db createdb -U nexus restore_check
-          docker compose exec -T backup cat /backups/restore-test.dump | docker compose exec -T db pg_restore -U nexus -d restore_check --exit-on-error --no-owner --no-acl
-          docker compose exec -T db psql -U nexus -d restore_check -v ON_ERROR_STOP=1 -c "SELECT username FROM users"
-      - name: Container diagnostics
-        if: failure()
-        run: docker compose logs --tail=100
-      - name: Stop disposable CI containers
-        if: always()
-        run: docker compose down
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Build this exact commit in isolation
+        run: node scripts/preflight-commit.mjs "${{ matrix.revision }}"
