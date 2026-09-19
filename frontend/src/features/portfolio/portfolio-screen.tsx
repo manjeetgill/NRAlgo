@@ -254,7 +254,7 @@ export function PortfolioScreen({ csrf }: { csrf: string }) {
           <PortfolioTable kind="positions" rows={rows.positions} />
           <p className={styles.disclaimer}>
             Values are broker-reported snapshots. This screen cannot submit,
-            modify or authorize an order. Paper trading remains separate.
+            modify or authorize an order.
           </p>
         </>
       )}

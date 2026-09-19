@@ -1,5 +1,5 @@
 /** Validates market-data requests and converts Kotak responses into safe display data.
- * Explorer data is indicative: it is never passed to the paper fill engine or live execution.
+ * Explorer data is indicative and is never passed to live execution.
  * Source: Kotak-Neo/Kotak-Neo/docs/market-data-apis (reviewed 2026-09-18).
  */
 import { z } from "zod";
@@ -550,6 +550,6 @@ function parseOptionAndFuturesChain(
     ...chain,
     observedAt: null,
     indicative: true,
-    note: "This API does not provide an exchange timestamp or executable bid/ask. Not used for paper fills.",
+    note: "This API does not provide an exchange timestamp or executable bid/ask.",
   };
 }

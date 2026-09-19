@@ -56,13 +56,6 @@ const StrategyLabScreen = dynamic(
     ),
   { loading: ScreenLoading },
 );
-const PaperTradingScreen = dynamic(
-  () =>
-    import("@/features/paper-trading/paper-trading-screen").then(
-      (module) => module.PaperTradingScreen,
-    ),
-  { loading: ScreenLoading },
-);
 /** Load the dedicated spread screen only when selected. */
 const SpreadBuilderScreen = dynamic(
   () =>
@@ -183,8 +176,6 @@ export function WorkspaceContent({
           initialStrategyId={researchStrategyId}
         />
       );
-    case "Broker paper":
-      return <PaperTradingScreen csrf={workspace.csrf} />;
     case "Spread builder":
       return (
         <SpreadBuilderScreen
@@ -205,7 +196,7 @@ export function WorkspaceContent({
         />
       );
     case "Orders & trades":
-      return <OrdersScreen workspace={workspace} onNavigate={onNavigate} />;
+      return <OrdersScreen csrf={workspace.csrf} />;
     case "Brokers":
       return <BrokersScreen csrf={workspace.csrf} />;
     case "Live trading":
@@ -219,13 +210,7 @@ export function WorkspaceContent({
         />
       );
     case "Activity log":
-      return (
-        <ActivityScreen
-          workspace={workspace}
-          onRefresh={onRefresh}
-          tradingMode={workspace.paper_trading_enabled ? "paper" : "live"}
-        />
-      );
+      return <ActivityScreen workspace={workspace} onRefresh={onRefresh} />;
     case "Learn the stack":
       return <LearningScreen />;
   }

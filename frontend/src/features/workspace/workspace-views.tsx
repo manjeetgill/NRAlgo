@@ -72,12 +72,6 @@ export const workspaceTour: ReadonlyArray<{
       "Review selected legs and the payoff before considering execution.",
   },
   {
-    page: "Broker paper",
-    title: "Review a paper order",
-    description:
-      "Use New order to review an order for the separate virtual ledger. The tour submits nothing.",
-  },
-  {
     page: "Orders & trades",
     title: "Follow the result",
     description:
@@ -189,8 +183,8 @@ export function WorkspaceHelp({
             <dd>Start in Strategy library, Algo lab or Spread builder.</dd>
             <dt>Trading</dt>
             <dd>
-              Paper trading uses a separate virtual ledger when enabled. Real
-              trading requires explicit authorization.
+              Live trading requires explicit authorization, risk checks and a
+              connected broker session.
             </dd>
             <dt>Account</dt>
             <dd>Manage broker connections, security and the audit log.</dd>

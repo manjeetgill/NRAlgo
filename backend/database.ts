@@ -1,4 +1,4 @@
-/** Database adapter and forward-only schema migrations shared by API and paper worker.
+/** Database adapter and forward-only schema migrations shared by API and workers.
  * PostgreSQL is the sole runtime database locally, in tests and on AWS.
  * Migrations transfer the legacy owner and data without resetting passwords or strategies.
  */
@@ -245,9 +245,6 @@ export async function runDatabaseMigrations(
       !(await query("SELECT version FROM schema_migrations WHERE version=7"))
         .length
     ) {
-      await query(
-        "CREATE TABLE paper_accounts (user_id VARCHAR(36) NOT NULL REFERENCES users(id), broker VARCHAR(10) NOT NULL CHECK (broker = 'kotak'), ledger TEXT NOT NULL, PRIMARY KEY(user_id,broker))",
-      );
       await query("INSERT INTO schema_migrations VALUES(7)");
     }
     if (
@@ -400,6 +397,13 @@ export async function runDatabaseMigrations(
       );
       await query("INSERT INTO schema_migrations VALUES(16)");
     }
+    if (
+      !(await query("SELECT version FROM schema_migrations WHERE version=17"))
+        .length
+    ) {
+      await query("DROP TABLE IF EXISTS paper_accounts");
+      await query("INSERT INTO schema_migrations VALUES(17)");
+    }
   });
   // The migration container owns DDL; API/worker use a separate non-superuser role.
   if (options.runtimePassword) {
@@ -429,7 +433,7 @@ export async function runDatabaseMigrations(
         "GRANT SELECT ON eod_instruments,eod_candles,option_eod_instruments,option_eod_candles TO nexus_app",
       );
       await query(
-        "GRANT SELECT,INSERT,UPDATE,DELETE ON users,user_settings,user_security,broker_usage,sessions,strategies,jobs,events,broker_credentials,worker_health,settings,live_accounts,live_orders,live_spreads,live_events,live_permissions,live_previews,broker_rpc_windows,research_strategies,research_runs,paper_accounts,user_brokers,calculation_jobs,option_chain_snapshots TO nexus_app",
+        "GRANT SELECT,INSERT,UPDATE,DELETE ON users,user_settings,user_security,broker_usage,sessions,strategies,jobs,events,broker_credentials,worker_health,settings,live_accounts,live_orders,live_spreads,live_events,live_permissions,live_previews,broker_rpc_windows,research_strategies,research_runs,user_brokers,calculation_jobs,option_chain_snapshots TO nexus_app",
       );
       await query(
         "GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO nexus_app",

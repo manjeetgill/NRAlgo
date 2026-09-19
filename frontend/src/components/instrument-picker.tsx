@@ -306,7 +306,7 @@ export function InstrumentPicker({
         check the chosen instrument. Only NSE EQ cash and calls/puts with lot
         sizes up to 10,000 units are supported.
       </p>
-      <div className="paper-grid">
+      <div className="market-grid">
         <label>
           Instrument search
           <input
@@ -401,7 +401,7 @@ export function InstrumentPicker({
             metadata only, not historical lot sizes or proof of trading
             permission. Filters apply when you search.
           </p>
-          <div className="paper-table">
+          <div className="market-table">
             <table>
               <thead>
                 <tr>

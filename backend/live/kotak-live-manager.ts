@@ -1,4 +1,4 @@
-/** Separate real-money control plane. Nothing in paper/replay can reach this manager.
+/** Separate real-money control plane. Research and replay cannot reach this manager.
  * One API process owns each connected session. Restarts/reconnects invalidate arming.
  */
 import { randomUUID } from "node:crypto";
@@ -11,7 +11,7 @@ import type {
   InstrumentSearch,
 } from "../instrument-master.js";
 import type { KotakMarketDataClient } from "../kotak-market-data-client.js";
-import { paperTradingDay } from "../paper-trading-ledger.js";
+import { tradingDay } from "../market-contracts.js";
 import {
   resolveActiveBroker,
   type ActiveBrokerBinding,
@@ -99,7 +99,7 @@ export class KotakLiveManager {
       !permission ||
       !validSession.length ||
       permission.armed_until <= Date.now() ||
-      permission.trading_day !== paperTradingDay(Date.now())
+      permission.trading_day !== tradingDay(Date.now())
     ) {
       fail(409, "Live permission expired or revoked. Reconcile and arm again.");
     }
@@ -215,7 +215,7 @@ export class KotakLiveManager {
         ),
       async (contract, signal) => {
         signal.throwIfAborted();
-        const quote = await this.client.getPaperFillQuote(
+        const quote = await this.client.getTopOfBookQuote(
           session.user_id,
           session.token_hash,
           contract.instrument,
@@ -520,12 +520,7 @@ export class KotakLiveManager {
           }
           await query(
             "INSERT INTO live_permissions(account_id,session_hash,armed_until,trading_day) VALUES($1,$2,$3,$4) ON CONFLICT(account_id) DO UPDATE SET session_hash=EXCLUDED.session_hash,armed_until=EXCLUDED.armed_until,trading_day=EXCLUDED.trading_day",
-            [
-              entry.id,
-              entry.permissionKey,
-              armedUntil,
-              paperTradingDay(Date.now()),
-            ],
+            [entry.id, entry.permissionKey, armedUntil, tradingDay(Date.now())],
           );
           await query(
             "INSERT INTO live_events(account_id,kind,detail,created_at) VALUES($1,'armed',$2,$3)",

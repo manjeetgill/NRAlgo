@@ -4,7 +4,7 @@ import type {
   CatalogInstrument,
   InstrumentSearch,
 } from "./instrument-master.js";
-import type { PaperInput, PaperQuote } from "./paper-trading-ledger.js";
+import type { InstrumentSelection } from "./market-contracts.js";
 import type {
   HistoricalRequest,
   HistoryInterval,
@@ -26,10 +26,7 @@ export interface InstrumentDirectory {
       strikePrice?: number;
     },
   ): CatalogInstrument;
-  validate(
-    input: Pick<PaperInput, "instrument" | "option" | "masterToken">,
-    quantity?: number,
-  ): void;
+  validate(input: InstrumentSelection, quantity?: number): void;
 }
 export type PriceSubscription = {
   kind: "touchline";
@@ -62,12 +59,6 @@ export interface MarketDataProvider {
     market: "cash" | "options",
     reserveRequest: () => Promise<void>,
   ): Promise<void>;
-  getPaperFillQuote(
-    userId: string,
-    sessionHash: string,
-    instrument: string,
-    segment?: MarketSegment,
-  ): Promise<PaperQuote>;
   getQuoteSnapshots(
     userId: string,
     sessionHash: string,

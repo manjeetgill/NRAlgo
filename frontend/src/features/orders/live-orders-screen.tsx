@@ -41,7 +41,6 @@ export function LiveOrdersScreen() {
       )}
       {snapshot?.orders && (
         <OrderRecordsTable
-          mode="live"
           records={snapshot.orders.map((order) => ({
             id: order.id,
             instrument: order.intent.instrument,

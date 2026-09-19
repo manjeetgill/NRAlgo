@@ -5,7 +5,6 @@ import {
   ArrowRight,
   Check,
   Clock3,
-  FlaskConical,
   LockKeyhole,
   Radio,
   RefreshCw,
@@ -22,7 +21,6 @@ import {
 } from "@/features/overview/account-model";
 import { useOverviewAccount } from "@/features/overview/use-overview-account";
 import { NseMarketIntelligence } from "@/features/overview/nse-market-intelligence";
-import { getTradingMode, isTradingEventVisible } from "@/lib/trading-mode";
 import { orderAuditEvents } from "@/features/activity/audit-model";
 import styles from "@/features/overview/overview-screen.module.css";
 
@@ -38,8 +36,6 @@ export function OverviewScreen({
   onExploreOptionChain: () => void;
 }) {
   const [brokerId, setBrokerId] = useState(availableBrokers[0].id);
-  // The server setting selects one workspace; a local toggle cannot reveal a disabled mode.
-  const mode = getTradingMode(workspace.paper_trading_enabled);
   const [showPositions, setShowPositions] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<
     OverviewWorkspace["events"][number] | null
@@ -51,15 +47,9 @@ export function OverviewScreen({
         item,
       ) => item.id === brokerId,
     ) ?? availableBrokers[0];
-  const account = useOverviewAccount(broker, workspace.csrf, mode);
-  const snapshot = mode === "paper" ? account.paper : account.live;
-  const recentEvents = orderAuditEvents(workspace.events)
-    .filter(
-      /** Keep simulated history out of the live view without changing stored audit records. */ (
-        event,
-      ) => isTradingEventVisible(event.message, mode),
-    )
-    .slice(0, 5);
+  const account = useOverviewAccount(broker, workspace.csrf);
+  const snapshot = account.live;
+  const recentEvents = orderAuditEvents(workspace.events).slice(0, 5);
   /** Bind a navigation destination without granting any trading permissions. */
   const onNavigateTo = (destination: OverviewDestination) => {
     /** Forward the user's click to the workspace shell. */
@@ -80,7 +70,7 @@ export function OverviewScreen({
   }
   /** Explicitly request one snapshot; the hook owns promise rejection and loading state. */
   function onRefreshSnapshot() {
-    void account.loadAccountSnapshot(mode);
+    void account.loadAccountSnapshot();
   }
   /** Expand/collapse the selected account's table without refetching reports. */
   function onTogglePositions() {
@@ -136,18 +126,14 @@ export function OverviewScreen({
         <div>
           <strong>
             <LockKeyhole size={15} />
-            {mode === "paper"
-              ? "Paper trading workspace"
-              : workspace.live_configured
-                ? "Live execution requires explicit authorization"
-                : "Live trading is locked"}
+            {workspace.live_configured
+              ? "Live execution requires explicit authorization"
+              : "Live trading is locked"}
           </strong>
           <p>
-            {mode === "paper"
-              ? "Virtual funds and simulated orders only. No real orders are submitted from this workspace."
-              : workspace.live_configured
-                ? "Review your risk limits and arm live trading in its dedicated screen. Viewing this dashboard never enables orders."
-                : "View your broker account and market data. Live execution is disabled on this server."}
+            {workspace.live_configured
+              ? "Review your risk limits and arm live trading in its dedicated screen. Viewing this dashboard never enables orders."
+              : "View your broker account and market data. Live execution is disabled on this server."}
           </p>
         </div>
         <button onClick={onNavigateTo("Account & security")}>
@@ -157,64 +143,45 @@ export function OverviewScreen({
 
       {/* Headline values come from the selected account snapshot, never fabricated constants. */}
       <div className={styles.metrics}>
-        {mode === "paper" && (
-          <article className={styles.metric} aria-label="Paper profit and loss">
-            <div>
-              Paper P&amp;L <FlaskConical size={17} />
-            </div>
-            <strong className={getPnlClassName(account.paper?.pnl)}>
-              {formatAccountMoney(account.paper?.pnl)}
-            </strong>
-            <p>Realized + unrealized · paper ledger, all time</p>
-          </article>
-        )}
         <article className={styles.metric} aria-label="Available account funds">
           <div>
-            {mode === "paper" ? "Available virtual cash" : "Available margin"}
+            Available margin
             <Wallet size={17} />
           </div>
           <strong>{formatAccountMoney(snapshot?.availableFunds)}</strong>
+          <p>Broker buying power · not cash balance</p>
+        </article>
+        <button
+          className={`${styles.metric} ${styles.metricButton}`}
+          onClick={onTogglePositions}
+          aria-expanded={showPositions}
+          aria-controls="overview-positions"
+        >
+          <div>
+            Open positions
+            <Activity size={17} />
+          </div>
+          <strong>{snapshot?.positions?.length ?? "—"}</strong>
+          <p>View positions and their latest marks</p>
+        </button>
+        <article
+          className={styles.metric}
+          aria-label="Live position profit and loss"
+        >
+          <div>
+            Live position P&amp;L <Activity size={17} />
+          </div>
+          <strong className={getPnlClassName(account.live?.pnl)}>
+            {formatAccountMoney(account.live?.pnl)}
+          </strong>
           <p>
-            {mode === "paper"
-              ? "After order reservations"
-              : "Broker buying power · not cash balance"}
+            {account.live
+              ? "Open broker positions · last known marks"
+              : account.connected
+                ? "Refresh snapshot to load broker positions"
+                : "Connect your broker to view"}
           </p>
         </article>
-        {mode === "live" && (
-          <button
-            className={`${styles.metric} ${styles.metricButton}`}
-            onClick={onTogglePositions}
-            aria-expanded={showPositions}
-            aria-controls="overview-positions"
-          >
-            <div>
-              Open positions
-              <Activity size={17} />
-            </div>
-            <strong>{snapshot?.positions?.length ?? "—"}</strong>
-            <p>View positions and their latest marks</p>
-          </button>
-        )}
-        {mode === "live" && (
-          <article
-            className={styles.metric}
-            aria-label="Live position profit and loss"
-          >
-            <div>
-              Live position P&amp;L <Activity size={17} />
-            </div>
-            <strong className={getPnlClassName(account.live?.pnl)}>
-              {formatAccountMoney(account.live?.pnl)}
-            </strong>
-            <p>
-              {account.live
-                ? "Open broker positions · last known marks"
-                : account.connected
-                  ? "Refresh snapshot to load broker positions"
-                  : "Connect your broker to view"}
-            </p>
-          </article>
-        )}
         <button
           className={`${styles.metric} ${styles.metricButton}`}
           onClick={onNavigateTo("Brokers")}
@@ -243,15 +210,8 @@ export function OverviewScreen({
       >
         <div className={styles.accountToolbar}>
           <div>
-            <strong>
-              {mode === "paper" ? "Paper account" : "Live account"}
-            </strong>
-            <span>
-              {broker.name} ·{" "}
-              {mode === "paper"
-                ? "Simulated funds"
-                : "Read-only broker snapshot"}
-            </span>
+            <strong>Live account</strong>
+            <span>{broker.name} · Read-only broker snapshot</span>
           </div>
           <button
             className={styles.refresh}
@@ -264,15 +224,9 @@ export function OverviewScreen({
         </div>
         <div className={styles.accountMetrics}>
           <div>
-            <span>
-              {mode === "paper" ? "Available virtual cash" : "Available margin"}
-            </span>
+            <span>Available margin</span>
             <strong>{formatAccountMoney(snapshot?.availableFunds)}</strong>
-            <small>
-              {mode === "paper"
-                ? "After open-order reservations"
-                : "Broker buying power · not a cash ledger"}
-            </small>
+            <small>Broker buying power · not a cash ledger</small>
           </div>
           <button
             aria-expanded={showPositions}
@@ -298,13 +252,13 @@ export function OverviewScreen({
                 : "Not loaded"}
             </strong>
             <small>
-              {mode === "live" && snapshot?.positions?.length
+              {snapshot?.positions?.length
                 ? account.feedMessage
                 : "Refresh explicitly to reload account data"}
             </small>
           </div>
         </div>
-        {mode === "live" && account.connected === false && (
+        {account.connected === false && (
           <p className={styles.notice}>
             Connect {broker.name} in Broker connections to load funds and
             positions.
@@ -332,13 +286,10 @@ export function OverviewScreen({
                 account.
               </p>
             ) : !snapshot.positions.length ? (
-              <p>No open positions in this {mode} account.</p>
+              <p>No open positions in this live account.</p>
             ) : (
               <table>
-                <caption>
-                  {mode === "paper" ? "Paper" : "Live"} open positions ·{" "}
-                  {broker.name}
-                </caption>
+                <caption>Live open positions · {broker.name}</caption>
                 <thead>
                   <tr>
                     <th>Instrument</th>
@@ -433,53 +384,48 @@ export function OverviewScreen({
               </button>
             </div>
           </section>
-          {mode === "live" && (
-            <section className={styles.card}>
-              <h2>Before you go live</h2>
-              <ul className={styles.checklist}>
-                <li>
-                  <ShieldCheck size={17} />
-                  <span>Authenticator MFA</span>
-                  <strong>
-                    {account.mfaEnabled === null
-                      ? "Unknown"
-                      : account.mfaEnabled
-                        ? "Enabled"
-                        : "Required"}
-                  </strong>
-                </li>
-                <li>
-                  <Radio size={17} />
-                  <span>Broker session</span>
-                  <strong>
-                    {account.connected === null
-                      ? "Checking"
-                      : account.connected
-                        ? "Connected"
-                        : "Required"}
-                  </strong>
-                </li>
-                <li>
-                  <Check size={17} />
-                  <span>Risk limits &amp; authorization</span>
-                  <button onClick={onNavigateTo("Live trading")}>
-                    Review <ArrowRight size={12} />
-                  </button>
-                </li>
-              </ul>
-              <p className={styles.readinessNote}>
-                Connection and trading permission are separate. Check all
-                controls before placing a live order.
-              </p>
-            </section>
-          )}
+          <section className={styles.card}>
+            <h2>Before you go live</h2>
+            <ul className={styles.checklist}>
+              <li>
+                <ShieldCheck size={17} />
+                <span>Authenticator MFA</span>
+                <strong>
+                  {account.mfaEnabled === null
+                    ? "Unknown"
+                    : account.mfaEnabled
+                      ? "Enabled"
+                      : "Required"}
+                </strong>
+              </li>
+              <li>
+                <Radio size={17} />
+                <span>Broker session</span>
+                <strong>
+                  {account.connected === null
+                    ? "Checking"
+                    : account.connected
+                      ? "Connected"
+                      : "Required"}
+                </strong>
+              </li>
+              <li>
+                <Check size={17} />
+                <span>Risk limits &amp; authorization</span>
+                <button onClick={onNavigateTo("Live trading")}>
+                  Review <ArrowRight size={12} />
+                </button>
+              </li>
+            </ul>
+            <p className={styles.readinessNote}>
+              Connection and trading permission are separate. Check all controls
+              before placing a live order.
+            </p>
+          </section>
         </div>
       </div>
       <footer className={styles.footer}>
-        <span>
-          NRIAlgo / Overview ·{" "}
-          {mode === "paper" ? "Paper workspace" : "Live workspace"}
-        </span>
+        <span>NRIAlgo / Overview · Live workspace</span>
         <span>
           <Wallet size={13} /> {broker.name}
         </span>

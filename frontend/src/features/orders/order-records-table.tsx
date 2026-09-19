@@ -1,5 +1,5 @@
 "use client";
-/** Shared records presentation; callers select one account domain before normalizing records. */
+/** Broker order records presentation. */
 import { useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { formatInr } from "@/lib/format";
@@ -17,23 +17,12 @@ export interface OrderRecord {
   createdAt?: number;
 }
 /** Filter/export the same records; a native dialog preserves keyboard focus and never submits an order. */
-export function OrderRecordsTable({
-  records,
-  mode,
-  onCancel,
-}: {
-  records: OrderRecord[];
-  mode: "paper" | "live";
-  onCancel?: (id: string) => Promise<void>;
-}) {
+export function OrderRecordsTable({ records }: { records: OrderRecord[] }) {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
   const [selected, setSelected] = useState<OrderRecord | null>(null);
   const dialog = useRef<HTMLDialogElement>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const pending = useRef(false);
-  /** Search is a local projection and cannot change the selected live/paper account. */
+  /** Search is a local projection and cannot change the broker account. */
   const filtered = useMemo(
     () =>
       records.filter(
@@ -45,33 +34,10 @@ export function OrderRecordsTable({
       ),
     [records, search, status],
   );
-  /** Confirm a virtual remainder cancellation once; the server decides whether the order is still open. */
-  async function cancel(order: OrderRecord) {
-    if (
-      !onCancel ||
-      pending.current ||
-      !window.confirm(`Cancel the open remainder of ${order.instrument}?`)
-    ) {
-      return;
-    }
-    pending.current = true;
-    setBusy(true);
-    setError("");
-    try {
-      await onCancel(order.id);
-    } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "Cancellation unavailable.",
-      );
-    } finally {
-      pending.current = false;
-      setBusy(false);
-    }
-  }
   /** Export only the filtered book; unknown values remain empty and text cannot become a spreadsheet formula. */
   function exportRecords() {
     downloadText(
-      `${mode}-orders.csv`,
+      "live-orders.csv",
       encodeCsv([
         [
           "Order ID",
@@ -87,7 +53,7 @@ export function OrderRecordsTable({
         ],
         ...filtered.map((order) => [
           order.id,
-          mode,
+          "live",
           "Kotak",
           order.instrument,
           order.side,
@@ -134,11 +100,6 @@ export function OrderRecordsTable({
           Export CSV
         </Button>
       </div>
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
       <div className="table-scroll">
         <table>
           <thead>
@@ -156,7 +117,7 @@ export function OrderRecordsTable({
           <tbody>
             {filtered.map((order) => (
               <tr key={order.id}>
-                <td>{mode} · Kotak</td>
+                <td>live · Kotak</td>
                 <td>
                   {order.instrument}
                   <small>{order.id}</small>
@@ -178,15 +139,6 @@ export function OrderRecordsTable({
                   >
                     Details
                   </Button>
-                  {onCancel && order.state === "open" && (
-                    <Button
-                      variant="ghost"
-                      disabled={busy}
-                      onClick={() => void cancel(order)}
-                    >
-                      Cancel
-                    </Button>
-                  )}
                 </td>
               </tr>
             ))}
@@ -199,10 +151,8 @@ export function OrderRecordsTable({
         </table>
       </div>
       <p className="muted">
-        {filtered.length} of {records.length} records ·{" "}
-        {mode === "live"
-          ? "App-managed OMS only; not the complete broker trade book."
-          : "Quote-driven virtual ledger; no real funds."}
+        {filtered.length} of {records.length} records · App-managed OMS only;
+        not the complete broker trade book.
       </p>
       <dialog
         ref={dialog}
@@ -220,7 +170,7 @@ export function OrderRecordsTable({
             <dt>Order ID</dt>
             <dd>{selected.id}</dd>
             <dt>Account domain</dt>
-            <dd>{mode} · Kotak</dd>
+            <dd>live · Kotak</dd>
             <dt>Instrument</dt>
             <dd>{selected.instrument}</dd>
             <dt>Requested / filled units</dt>

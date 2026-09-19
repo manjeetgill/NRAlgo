@@ -9,7 +9,6 @@ import {
 } from "react";
 import { Activity, CircleHelp, LockKeyhole, LogOut, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { getTradingMode, isTradingPageVisible } from "@/lib/trading-mode";
 import {
   getWorkspacePageHash,
   getWorkspacePageLabel,
@@ -53,28 +52,13 @@ export function WorkspaceShell({
   const [researchStrategyId, setResearchStrategyId] = useState("");
   const [templateId, setTemplateId] = useState<TemplateId>("ema");
   const [spreadDraft, setSpreadDraft] = useState<ResearchDraft>();
-  const tradingMode = getTradingMode(workspace.paper_trading_enabled);
-  const tour = workspaceTour.filter((step) =>
-    isTradingPageVisible(step.page, tradingMode),
-  );
-  const page = isTradingPageVisible(requestedPage, tradingMode)
-    ? requestedPage
-    : "Overview";
-  const sections = workspaceSections
-    .map((section) => ({
-      ...section,
-      pages: section.pages.filter((item) =>
-        isTradingPageVisible(item, tradingMode),
-      ),
-    }))
-    .filter((section) => section.pages.length > 0);
+  const tour = workspaceTour;
+  const page = requestedPage;
+  const sections = workspaceSections;
   const openSectionIndex = sections.findIndex(
     (section) => section.label === openSection,
   );
   const openSectionData = sections[openSectionIndex];
-  useEffect(() => {
-    setTourStep(null);
-  }, [tradingMode]);
   /** Stable navigation callback lets independent screens own their effects. */
   const onNavigate = useCallback((destination: WorkspacePage) => {
     setPage(destination);
@@ -85,11 +69,7 @@ export function WorkspaceShell({
   useEffect(() => {
     function restoreLocation() {
       const destination = resolveWorkspacePage(window.location.hash);
-      setPage(
-        destination && isTradingPageVisible(destination, tradingMode)
-          ? destination
-          : "Overview",
-      );
+      setPage(destination ?? "Overview");
       setOpenSection("");
     }
     function closeOnEscape(event: KeyboardEvent) {
@@ -104,7 +84,7 @@ export function WorkspaceShell({
       window.removeEventListener("hashchange", restoreLocation);
       window.removeEventListener("keydown", closeOnEscape);
     };
-  }, [tradingMode]);
+  }, []);
   /** This shortcut changes presentation only, never account/execution permissions. */
   const onExploreOptionChain = useCallback(() => {
     onNavigate("Option chain");
@@ -388,7 +368,7 @@ export function WorkspaceShell({
               {error}
             </div>
           )}
-          <ScreenErrorBoundary key={`${page}:${tradingMode}`}>
+          <ScreenErrorBoundary key={page}>
             <WorkspaceContent
               page={page}
               workspace={workspace}
@@ -406,8 +386,7 @@ export function WorkspaceShell({
           {page !== "Overview" && (
             <footer>
               <span>
-                <LockKeyhole size={12} /> Personal workspace ·{" "}
-                {tradingMode === "paper" ? "Paper trading" : "Live trading"}
+                <LockKeyhole size={12} /> Personal workspace · Live trading
               </span>
               <span>Account-scoped data · Explicit execution approval</span>
             </footer>

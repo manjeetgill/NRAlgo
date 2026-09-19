@@ -5,7 +5,6 @@ import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageActions } from "@/features/workspace/workspace-views";
 import { downloadText, encodeCsv } from "@/lib/download";
-import { isTradingEventVisible, type TradingMode } from "@/lib/trading-mode";
 import type { WorkspaceSnapshot } from "@/features/workspace/workspace-types";
 import {
   AUDIT_CATEGORIES,
@@ -19,11 +18,9 @@ import {
 /** Present loaded events with a bounded refresh, deterministic filters and keyboard-accessible details. */
 export function ActivityScreen({
   workspace,
-  tradingMode,
   onRefresh,
 }: {
   workspace: WorkspaceSnapshot;
-  tradingMode: TradingMode;
   onRefresh: () => Promise<void>;
 }) {
   const [category, setCategory] = useState<AuditCategory>("All");
@@ -32,17 +29,10 @@ export function ActivityScreen({
   const [refreshing, setRefreshing] = useState(false);
   const refreshPending = useRef(false);
   const dialog = useRef<HTMLDialogElement>(null);
-  /** Keep paper visibility separate from the immutable owner audit; reuse filtered rows for export. */
+  /** Reuse the visible filtered rows for export. */
   const events = useMemo(
-    () =>
-      filterAuditEvents(
-        workspace.events.filter((event) =>
-          isTradingEventVisible(event.message, tradingMode),
-        ),
-        category,
-        search,
-      ),
-    [workspace.events, tradingMode, category, search],
+    () => filterAuditEvents(workspace.events, category, search),
+    [workspace.events, category, search],
   );
   /** A manual workspace read updates the audit snapshot; quote ticks do not refetch history. */
   const refresh = useCallback(async () => {

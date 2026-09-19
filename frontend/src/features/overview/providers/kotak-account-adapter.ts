@@ -3,7 +3,6 @@
 import { requestApiJson } from "../../../lib/api";
 import {
   calculatePositionPnl,
-  type AccountPosition,
   type AccountSnapshot,
   type BrokerAccountAdapter,
 } from "../account-model";
@@ -12,104 +11,16 @@ type WireRow = Record<string, unknown>;
 /** Only finite server numbers represent known balances; missing values stay null. */
 const numberOrNull = (value: unknown) =>
   typeof value === "number" && Number.isFinite(value) ? value : null;
-/** Convert the paper ledger's integer paise to the screen's INR display contract. */
-const rupeesFromPaise = (value: unknown) => {
-  const amount = numberOrNull(value);
-  return amount === null ? null : amount / 100;
-};
-
 export const kotakAccountAdapter: BrokerAccountAdapter = {
   id: "kotak",
   name: "Kotak Neo",
-  /** GET reads authentication state only; no virtual account, quotes or execution are requested. */
+  /** GET reads authentication state only; no quotes or execution are requested. */
   async loadConnectionStatus() {
     const status = await requestApiJson("/brokers/kotak/status");
     if (typeof status.connected !== "boolean") {
       throw new Error("Broker connection status is unavailable.");
     }
     return status.connected;
-  },
-  /** Load the existing virtual ledger and connection flag without matching or sending orders. */
-  async loadPaperAccount() {
-    // GET reads the virtual ledger (lazily initialized by the server); no broker execution.
-    const wallet = await requestApiJson("/paper/kotak");
-    if (
-      !wallet.positions ||
-      typeof wallet.positions !== "object" ||
-      Array.isArray(wallet.positions) ||
-      typeof wallet.connected !== "boolean"
-    ) {
-      throw new Error("Paper account response is incomplete.");
-    }
-    // Flat positions are omitted; stale paper valuations remain unknown.
-    const positions: AccountPosition[] = Object.entries(
-      wallet.positions,
-    ).flatMap(
-      /** Normalize each ledger entry; reject malformed units instead of inventing zero. */ ([
-        id,
-        raw,
-      ]) => {
-        if (
-          !raw ||
-          typeof raw !== "object" ||
-          numberOrNull((raw as WireRow).quantity) === null
-        ) {
-          throw new Error("Paper position quantity is unavailable.");
-        }
-        const position = raw as { quantity: number; costPaise: number };
-        if (!position.quantity) {
-          return [];
-        }
-        const mark = wallet.marks?.[id];
-        const markPrice = rupeesFromPaise(mark?.bid);
-        const cost = rupeesFromPaise(position.costPaise);
-        return [
-          {
-            id,
-            instrument: id,
-            exchange: "paper",
-            symbol: id,
-            quantity: position.quantity,
-            averagePrice: cost === null ? null : cost / position.quantity,
-            markPrice,
-            pnl:
-              numberOrNull(wallet.unrealizedPaise) === null ||
-              markPrice === null ||
-              cost === null
-                ? null
-                : markPrice * position.quantity - cost,
-            pnlBase: null,
-            pnlPerMark: null,
-            markedAt: numberOrNull(mark?.observedAt),
-          },
-        ];
-      },
-    );
-    // Reservations reduce available cash, but never change the recorded all-time paper P&L.
-    const cash = rupeesFromPaise(wallet.cashPaise),
-      reserved = rupeesFromPaise(wallet.reservedPaise);
-    const realized = rupeesFromPaise(wallet.realizedPaise),
-      unrealized = rupeesFromPaise(wallet.unrealizedPaise);
-    return {
-      connected: wallet.connected === true,
-      snapshot: {
-        mode: "paper",
-        availableFunds:
-          cash === null || reserved === null ? null : cash - reserved,
-        pnl:
-          realized === null || unrealized === null
-            ? null
-            : realized + unrealized,
-        positions,
-        capturedAt: Date.now(),
-        warnings:
-          unrealized === null
-            ? [
-                "Paper marks are stale or incomplete. Refresh them in Paper trading.",
-              ]
-            : [],
-      },
-    };
   },
   /** Fetch one snapshot, preserving partial failures instead of assuming an empty account. */
   async loadLiveAccount(csrf) {

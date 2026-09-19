@@ -9,7 +9,6 @@ const tables = [
   "events",
   "research_strategies",
   "research_runs",
-  "paper_accounts",
   "live_accounts",
   "live_orders",
   "live_spreads",
@@ -19,12 +18,11 @@ type BrowserTable = (typeof tables)[number];
 
 const tableInput = z.enum(tables).default("events");
 const descriptions: Record<BrowserTable, string> = {
-  strategies: "Saved legacy paper strategies.",
-  jobs: "Legacy paper replay jobs.",
+  strategies: "Saved legacy strategies.",
+  jobs: "Legacy replay jobs.",
   events: "Your workspace activity history.",
   research_strategies: "Saved research strategy definitions.",
   research_runs: "Historical research run summaries.",
-  paper_accounts: "Your paper-trading account ledger.",
   live_accounts: "Configured live account state.",
   live_orders:
     "Live order records; changes should be made through Live positions.",
@@ -58,11 +56,6 @@ export function registerDatabaseBrowserRoutes(app: Express, store: Store) {
         case "live_accounts":
           return query(
             "SELECT id,broker_binding,halted,halt_reason,generation,snapshot,limits,reconciled_at FROM live_accounts WHERE user_id=$1 ORDER BY reconciled_at DESC LIMIT 100",
-            [userId],
-          );
-        case "paper_accounts":
-          return query(
-            "SELECT broker,ledger FROM paper_accounts WHERE user_id=$1 LIMIT 100",
             [userId],
           );
         default:

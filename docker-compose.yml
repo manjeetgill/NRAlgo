@@ -82,7 +82,6 @@ services:
       ZERODHA_API_KEY_FILE: /run/secrets/zerodha_api_key
       ZERODHA_API_SECRET_FILE: /run/secrets/zerodha_api_secret
       LIVE_TRADING_ENABLED: ${LIVE_TRADING_ENABLED:-false}
-      PAPER_TRADING_ENABLED: ${PAPER_TRADING_ENABLED:-false}
       KOTAK_STATIC_IP_CONFIRMED: ${KOTAK_STATIC_IP_CONFIRMED:-false}
       SETUP_TOKEN_FILE: /run/secrets/setup_token
       BROKER_ENCRYPTION_KEY_FILE: /run/secrets/broker_encryption_key

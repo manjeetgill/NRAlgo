@@ -5,10 +5,10 @@
 import { parse } from "csv-parse/sync";
 import { z } from "zod";
 import {
-  paperTradingDay,
-  type PaperBroker,
-  type PaperInput,
-} from "./paper-trading-ledger.js";
+  tradingDay,
+  type InstrumentSelection,
+  type MarketDataBroker,
+} from "./market-contracts.js";
 export const instrumentSearchSchema = z
   .object({
     market: z.enum(["cash", "options"]),
@@ -64,8 +64,8 @@ export function validateKotakMasterUrl(
   const day = url.pathname.split("/")[4];
   if (
     !z.iso.date().safeParse(day).success ||
-    day > paperTradingDay(Date.now()) ||
-    Date.parse(paperTradingDay(Date.now())) - Date.parse(day) > 7 * 86400000
+    day > tradingDay(Date.now()) ||
+    Date.parse(tradingDay(Date.now())) - Date.parse(day) > 7 * 86400000
   ) {
     throw new Error("Stale master source");
   }
@@ -130,7 +130,7 @@ function csvRows(csv: string, required: string[]): Record<string, string>[] {
 }
 /** Parse only NSE equity series and listed call/put contracts. Futures/indices are not order tickets. */
 export function parseInstrumentCsv(
-  broker: PaperBroker,
+  broker: MarketDataBroker,
   market: "cash" | "options",
   csv: string,
 ): CatalogInstrument[] {
@@ -178,7 +178,7 @@ export function parseInstrumentCsv(
     ) {
       throw new Error("Invalid contract identity or lot size");
     }
-    // Paper tickets cap quantity at 10,000 units. Do not offer an unplaceable single lot.
+    // Bound quantities accepted by account and research consumers.
     if (lotSize > 10000) {
       continue;
     }
@@ -208,7 +208,7 @@ export function parseInstrumentCsv(
       ) {
         throw new Error("Unsupported Kotak units");
       }
-      const expiryDate = paperTradingDay((epoch + 315511200) * 1000);
+      const expiryDate = tradingDay((epoch + 315511200) * 1000);
       const strikePrice = Number(row.dStrikePrice) / 100;
       if (
         !Number.isFinite(strikePrice) ||
@@ -258,12 +258,12 @@ export class InstrumentCatalog {
     const value = this.cache.get(key);
     return value &&
       Date.now() - value.fetchedAt < 15 * 60000 &&
-      paperTradingDay(value.fetchedAt) === paperTradingDay(Date.now())
+      tradingDay(value.fetchedAt) === tradingDay(Date.now())
       ? value
       : undefined;
   }
   /** Check master freshness before resolving contracts; stale metadata cannot authorize execution. */
-  public isFresh(broker: PaperBroker, market: "cash" | "options") {
+  public isFresh(broker: MarketDataBroker, market: "cash" | "options") {
     return Boolean(this.current(`${broker}:${market}`));
   }
   /** Live execution never trusts client-supplied symbols, tick sizes or lot sizes. */
@@ -277,7 +277,7 @@ export class InstrumentCatalog {
     if (
       !row ||
       !row.tickPaise ||
-      (row.option && row.option.expiryDate < paperTradingDay(Date.now()))
+      (row.option && row.option.expiryDate < tradingDay(Date.now()))
     ) {
       throw new Error(
         "Reload Kotak master; a current contract with a verified tick size is required",
@@ -287,7 +287,7 @@ export class InstrumentCatalog {
   }
   /** Single-flight downloads prevent simultaneous searches from multiplying large public fetches. */
   public async load(
-    broker: PaperBroker,
+    broker: MarketDataBroker,
     market: "cash" | "options",
     url?: string,
   ) {
@@ -314,14 +314,14 @@ export class InstrumentCatalog {
     }
   }
   /** Return bounded pages plus expiry facets; master listings do not imply executable quotes. */
-  public search(broker: PaperBroker, input: InstrumentSearch) {
+  public search(broker: MarketDataBroker, input: InstrumentSearch) {
     const data = this.current(`${broker}:${input.market}`);
     if (!data) {
       throw new Error("Reload instrument search; master cache expired.");
     }
     const matching = data.rows.filter(
       (row) =>
-        (!row.option || row.option.expiryDate >= paperTradingDay(Date.now())) &&
+        (!row.option || row.option.expiryDate >= tradingDay(Date.now())) &&
         `${row.symbol} ${row.name} ${row.instrument}`
           .toUpperCase()
           .includes(input.query),
@@ -359,7 +359,7 @@ export class InstrumentCatalog {
   /** Selected tickets must match the cached broker contract exactly; browser metadata is not authority. */
   /** Resolve an exact research contract; never translate broker aliases or guess a token. */
   public resolveResearch(
-    broker: PaperBroker,
+    broker: MarketDataBroker,
     market: "cash" | "options",
     leg: {
       stockCode: string;
@@ -389,8 +389,8 @@ export class InstrumentCatalog {
   }
   /** Selected tickets must match the cached broker contract exactly; browser metadata is not authority. */
   public validate(
-    broker: PaperBroker,
-    input: Pick<PaperInput, "instrument" | "option" | "masterToken">,
+    broker: MarketDataBroker,
+    input: InstrumentSelection,
     quantity?: number,
   ) {
     if (!input.masterToken) {

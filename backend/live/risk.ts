@@ -1,4 +1,4 @@
-/** Pure LIVE pre-trade risk evaluation. This is not imported by the paper simulator/worker.
+/** Pure LIVE pre-trade risk evaluation. Research and replay do not import it.
  * Call under the account database lock and atomically persist the returned reservation.
  * Conservative notional limits are a test foundation, NOT a derivatives margin/SPAN engine.
  */

@@ -4,7 +4,6 @@ import { requestApiJson } from "@/lib/api";
 import {
   applyPriceTicks,
   retainKnownExposure,
-  type AccountMode,
   type AccountSnapshot,
   type BrokerAccountAdapter,
 } from "@/features/overview/account-model";
@@ -12,13 +11,8 @@ import {
 /** Own Overview's read-only account lifecycle; rendering components never call APIs.
  * Initial selection and explicit refresh load snapshots. Only the server's streamed-price
  * cache is polled, never broker positions, funds, order history or trade history.
- * Adapter/session changes invalidate pending responses; paper/live state stays separate. */
-export function useOverviewAccount(
-  broker: BrokerAccountAdapter,
-  csrf: string,
-  mode: AccountMode,
-) {
-  const [paper, setPaper] = useState<AccountSnapshot | null>(null);
+ * Adapter/session changes invalidate pending responses. */
+export function useOverviewAccount(broker: BrokerAccountAdapter, csrf: string) {
   const [live, setLive] = useState<AccountSnapshot | null>(null);
   const [connected, setConnected] = useState<boolean | null>(null);
   const [mfaEnabled, setMfaEnabled] = useState<boolean | null>(null);
@@ -35,7 +29,7 @@ export function useOverviewAccount(
   const loadAccountSnapshot = useCallback(
     /** Load readiness independently, then only the configured account's funds/positions.
      * This callback handles its own rejection so event handlers can safely invoke it with void. */
-    async (requestedMode: AccountMode) => {
+    async () => {
       if (inFlight.current) {
         return;
       }
@@ -63,22 +57,17 @@ export function useOverviewAccount(
           },
         );
       try {
-        // Mode-isolated API orchestration: a live read must never initialize a virtual wallet.
-        const result = await loadOverviewSnapshot(broker, csrf, requestedMode);
+        const result = await loadOverviewSnapshot(broker, csrf);
         if (version !== generation.current) {
           return;
         }
         setConnected(result.connected);
-        if (requestedMode === "paper") {
-          setPaper(result.snapshot);
-        } else {
-          liveSnapshot.current = result.snapshot;
-          setLive(
-            /** Keep prior exposure until a successful broker snapshot proves it changed. */ (
-              previous,
-            ) => retainKnownExposure(previous, result.snapshot),
-          );
-        }
+        liveSnapshot.current = result.snapshot;
+        setLive(
+          /** Keep prior exposure until a successful broker snapshot proves it changed. */ (
+            previous,
+          ) => retainKnownExposure(previous, result.snapshot),
+        );
       } catch (failure) {
         if (version === generation.current) {
           setConnected(null);
@@ -112,29 +101,24 @@ export function useOverviewAccount(
   useEffect(() => {
     generation.current++;
     inFlight.current = false;
-    setPaper(null);
     setLive(null);
     liveSnapshot.current = null;
     setConnected(null);
     setMfaEnabled(null);
-    void loadAccountSnapshot(mode);
+    void loadAccountSnapshot();
     // Capture the ref container, not its value: later manual refreshes must also be invalidated.
     const requestGeneration = generation;
     /** Invalidate outstanding promises without changing shared broker connections. */
     return () => {
       requestGeneration.current++;
     };
-  }, [loadAccountSnapshot, mode]);
+  }, [loadAccountSnapshot]);
   /** Re-subscribe after adapter, session, mode, connection or snapshot identity changes.
    * Tick updates preserve capturedAt, so price renders do not recreate the timer.
    * Cleanup cancels this consumer, but leaves the shared feed available to other screens. */
   useEffect(() => {
     const subscribedSnapshot = liveSnapshot.current;
-    if (
-      mode !== "live" ||
-      !subscribedSnapshot?.positions?.length ||
-      connected !== true
-    ) {
+    if (!subscribedSnapshot?.positions?.length || connected !== true) {
       setFeedMessage("No active price subscription · last known values only");
       return;
     }
@@ -215,9 +199,8 @@ export function useOverviewAccount(
       cancelled = true;
       clearInterval(timer);
     };
-  }, [broker, csrf, mode, connected, liveSnapshotAt]);
+  }, [broker, csrf, connected, liveSnapshotAt]);
   return {
-    paper,
     live,
     connected,
     mfaEnabled,
@@ -228,16 +211,11 @@ export function useOverviewAccount(
   };
 }
 
-/** Fetch only the active mode. Live reads authentication first and never call the virtual-wallet API. */
+/** Read authentication first, then load one broker snapshot. */
 export async function loadOverviewSnapshot(
   broker: BrokerAccountAdapter,
   csrf: string,
-  mode: AccountMode,
 ): Promise<{ connected: boolean; snapshot: AccountSnapshot | null }> {
-  if (mode === "paper") {
-    // Adapter API: load virtual funds only when explicitly configured for this workspace.
-    return broker.loadPaperAccount();
-  }
   // Adapter APIs: authentication and one broker snapshot, with no automatic order submission.
   const connected = await broker.loadConnectionStatus();
   return {

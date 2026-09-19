@@ -54,7 +54,6 @@ export function createKotakMarketDataProvider(
         });
       }
     },
-    getPaperFillQuote: (...args) => client.getPaperFillQuote(...args),
     getQuoteSnapshots: (...args) => client.getQuoteSnapshots(...args),
     getHistoricalCandlesForDay: (...args) =>
       client.getHistoricalCandlesForDay(...args),

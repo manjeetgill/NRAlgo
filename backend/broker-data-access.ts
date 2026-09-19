@@ -1,6 +1,6 @@
 /** Defines read-only broker operations and prevents overlapping requests for the same user. */
 import { fail } from "./security.js";
-import type { PaperQuote } from "./paper-trading-ledger.js";
+import type { TopOfBookQuote } from "./market-contracts.js";
 import type { PortfolioRow } from "./broker-portfolio-normalizer.js";
 
 /** App-level NSE segments. Each adapter translates these into its broker's wire codes. */
@@ -16,24 +16,22 @@ export interface MarketSnapshot {
   stale: boolean;
 }
 
-/** Read-only extension boundary. Authentication stays broker-specific; paper and research
- * consume normalized data. Deliberately no place/modify/cancel method or live-mode flag.
+/** Read-only extension boundary. Authentication stays broker-specific and consumers receive
+ * normalized data. Deliberately no place/modify/cancel method or execution-mode flag.
  * A future adapter must preserve session ownership, timestamps and missing-data semantics.
  */
 export interface BrokerMarketDataReader extends BrokerAccountReader {
   /** Check local session ownership and expiry. This does not call the broker. */
   isConnected(userId: string, sessionHash: string): boolean;
-  /** Fetch a bid/ask quote for a simulated fill. Prices are integer paise, timestamps
-   * are epoch milliseconds, and the paper ledger checks freshness before matching.
-   */
-  getPaperFillQuote(
+  /** Fetch executable top-of-book data. Prices are integer paise and timestamps are epoch milliseconds. */
+  getTopOfBookQuote(
     userId: string,
     sessionHash: string,
     instrument: string,
     segment?: MarketSegment,
-  ): Promise<PaperQuote>;
+  ): Promise<TopOfBookQuote>;
   /** Fetch display prices in rupees for cash/options tokens. Missing values stay null;
-   * these display snapshots cannot replace the stricter fill quote above.
+   * these display snapshots cannot replace the stricter top-of-book quote above.
    */
   getQuoteSnapshots(
     userId: string,
@@ -61,7 +59,7 @@ export interface BrokerMarketDataReader extends BrokerAccountReader {
 /** Account-only boundary; independent of the selected market-data provider. */
 export interface BrokerAccountReader {
   isConnected(userId: string, sessionHash: string): boolean;
-  /** Read real broker positions/holdings without changing the separate virtual wallet. */
+  /** Read real broker positions and holdings without mutating the broker account. */
   getPortfolioRows(
     userId: string,
     sessionHash: string,

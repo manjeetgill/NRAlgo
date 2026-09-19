@@ -181,7 +181,7 @@ export function BrokersScreen({ csrf }: { csrf: string }) {
           </p>
         )}
         <form onSubmit={onConnect} autoComplete="off">
-          <div className="paper-grid">
+          <div className="market-grid">
             {adapter.fields.map(
               /** Render provider-owned fields without hard-coding them into the hook. */ (
                 field,

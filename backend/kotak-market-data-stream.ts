@@ -469,7 +469,7 @@ export class KotakMarketDataStream {
   }
 
   /** Keep only subscribed instruments. Arrival time measures connection activity, not
-   * exchange freshness, so these cached prices must never be used to match paper orders.
+   * exchange freshness, so these cached prices must never authorize orders.
    */
   private updateQuotesFromBinaryFrame(data: unknown) {
     if (!(data instanceof ArrayBuffer)) {
@@ -543,7 +543,7 @@ export class KotakMarketDataStream {
     };
     this.connectionState = requestedState[action];
     this.statusMessage =
-      "Indicative feed only; exchange timestamp units are unverified. Not used for paper fills.";
+      "Indicative feed only; exchange timestamp units are unverified. Not executable.";
     if (action === "unsubscribe") {
       this.latestQuotes.clear();
     }

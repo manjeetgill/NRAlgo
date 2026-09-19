@@ -1,5 +1,5 @@
 "use client";
-/** Explicit read-only account snapshot. No paper wallet or execution API is called here. */
+/** Explicit read-only account snapshot. No execution API is called here. */
 import { useState } from "react";
 import { requestApiJson } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -18,7 +18,7 @@ type Row = {
 };
 type Section = { rows: Row[] | null; error: string | null };
 type Snapshot = { observedAt: number; positions: Section; holdings: Section };
-/** Broker monetary fields are rupees, unlike the paper ledger's integer paise. */
+/** Broker monetary fields are rupees. */
 const rupees = (value: number | null) =>
   value === null
     ? "Unavailable"
@@ -60,7 +60,7 @@ export function BrokerPortfolioPanel({
     }
   }
   return (
-    <section className="paper-wallet" aria-label="Broker portfolio">
+    <section className="market-panel" aria-label="Broker portfolio">
       <h3>Broker portfolio — read only</h3>
       {broker === "kotak" && <KotakAccountReports csrf={csrf} />}
       <p>
@@ -104,7 +104,7 @@ export function BrokerPortfolioPanel({
                         : ""}
                       .
                     </p>
-                    <div className="paper-table">
+                    <div className="market-table">
                       <table>
                         <thead>
                           <tr>

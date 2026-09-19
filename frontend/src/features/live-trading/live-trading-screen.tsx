@@ -12,7 +12,7 @@ import {
 /** No order is placed or account armed by opening this screen. */
 export function LiveTradingScreen({ csrf }: { csrf: string }) {
   const broker = availableBrokers[0];
-  const account = useOverviewAccount(broker, csrf, "live");
+  const account = useOverviewAccount(broker, csrf);
   const [selected, setSelected] = useState<AccountPosition | null>(null);
   const reviewDialog = useRef<HTMLDialogElement>(null);
   const controls = useRef<HTMLDetailsElement>(null);
@@ -60,7 +60,7 @@ export function LiveTradingScreen({ csrf }: { csrf: string }) {
           <Button
             variant="secondary"
             disabled={account.loading}
-            onClick={() => void account.loadAccountSnapshot("live")}
+            onClick={() => void account.loadAccountSnapshot()}
           >
             Refresh position snapshot
           </Button>

@@ -1,5 +1,5 @@
 "use client";
-/** Saved research definitions are independent of paper wallets and live execution permission. */
+/** Saved research definitions are independent of live execution permission. */
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { PageActions } from "@/features/workspace/workspace-views";

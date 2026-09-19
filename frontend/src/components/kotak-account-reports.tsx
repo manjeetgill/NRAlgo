@@ -1,5 +1,5 @@
 "use client";
-/** Selected broker-owned account fields only. Reports never modify the separate paper ledger. */
+/** Selected broker-owned account fields only. Reports never modify execution state. */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { requestApiJson } from "@/lib/api";
 import { Button } from "./ui/button";

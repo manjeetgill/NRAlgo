@@ -31,7 +31,6 @@ export type Job = {
   result: Result;
 };
 export type WorkspaceSnapshot = {
-  paper_trading_enabled?: boolean;
   live_submission_enabled?: boolean;
   live_configured?: boolean;
   username: string;
@@ -48,7 +47,6 @@ export type WorkspacePage =
   | "Strategy library"
   | "Spread builder"
   | "Simulator"
-  | "Broker paper"
   | "Strategy lab"
   | "Live trading"
   | "Overview"

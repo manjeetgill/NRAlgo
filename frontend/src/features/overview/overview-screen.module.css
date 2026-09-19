@@ -145,7 +145,7 @@
 .negative {
   color: #b42332;
 }
-/* Selected paper/live account, explicit refresh and expandable position details. */
+/* Selected live account, explicit refresh and expandable position details. */
 .accountStrip {
   padding: 16px 20px;
 }

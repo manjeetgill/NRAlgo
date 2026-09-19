@@ -84,7 +84,7 @@ export async function createLiveAccount(
   return id;
 }
 
-/** Append non-secret safety facts. Live events are separate from paper audit history. */
+/** Append non-secret safety facts to the live execution audit. */
 async function recordLiveEvent(
   query: Query,
   accountId: string,
@@ -1078,7 +1078,7 @@ export class LiveExecutionService {
   }
 
   /** A restart always halts first. Polling is serial (no overlapping reconciliation jobs),
-   * and never auto-resumes. The existing paper worker does not import or launch this loop.
+   * and never auto-resumes. Research workers do not import or launch this loop.
    */
   public async runReconciliationLoop(signal: AbortSignal, intervalMs = 1000) {
     if (intervalMs < 100 || intervalMs > 2000) {

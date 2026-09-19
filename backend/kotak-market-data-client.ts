@@ -6,7 +6,7 @@
 import { z } from "zod";
 import { createHash } from "node:crypto";
 import type { BrokerMarketDataReader } from "./broker-data-access.js";
-import type { PaperQuote } from "./paper-trading-ledger.js";
+import type { TopOfBookQuote } from "./market-contracts.js";
 import { normalizePortfolioRows } from "./broker-portfolio-normalizer.js";
 import { validateKotakMasterUrl } from "./instrument-master.js";
 import {
@@ -371,12 +371,12 @@ function convertRupeesToPaise(value: unknown) {
   return Math.round(n);
 }
 /** Match the requested exchange/token exactly and retain the exchange update epoch, not HTTP arrival. */
-export function parseKotakPaperFillQuote(
+export function parseKotakTopOfBookQuote(
   raw: unknown,
   instrument: string,
   now = Date.now(),
   segment: "nse_cm" | "nse_fo" = "nse_cm",
-): PaperQuote {
+): TopOfBookQuote {
   if (!Array.isArray(raw) || raw.length !== 1) {
     throw new Error("Missing or ambiguous Kotak quote.");
   }
@@ -683,7 +683,7 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
     };
   }
   /** One bounded snapshot request for server-resolved NFO contracts. Missing fields stay null;
-   * never use a display snapshot as a paper fill or substitute another contract's price.
+   * never use a display snapshot as executable top-of-book or substitute another contract's price.
    * Kotak documents up to 50 instruments per quotes request in its current SDK.
    */
   public async getQuoteSnapshots(
@@ -850,7 +850,7 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
     });
   }
   /** Read executable top-of-book separately from research data. */
-  public async getPaperFillQuote(
+  public async getTopOfBookQuote(
     userId: string,
     sessionHash: string,
     instrument: string,
@@ -884,14 +884,14 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
       ) {
         throw new Error("Connection changed during quote request.");
       }
-      return parseKotakPaperFillQuote(raw, instrument, Date.now(), segment);
+      return parseKotakTopOfBookQuote(raw, instrument, Date.now(), segment);
     } catch {
       // A delayed failure belongs to its captured session, never a newer login.
       if (this.sessions.get(userId) === session) {
         this.disconnect(userId);
       }
       throw new Error(
-        "Kotak data unavailable. Reconnect and verify the instrument; paper matching is paused.",
+        "Kotak top-of-book data unavailable. Reconnect and verify the instrument.",
       );
     }
   }

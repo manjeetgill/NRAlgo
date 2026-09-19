@@ -3,14 +3,12 @@
  * Values use INR, exchange units and epoch milliseconds. Unknown marks remain unknown;
  * these presentation calculations never authorize execution or replace server risk checks.
  */
-export type { TradingMode as AccountMode } from "@/lib/trading-mode";
-import type { TradingMode as AccountMode } from "@/lib/trading-mode";
+export type AccountMode = "live";
 /** Navigation targets understood by the workspace shell; no execution commands are exposed. */
 export type OverviewDestination =
   | "Portfolio"
   | "Strategies"
   | "Strategy lab"
-  | "Broker paper"
   | "Brokers"
   | "Live trading"
   | "Account & security"
@@ -50,13 +48,8 @@ export interface PriceTick {
 export interface BrokerAccountAdapter {
   id: string;
   name: string;
-  /** Read broker authentication without loading or creating a virtual ledger. */
+  /** Read broker authentication without mutating account state. */
   loadConnectionStatus(): Promise<boolean>;
-  /** A read-only account adapter: screen navigation must never submit or arm orders. */
-  loadPaperAccount(): Promise<{
-    connected: boolean;
-    snapshot: AccountSnapshot;
-  }>;
   /** Load funds/open positions once; reject transport failures and preserve partial-report unknowns. */
   loadLiveAccount(csrf: string): Promise<AccountSnapshot>;
   /** Subscribe cached live positions with CSRF protection; never arm, submit or modify orders. */
@@ -69,7 +62,6 @@ export interface OverviewWorkspace {
   csrf: string;
   halted: boolean;
   live_configured?: boolean;
-  paper_trading_enabled?: boolean;
   strategies: { id: string; name: string; status: string }[];
   jobs: { id: string; status: string }[];
   events: { id: number; message: string; created_at: string }[];

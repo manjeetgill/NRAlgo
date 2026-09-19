@@ -247,11 +247,7 @@ function parseWorkspaceSnapshot(value: unknown): WorkspaceSnapshot {
     typeof value.csrf !== "string" ||
     !value.csrf ||
     typeof value.halted !== "boolean" ||
-    ![
-      "paper_trading_enabled",
-      "live_configured",
-      "live_submission_enabled",
-    ].every(
+    !["live_configured", "live_submission_enabled"].every(
       /** Absent presentation flags fail closed to live read-only defaults. */ (
         key,
       ) => value[key] === undefined || typeof value[key] === "boolean",

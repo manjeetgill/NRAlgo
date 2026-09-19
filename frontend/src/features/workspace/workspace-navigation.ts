@@ -7,7 +7,6 @@ import {
   FlaskConical,
   LayoutDashboard,
   BriefcaseBusiness,
-  Radio,
   ShieldCheck,
   Wallet,
 } from "lucide-react";
@@ -24,7 +23,6 @@ export const workspaceNavigation: ReadonlyArray<{
   { name: "Strategy lab", icon: FlaskConical },
   { name: "Spread builder", icon: Blocks },
   { name: "Simulator", icon: FlaskConical },
-  { name: "Broker paper", icon: Radio },
   { name: "Option chain", icon: Database },
   { name: "Orders & trades", icon: ArrowDownLeft },
   { name: "Brokers", icon: Wallet },
@@ -60,7 +58,7 @@ export const workspaceSections: ReadonlyArray<{
   {
     label: "Trading",
     icon: ArrowDownLeft,
-    pages: ["Orders & trades", "Live trading", "Broker paper"],
+    pages: ["Orders & trades", "Live trading"],
   },
   {
     label: "Settings",
@@ -72,7 +70,6 @@ export const workspaceSections: ReadonlyArray<{
 /** Human-facing screen names stay independent from the stable internal navigation keys. */
 export const workspacePageLabels: Partial<Record<WorkspacePage, string>> = {
   "Strategy lab": "Algo lab",
-  "Broker paper": "Paper trading",
   Brokers: "Broker connections",
   "Live trading": "Live positions",
   "Activity log": "Audit log",
@@ -92,8 +89,6 @@ export const workspacePageDescriptions: Partial<Record<WorkspacePage, string>> =
       "Build option baskets from current and open-expiry market data.",
     Simulator:
       "Replay stored historical option-chain observations without broker execution.",
-    "Broker paper":
-      "Review quote-driven orders in your separate virtual account.",
     "Option chain":
       "Explore listed contracts and prices from the shared market feed.",
     Portfolio: "View one connected broker portfolio or club all real accounts.",
@@ -116,7 +111,6 @@ export function getWorkspacePageLabel(page: WorkspacePage): string {
 /** Stable, readable fragment routes contain no account identifiers or credentials. */
 export function getWorkspacePageHash(page: WorkspacePage): string {
   const referenceRoutes: Partial<Record<WorkspacePage, string>> = {
-    "Broker paper": "paper",
     "Orders & trades": "orders",
     Brokers: "brokers",
     "Account & security": "security",

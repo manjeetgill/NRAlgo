@@ -39,7 +39,6 @@ const env = {
   APP_DOMAIN: "recovery.invalid",
   SECRETS_DIR: temporary,
   LIVE_TRADING_ENABLED: "false",
-  PAPER_TRADING_ENABLED: "false",
   KOTAK_STATIC_IP_CONFIRMED: "false",
   ALLOW_PUBLIC_REGISTRATION: "false",
   MARKET_DATA_PROVIDER: "kotak",

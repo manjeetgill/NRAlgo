@@ -26,7 +26,7 @@ import {
 import { BrokerRequestCoordinator } from "./broker-data-access.js";
 import { registerResearchRoutes } from "./strategy-research-routes.js";
 import { registerHistoricalMarketDataRoutes } from "./historical-market-data-routes.js";
-import { registerPaperRoutes } from "./paper-trading-routes.js";
+import { registerMarketDataRoutes } from "./market-data-routes.js";
 import { createKotakMarketDataProvider } from "./kotak-market-data-provider.js";
 import {
   selectMarketDataProvider,
@@ -82,7 +82,6 @@ const strategyInput = z
     capital: z.number().int().min(1000).max(500000),
     fast: z.number().int().min(2).max(40).default(9),
     slow: z.number().int().min(3).max(80).default(21),
-    mode: z.literal("paper").default("paper"),
   })
   .refine((strategy) => strategy.fast < strategy.slow);
 
@@ -122,8 +121,6 @@ export function createApiApplication(
   const savedBrokerSessions = new BrokerSessionStore(store, vault);
   const restoreEpoch = new Map<string, number>();
   const restores = new Map<string, { until: number; promise: Promise<void> }>();
-  // Runtime presentation setting, deliberately independent of real-money execution permission.
-  const paperTradingEnabled = env.PAPER_TRADING_ENABLED === "true";
   const brokerAccess = new BrokerRequestCoordinator();
   const calculationClient =
     injectedCalculationClient || new CalculationClient(env);
@@ -148,7 +145,7 @@ export function createApiApplication(
     savedBrokerSessions,
   );
   const kotakClient = kotakData || new KotakMarketDataClient();
-  // Share one public catalog between paper tickets and research contract resolution.
+  // Share one public catalog between market-data and research contract resolution.
   const catalog = instrumentCatalog || new InstrumentCatalog();
   const liveManager = new KotakLiveManager(
     store,
@@ -315,7 +312,6 @@ export function createApiApplication(
         setup_token_required: Boolean(setupToken),
         registration_enabled: registrationEnabled,
         invite_required: !openRegistration,
-        paper_trading_enabled: paperTradingEnabled,
       })),
     ),
   );
@@ -374,7 +370,7 @@ export function createApiApplication(
         );
         await audit(
           query,
-          "Account created. Private paper workspace initialized.",
+          "Account created. Private workspace initialized.",
           userId,
         );
         return issueSession(query, res, userId);
@@ -668,7 +664,6 @@ export function createApiApplication(
       await store.transaction(async (query) => ({
         live_submission_enabled: false,
         live_configured: liveManager.enabled,
-        paper_trading_enabled: paperTradingEnabled,
         username: (
           await query<User>("SELECT username FROM users WHERE id=$1", [userId])
         )[0].username,
@@ -776,8 +771,8 @@ export function createApiApplication(
       await audit(
         query,
         halted
-          ? "Paused your paper work. Pending replays cancelled."
-          : "Paper workspace resumed.",
+          ? "Paused research work. Pending replays cancelled."
+          : "Research workspace resumed.",
         userId,
       );
     });
@@ -807,7 +802,7 @@ export function createApiApplication(
       ? kotakClient.isConnected(userId, sessionHash)
       : zerodha.isConnected(userId, sessionHash),
   );
-  registerPaperRoutes(
+  registerMarketDataRoutes(
     app,
     store,
     brokerAccess,

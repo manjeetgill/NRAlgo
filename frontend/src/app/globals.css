@@ -1838,19 +1838,19 @@ input::placeholder {
     grid-template-columns: 1fr;
   }
 }
-.paper-wallet {
+.market-panel {
   display: grid;
   gap: 18px;
   margin-top: 20px;
   min-width: 0;
 }
-.paper-wallet form {
+.market-panel form {
   min-width: 0; /* Nested contract tables scroll inside the ticket, not the mobile page. */
   padding: 20px;
   border: 1px solid #dce3ed;
   border-radius: 12px;
 }
-.paper-grid {
+.market-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 16px;
@@ -1889,15 +1889,15 @@ input::placeholder {
   min-width: 0;
   padding: 10px;
 }
-.paper-grid label,
-.paper-grid strong {
+.market-grid label,
+.market-grid strong {
   display: block;
 }
-.paper-wallet input,
-.paper-wallet select {
+.market-panel input,
+.market-panel select {
   max-width: 100%;
 }
-.paper-table {
+.market-table {
   overflow-x: auto;
   min-width: 0;
 }
@@ -1949,13 +1949,13 @@ input::placeholder {
   white-space: nowrap;
   border-bottom: 1px solid #dce3ed;
 }
-.paper-table table {
+.market-table table {
   width: 100%;
   text-align: left;
   border-collapse: collapse;
 }
-.paper-table td,
-.paper-table th {
+.market-table td,
+.market-table th {
   padding: 10px;
   border-bottom: 1px solid #dce3ed;
 }

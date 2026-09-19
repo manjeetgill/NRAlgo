@@ -60,7 +60,6 @@ Consolidated frontend modules have explicit owners: `features/overview/account-m
 | `backend/broker-registry.ts`, `zerodha-connection.ts` | Owner-scoped active selection and one-use Zerodha authorization with a private SDK adapter |
 | `backend/kotak-*`, `market-data-provider.ts`, `instrument-master.ts` | Kotak adapter, bounded provider contracts, streaming and exact instrument identity |
 | `backend/live/` | Order intent binding, preview/confirmation, risk reservations, adapter dispatch, reconciliation and halt controls |
-| `backend/paper-trading-*` | Separate virtual-account ledger; cannot authorize real orders |
 | `backend/stored-market-data.ts` | Stored instrument/candle validation, batch persistence and bounded reads |
 | `backend/option-chain-history.ts` | Exchange-session display selection and captured-chain fallback |
 | `backend/historical-market-data*` | Broker historical-data transport validation; not backtest calculations |
@@ -97,7 +96,7 @@ Consolidated frontend modules have explicit owners: `features/overview/account-m
 
 Kotak live execution is implemented behind explicit enablement. Zerodha authorization/connection is separate from execution capability; selecting an unsupported execution adapter fails closed. ICICI is not implemented.
 
-The server resolves the active broker when an intent is bound. Changing the selection must not move existing orders or positions to another broker. Live execution requires configured server flags, app MFA, an authenticated broker session, registered static-IP prerequisites, risk limits, fresh reconciliation and explicit time-limited arming. A paper-mode setting never grants live permission.
+The server resolves the active broker when an intent is bound. Changing the selection must not move existing orders or positions to another broker. Live execution requires configured server flags, app MFA, an authenticated broker session, registered static-IP prerequisites, risk limits, fresh reconciliation and explicit time-limited arming.
 
 Preview is not submission. Unknown submission outcomes must be reconciled, never automatically resent. Halt latches permission off; cancellation acknowledgements do not prove exchange cancellation, and halt does not automatically flatten positions. Keep `LIVE_TRADING_ENABLED=false` until these paths have been manually verified with the broker.
 
