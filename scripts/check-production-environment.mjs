@@ -173,6 +173,18 @@ export function productionEnvironmentErrors(env, envPath = ".env") {
   }
 
   const backupUri = required("BACKUP_S3_URI");
+  if (
+    !/^arn:aws:sns:[a-z0-9-]+:\d{12}:[A-Za-z0-9_-]+$/.test(
+      required("ALERT_SNS_TOPIC_ARN"),
+    )
+  ) {
+    errors.push(
+      "ALERT_SNS_TOPIC_ARN must identify a topic with a confirmed notification subscription.",
+    );
+  }
+  if (!/^[a-z]{2}(?:-[a-z]+)+-\d$/.test(required("AWS_REGION"))) {
+    errors.push("AWS_REGION must be a valid AWS region name.");
+  }
   if (backupUri) {
     try {
       const url = new URL(backupUri);

@@ -26,6 +26,8 @@ preflight:
 deploy:
 	$(MAKE) preflight
 	$(COMPOSE) pull
+	$(COMPOSE) create
+	sudo /usr/bin/node --env-file=.env scripts/host-operations.mjs protect-metadata
 	$(COMPOSE) up -d --no-build --pull never --wait --wait-timeout 240
 	$(COMPOSE) exec -T api node -e "fetch('http://127.0.0.1:8000/api/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
 logs:
@@ -34,3 +36,13 @@ stop:
 	$(COMPOSE) stop
 status:
 	$(COMPOSE) ps
+
+# Builds are explicit and local; this target never deploys or contacts a real broker.
+.PHONY: recovery-images recovery-check
+recovery-images:
+	docker build --target backend -t nraialgo-recovery-backend:local .
+	docker build --target calculation -t nraialgo-recovery-calculation:local .
+	docker build --target web -t nraialgo-recovery-web:local .
+	docker build --target backup -t nraialgo-recovery-backup:local .
+recovery-check:
+	node scripts/staging-recovery.mjs

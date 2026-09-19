@@ -103,27 +103,58 @@ Preview is not submission. Unknown submission outcomes must be reconciled, never
 
 ## Single-host deployment
 
-Configure a real domain and private `.env` from `.env.example`. Keep runtime, migration, backup and encryption secrets distinct. Retain the broker/backup encryption keys securely outside the host: lost keys can make encrypted data unrecoverable.
+The supported topology is one Linux host, one API and **one calculator container**. A 4 GiB host is a starting configuration, not a live-trading performance guarantee. Steady-state container memory caps total 2,816 MiB; migrations add at most 384 MiB temporarily. Leave the remaining memory for Linux and Docker. Builds and recovery drills belong on development/CI machines, never on the trading host.
+
+### Worker safety and resource limits
+
+- PostgreSQL serializes job claims globally. Each claim has a unique token, a renewable 150-second lease and at most three recovery attempts. Starting an API never resets another worker's unexpired claim. Every completion is fenced by its token; cancellation is persisted and checked on the five-second heartbeat.
+- Stored candles are read in 500-row pages from a consistent snapshot, with a hard 10,000-row final payload limit. This is bounded batching, not an unlimited streaming backtest engine.
+- `calculation_engine/worker.py` is the only supported HTTP entrypoint. It admits one request at a time and runs numerical routes in a disposable process. Disconnect, crash, timeout and shutdown release that process; Linux parent-death protection prevents orphan computation. An eight-MiB measured request limit also covers chunked bodies. Child limits are 60 CPU seconds, 640 MiB address space and 90 seconds wall time. The container has 768 MiB, 0.75 CPU and 64 PIDs; numerical libraries use one thread.
+- Heavy backtests and stored-session research are paused whenever `LIVE_TRADING_ENABLED=true`, even before an account is armed. Payoff/Greeks remain available, but compete for the same bounded calculator. Research never bypasses Node's live execution checks.
+- `/api/health` checks database liveness; `/api/ready` additionally checks calculator health and worker progress. Calculator health remains responsive while busy. Do not scale the calculator or enable several live API instances without a separate capacity/execution review.
+
+### CI release and first deployment
+
+Every incoming commit runs the isolated build preflight. Successful pushes to `main` additionally build four runtime images, run the disposable recovery drill, and only then publish images to GHCR. The `release-<commit>` artifact contains `release.env`, including digests for app, PostgreSQL and Caddy images. It currently targets Linux amd64; use an amd64 EC2 instance. Images are not automatically deployed to AWS.
+
+Provision Docker Compose, Node 22+, AWS CLI, iptables/ip6tables, a real domain/TLS, encrypted EBS and a private versioned S3 backup bucket. The EC2 security group should expose only 80/443; use SSM for administration instead of a public database or broad SSH rule. Require IMDSv2. The backup container needs metadata hop limit 2; container forwarding rules restrict metadata access to its dedicated network.
+
+Keep `.env` nonsecret and mode 0600. Put the release artifact at `.env.release`. Use a separate deployment identity to retrieve a Secrets Manager JSON document containing the uppercase names listed in `scripts/host-operations.mjs`. Export into a **new** versioned directory; files are explicitly readable by their mounted container UID while the enclosing directory remains owner-only. No secrets are copied into images or published in Docker environment metadata. Optional registration/Zerodha fields may be empty, but their files must exist. Do not keep permanent AWS access keys in `.env`.
 
 ```sh
+# Run export using a deployment identity authorized for this one secret.
+SECRETS_DIR=/etc/nraialgo/secrets-v1 SECRETS_MANAGER_ID=your-secret-id \
+  node scripts/host-operations.mjs export-secrets
+# Set SECRETS_DIR, APP_DOMAIN, BACKUP_S3_URI, AWS_REGION and flags in .env.
+# Copy release.env from the verified CI artifact to .env.release.
 chmod 600 .env
 make preflight
 make deploy
 make status
-make logs
 ```
 
-Only Caddy publishes ports 80/443. PostgreSQL, the API and calculator stay on the private container network. Migrations run before the API. Backups use a separate read-only database account, authenticated encryption and configured S3 upload. Use an EC2 IAM role instead of permanent AWS keys where possible. Perform an actual restore drill; a green health check is not proof of recoverability.
+`make deploy` pulls immutable images, creates service networks, requires a privileged metadata-protection command, then starts the stack without building. Run from a stable Linux path such as `/opt/nraialgo`; `/usr/bin/node` and sudo are required for the firewall command. Never skip this step to work around a host configuration failure. Only Caddy publishes ports. Frontend, gateway, database and analytics use separate internal networks; only the API, public-reference calculator and backup have scoped egress networks. Migrations alone receive database-admin credentials. Reapply metadata protection after Docker/network recreation; the installed host unit reapplies it on boot. Validate firewall behavior and IMDSv2 from the actual EC2 host before enabling live execution.
 
-`make deploy` currently builds on the host. Before using a small AWS trading host, move builds to CI and deploy immutable images. Pin a known release and plan database-compatible rollback. The database inspector's extra Next.js process is development-only, not a production Compose service.
+### Backups, alerts and recovery
 
-### Remaining hosting limitations
+Backups run daily under a read-only database role, retain at most 14 local encrypted archives, upload with authenticated application encryption plus S3 encryption/checksum, and verify remote object length before updating the success marker. Failures retry after 15 minutes; a marker older than 26 hours is unhealthy. S3 bucket versioning/lifecycle/Object Lock policy and encryption-key custody are operator responsibilities. Local retention is recoverable only from a retained S3 copy after local archives are pruned.
 
-- The job runner serializes jobs per API process, not globally. Startup recovery resets running jobs; do not run multiple API instances until job ownership/leases are implemented.
-- HTTP cancellation does not terminate running Python work. Add process-level cancellation, time limits, CPU/memory caps and a live-execution research gate.
-- Python's request-size guard currently trusts Content-Length rather than measuring chunked payloads.
-- API readiness checks the database; ongoing calculator/worker health and broker-feed freshness need separate monitoring.
-- Add off-host logs, memory/disk/backup alerts, secret rotation, restart/reconciliation drills and verified dependency/image scans before live deployment.
+The EC2 role needs only backup-prefix `s3:PutObject`, `s3:GetObject` (remote HEAD/restore verification), multipart-upload permissions as required, and `cloudwatch:PutMetricData` restricted to `NRAlgo/Host`. It must not read Secrets Manager, administer IAM or submit broker orders. Use a separate deployment identity for Secrets Manager export and `cloudwatch:PutMetricAlarm`. Confirm an SNS subscription before configuring alerts.
+
+```sh
+# .env includes ALERT_SNS_TOPIC_ARN and optional DEPLOYMENT_NAME.
+node --env-file=.env scripts/host-operations.mjs configure-alerts
+# Run once as root after Docker networks exist; installs a one-minute systemd timer.
+sudo /usr/bin/node --env-file=.env scripts/host-operations.mjs install-monitor
+```
+
+The monitor sends only operational counters to CloudWatch: public HTTPS readiness, service health, backup age, host memory/disk usage and its own heartbeat. Alarms fire after three one-minute periods; missing metrics are treated as failure so host/monitor loss does not go silent. Alerts never restart services or trade automatically. Verify notification delivery with a staging outage; configuration alone is not evidence of delivery. Docker logs are size/rotation bounded locally; off-host application log shipping and broker-feed-specific alerts still need deployment-specific setup.
+
+Run `make recovery-images` then `make recovery-check` on a development/CI machine. The drill derives an isolated configuration from production Compose, uses fresh secrets and synthetic rows, disables live trading and public ports, and checks process cancellation/crash/timeouts, resource caps, concurrent claims, stale-result fencing, lease recovery, cross-worker cancellation, encrypted backup restoration, tamper rejection and database/service restart. It deletes only its randomly named disposable containers/volumes and writes `.runtime/staging-recovery.json`. It does **not** prove S3 download recovery, SNS delivery, AWS security-group policy, live broker reconciliation or real-world trading latency.
+
+Before live deployment, also restore an actual S3 object into a separate staging database, verify the retained key decrypts it, and test SNS delivery, EC2 reboot/firewall persistence, image vulnerability scans and broker reconnect/reconciliation. Keep live execution disabled through those drills. An API restart never preserves an armed trading session. Roll back by selecting a prior digest manifest only when its code is compatible with the forward-only schema; never roll a production database backward automatically. Preserve broker/backup encryption keys separately and rotate them only with a migration/recovery plan.
+
+Implementation references: [Compose secret mounts](https://docs.docker.com/compose/how-tos/use-secrets/), [container resource settings](https://docs.docker.com/reference/compose-file/services/), [GitHub image publishing](https://docs.github.com/en/actions/tutorials/publish-packages/publish-docker-images), [CloudWatch alarm behavior](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch_Alarms.html).
 
 ## Maintenance
 

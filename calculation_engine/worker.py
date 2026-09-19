@@ -25,7 +25,9 @@ from . import ENGINE_VERSION
 
 MAX_INPUT = 8 * 1024 * 1024
 MAX_OUTPUT = 12 * 1024 * 1024
-WALL_SECONDS = 90
+WALL_SECONDS = int(os.environ.get("CALCULATION_WALL_SECONDS", "90"))
+if not 1 <= WALL_SECONDS <= 90:
+    raise RuntimeError("Calculation wall time must be between 1 and 90 seconds")
 token_file = os.environ.get("CALCULATION_SERVICE_TOKEN_FILE")
 if token_file:
     if not token_file.startswith("/run/secrets/") or os.environ.get("CALCULATION_SERVICE_TOKEN"):
