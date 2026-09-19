@@ -198,7 +198,7 @@
 }
 .accountMetrics {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 22px;
   border-top: 1px solid #edf0f5;
   padding-top: 16px;
@@ -274,6 +274,12 @@
 .positionTable th:first-child,
 .positionTable td:first-child {
   text-align: left;
+}
+.instrumentMeta {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 10px;
 }
 /* Activity and workflow shortcuts use a responsive main/aside arrangement. */
 .contentGrid {

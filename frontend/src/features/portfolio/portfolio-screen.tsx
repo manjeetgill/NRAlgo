@@ -33,7 +33,9 @@ const money = (value: number | null) =>
 /** Read-only connected-account portfolio with explicit single/all selection. */
 export function PortfolioScreen({ csrf }: { csrf: string }) {
   const [providers, setProviders] = useState<PortfolioProvider[]>([]);
-  const [selection, setSelection] = useState<"all" | PortfolioProvider>("all");
+  const [selection, setSelection] = useState<"" | "all" | PortfolioProvider>(
+    "",
+  );
   const [snapshots, setSnapshots] = useState<PortfolioSnapshot[]>([]);
   const [registryLoading, setRegistryLoading] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -54,6 +56,15 @@ export function PortfolioScreen({ csrf }: { csrf: string }) {
     )
       .then((value) => {
         const registry = portfolioRegistrySchema.parse(value);
+        if (controller.signal.aborted) {
+          return;
+        }
+        const active = registry.brokers.find(
+          (broker) =>
+            broker.id === registry.activeBrokerId &&
+            broker.status === "connected",
+        );
+        setSelection(active?.provider ?? "");
         setProviders(
           registry.brokers
             .filter((broker) => broker.status === "connected")
@@ -89,6 +100,9 @@ export function PortfolioScreen({ csrf }: { csrf: string }) {
   );
 
   async function loadPortfolio() {
+    if (!selection) {
+      return;
+    }
     request.current?.abort();
     const controller = new AbortController();
     request.current = controller;
@@ -189,6 +203,9 @@ export function PortfolioScreen({ csrf }: { csrf: string }) {
                 setError("");
               }}
             >
+              <option value="" disabled>
+                Reconnect or select your active broker in Settings
+              </option>
               <option value="all">All connected portfolios</option>
               <optgroup label="Accounts">
                 {providers.map((provider) => (
@@ -200,7 +217,9 @@ export function PortfolioScreen({ csrf }: { csrf: string }) {
             </select>
           </label>
           <Button
-            disabled={registryLoading || loading || !providers.length}
+            disabled={
+              registryLoading || loading || !providers.length || !selection
+            }
             onClick={() => void loadPortfolio()}
           >
             <RefreshCw size={14} />
@@ -310,6 +329,8 @@ function PortfolioTable({
                 <th>Instrument</th>
                 <th>Portfolio</th>
                 <th>Qty</th>
+                {kind === "holdings" && <th>Pledged</th>}
+                {kind === "holdings" && <th>T1 / unsettled</th>}
                 <th>Average</th>
                 <th>Invested amount</th>
                 <th>LTP</th>
@@ -334,6 +355,20 @@ function PortfolioTable({
                       .join(", ")}
                   </td>
                   <td>{row.quantity.toLocaleString("en-IN")}</td>
+                  {kind === "holdings" && (
+                    <td>
+                      {row.pledgedQuantity === null
+                        ? "Unavailable"
+                        : row.pledgedQuantity.toLocaleString("en-IN")}
+                    </td>
+                  )}
+                  {kind === "holdings" && (
+                    <td>
+                      {row.t1Quantity === null
+                        ? "Unavailable"
+                        : row.t1Quantity.toLocaleString("en-IN")}
+                    </td>
+                  )}
                   <td>{money(row.averagePrice)}</td>
                   <td>{money(row.investedAmount)}</td>
                   <td>{money(row.markPrice)}</td>

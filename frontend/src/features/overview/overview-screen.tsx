@@ -1,8 +1,9 @@
 "use client";
-import { useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import {
   Activity,
   ArrowRight,
+  BriefcaseBusiness,
   Check,
   Clock3,
   LockKeyhole,
@@ -12,7 +13,8 @@ import {
   Wallet,
   X,
 } from "lucide-react";
-import { availableBrokers } from "@/features/overview/providers/kotak-account-adapter";
+import { brokerAccountAdapters } from "@/features/overview/providers/broker-account-adapters";
+import { useBrokerRegistry } from "@/features/brokers/broker-hooks";
 import {
   formatAccountMoney,
   formatActivityTime,
@@ -35,20 +37,52 @@ export function OverviewScreen({
   onNavigate: (destination: OverviewDestination) => void;
   onExploreOptionChain: () => void;
 }) {
-  const [brokerId, setBrokerId] = useState(availableBrokers[0].id);
+  const registry = useBrokerRegistry(workspace.csrf);
+  const connectedBrokers = useMemo(() => {
+    const connectedProviders = new Set(
+      registry.brokers
+        .filter((item) => item.status === "connected")
+        .map((item) => item.provider),
+    );
+    return brokerAccountAdapters.filter((adapter) =>
+      connectedProviders.has(adapter.id as "kotak" | "zerodha"),
+    );
+  }, [registry.brokers]);
+  const [brokerId, setBrokerId] = useState("");
   const [showPositions, setShowPositions] = useState(false);
+  const [showHoldings, setShowHoldings] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<
     OverviewWorkspace["events"][number] | null
   >(null);
   const activityDialog = useRef<HTMLDialogElement>(null);
-  const broker =
-    availableBrokers.find(
-      /** Resolve only registered adapters; the selector cannot invent brokers. */ (
-        item,
-      ) => item.id === brokerId,
-    ) ?? availableBrokers[0];
+  /** Default to the saved broker; never substitute another account after expiry. */
+  useEffect(() => {
+    const activeProvider = registry.brokers.find(
+      (item) =>
+        item.id === registry.activeBrokerId && item.status === "connected",
+    )?.provider;
+    setBrokerId(
+      connectedBrokers.find((item) => item.id === activeProvider)?.id ?? "",
+    );
+  }, [connectedBrokers, registry.activeBrokerId, registry.brokers]);
+  const broker = connectedBrokers.find((item) => item.id === brokerId) ?? null;
   const account = useOverviewAccount(broker, workspace.csrf);
   const snapshot = account.live;
+  const pledgedQuantity = useMemo(() => {
+    if (
+      !snapshot?.holdings ||
+      snapshot.holdings.some((holding) => holding.pledgedQuantity === null)
+    ) {
+      return null;
+    }
+    return snapshot.holdings.reduce(
+      /** A verified empty book correctly totals to zero; unknown rows were rejected above. */ (
+        total,
+        holding,
+      ) => total + holding.pledgedQuantity!,
+      0,
+    );
+  }, [snapshot?.holdings]);
   const recentEvents = orderAuditEvents(workspace.events).slice(0, 5);
   /** Bind a navigation destination without granting any trading permissions. */
   const onNavigateTo = (destination: OverviewDestination) => {
@@ -67,6 +101,7 @@ export function OverviewScreen({
   function onBrokerChange(event: ChangeEvent<HTMLSelectElement>) {
     setBrokerId(event.target.value);
     setShowPositions(false);
+    setShowHoldings(false);
   }
   /** Explicitly request one snapshot; the hook owns promise rejection and loading state. */
   function onRefreshSnapshot() {
@@ -75,6 +110,10 @@ export function OverviewScreen({
   /** Expand/collapse the selected account's table without refetching reports. */
   function onTogglePositions() {
     setShowPositions(!showPositions);
+  }
+  /** Expand/collapse demat holdings without triggering another broker request. */
+  function onToggleHoldings() {
+    setShowHoldings(!showHoldings);
   }
   /** Bind the chosen audit event to the native, keyboard-accessible details dialog. */
   function onOpenActivity(event: OverviewWorkspace["events"][number]) {
@@ -107,15 +146,30 @@ export function OverviewScreen({
         </div>
         <label className={styles.brokerSelect}>
           Broker account
-          <select value={brokerId} onChange={onBrokerChange}>
-            {availableBrokers.map(
-              /** Render implemented providers only, with stable adapter identifiers. */ (
-                item,
-              ) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ),
+          <select
+            value={brokerId}
+            onChange={onBrokerChange}
+            disabled={registry.loading || !connectedBrokers.length}
+          >
+            {!registry.loading && connectedBrokers.length > 0 && !brokerId && (
+              <option value="">
+                Reconnect or select your active broker in Settings
+              </option>
+            )}
+            {registry.loading ? (
+              <option value="">Loading connected brokers…</option>
+            ) : !connectedBrokers.length ? (
+              <option value="">No connected brokers</option>
+            ) : (
+              connectedBrokers.map(
+                /** Render only connected providers with implemented account adapters. */ (
+                  item,
+                ) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ),
+              )
             )}
           </select>
         </label>
@@ -184,6 +238,21 @@ export function OverviewScreen({
         </article>
         <button
           className={`${styles.metric} ${styles.metricButton}`}
+          onClick={onToggleHoldings}
+          aria-expanded={showHoldings}
+          aria-controls="overview-holdings"
+        >
+          <div>
+            Holdings
+            <BriefcaseBusiness size={17} />
+          </div>
+          <strong>{snapshot?.holdings?.length ?? "—"}</strong>
+          <p>
+            Pledged shares · {pledgedQuantity?.toLocaleString("en-IN") ?? "—"}
+          </p>
+        </button>
+        <button
+          className={`${styles.metric} ${styles.metricButton}`}
           onClick={onNavigateTo("Brokers")}
           aria-label="Manage broker connections"
         >
@@ -198,7 +267,8 @@ export function OverviewScreen({
                 : "Not connected"}
           </strong>
           <p>
-            {broker.name} · session status <ArrowRight size={12} />
+            {broker?.name ?? "No connected broker"} · session status{" "}
+            <ArrowRight size={12} />
           </p>
         </button>
       </div>
@@ -211,11 +281,14 @@ export function OverviewScreen({
         <div className={styles.accountToolbar}>
           <div>
             <strong>Live account</strong>
-            <span>{broker.name} · Read-only broker snapshot</span>
+            <span>
+              {broker?.name ?? "No connected broker"} · Read-only broker
+              snapshot
+            </span>
           </div>
           <button
             className={styles.refresh}
-            disabled={account.loading}
+            disabled={account.loading || !broker}
             onClick={onRefreshSnapshot}
           >
             <RefreshCw size={14} />
@@ -242,6 +315,19 @@ export function OverviewScreen({
               <ArrowRight size={12} />
             </small>
           </button>
+          <button
+            aria-expanded={showHoldings}
+            aria-controls="overview-holdings"
+            onClick={onToggleHoldings}
+          >
+            <span>Holdings</span>
+            <strong>{snapshot?.holdings?.length ?? "—"}</strong>
+            <small>
+              Pledged shares ·{" "}
+              {pledgedQuantity?.toLocaleString("en-IN") ?? "Unavailable"}{" "}
+              <ArrowRight size={12} />
+            </small>
+          </button>
           <div>
             <span>Snapshot</span>
             <strong className={styles.timestamp}>
@@ -258,7 +344,12 @@ export function OverviewScreen({
             </small>
           </div>
         </div>
-        {account.connected === false && (
+        {!registry.loading && !broker && (
+          <p className={styles.notice}>
+            Connect a broker in Broker connections to load funds and positions.
+          </p>
+        )}
+        {broker && account.connected === false && (
           <p className={styles.notice}>
             Connect {broker.name} in Broker connections to load funds and
             positions.
@@ -289,7 +380,9 @@ export function OverviewScreen({
               <p>No open positions in this live account.</p>
             ) : (
               <table>
-                <caption>Live open positions · {broker.name}</caption>
+                <caption>
+                  Live open positions · {broker?.name ?? "No connected broker"}
+                </caption>
                 <thead>
                   <tr>
                     <th>Instrument</th>
@@ -311,6 +404,72 @@ export function OverviewScreen({
                         <td>{formatAccountMoney(position.markPrice)}</td>
                         <td className={getPnlClassName(position.pnl)}>
                           {formatAccountMoney(position.pnl)}
+                        </td>
+                      </tr>
+                    ),
+                  )}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+        {showHoldings && (
+          <div id="overview-holdings" className={styles.positionTable}>
+            {!snapshot?.holdings ? (
+              <p>
+                Holdings data is unavailable. It is not assumed to be an empty
+                demat account.
+              </p>
+            ) : !snapshot.holdings.length ? (
+              <p>No holdings in this live account.</p>
+            ) : (
+              <table>
+                <caption>
+                  Live holdings · {broker?.name ?? "No connected broker"}
+                </caption>
+                <thead>
+                  <tr>
+                    <th>Instrument</th>
+                    <th>Total units</th>
+                    <th>Pledged</th>
+                    <th>T1 / unsettled</th>
+                    <th>Average</th>
+                    <th>LTP</th>
+                    <th>Current value</th>
+                    <th>Holding P&amp;L</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {snapshot.holdings.map(
+                    /** Show every normalized holding field; unavailable broker fields remain dashes. */ (
+                      holding,
+                    ) => (
+                      <tr key={holding.id}>
+                        <td>
+                          {holding.symbol}
+                          <small className={styles.instrumentMeta}>
+                            {holding.exchange} {holding.product}
+                          </small>
+                        </td>
+                        <td>{holding.quantity.toLocaleString("en-IN")}</td>
+                        <td>
+                          {holding.pledgedQuantity?.toLocaleString("en-IN") ??
+                            "—"}
+                        </td>
+                        <td>
+                          {holding.t1Quantity?.toLocaleString("en-IN") ?? "—"}
+                        </td>
+                        <td>{formatAccountMoney(holding.averagePrice)}</td>
+                        <td>{formatAccountMoney(holding.markPrice)}</td>
+                        <td>
+                          {formatAccountMoney(
+                            holding.markPrice === null
+                              ? null
+                              : holding.quantity * holding.markPrice,
+                          )}
+                        </td>
+                        <td className={getPnlClassName(holding.pnl)}>
+                          {formatAccountMoney(holding.pnl)}
                         </td>
                       </tr>
                     ),
@@ -427,7 +586,7 @@ export function OverviewScreen({
       <footer className={styles.footer}>
         <span>NRIAlgo / Overview · Live workspace</span>
         <span>
-          <Wallet size={13} /> {broker.name}
+          <Wallet size={13} /> {broker?.name ?? "No connected broker"}
         </span>
       </footer>
       {/* Native dialog supplies modal focus containment and Escape-to-close behavior. */}

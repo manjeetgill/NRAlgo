@@ -27,12 +27,27 @@ export interface AccountPosition {
   pnlPerMark: number | null;
   markedAt: number | null;
 }
-/** A point-in-time account read. Null means unavailable; an empty position list means verified flat. */
+/** One demat holding with settlement and pledge quantities preserved independently. */
+export interface AccountHolding {
+  id: string;
+  instrument: string;
+  exchange: string;
+  symbol: string;
+  product: string;
+  quantity: number;
+  pledgedQuantity: number | null;
+  t1Quantity: number | null;
+  averagePrice: number | null;
+  markPrice: number | null;
+  pnl: number | null;
+}
+/** A point-in-time account read. Null means unavailable; an empty list means verified empty. */
 export interface AccountSnapshot {
   mode: AccountMode;
   availableFunds: number | null;
   pnl: number | null;
   positions: AccountPosition[] | null;
+  holdings: AccountHolding[] | null;
   capturedAt: number;
   warnings: string[];
 }
@@ -48,6 +63,8 @@ export interface PriceTick {
 export interface BrokerAccountAdapter {
   id: string;
   name: string;
+  /** Whether this provider currently exposes normalized live position ticks. */
+  supportsStreamingPrices: boolean;
   /** Read broker authentication without mutating account state. */
   loadConnectionStatus(): Promise<boolean>;
   /** Load funds/open positions once; reject transport failures and preserve partial-report unknowns. */
@@ -84,24 +101,33 @@ export function retainKnownExposure(
       warnings: [...new Set([...previous.warnings, reason])],
     };
   }
-  if (
-    incoming.mode !== "live" ||
-    incoming.positions !== null ||
-    previous.positions === null
-  ) {
+  if (incoming.mode !== "live") {
     return incoming;
+  }
+  const retainPositions =
+    incoming.positions === null && previous.positions !== null;
+  const retainHoldings =
+    incoming.holdings === null && previous.holdings !== null;
+  if (!retainPositions && !retainHoldings) {
+    return incoming;
+  }
+  const warnings = [...incoming.warnings];
+  if (retainPositions) {
+    warnings.push(
+      "Position reconciliation unavailable. Showing last known exposure and marks, not a confirmed current position book.",
+    );
+  }
+  if (retainHoldings) {
+    warnings.push(
+      "Holdings reconciliation unavailable. Showing the last known holdings, not a confirmed current demat book.",
+    );
   }
   return {
     ...incoming,
-    positions: previous.positions,
-    pnl: previous.pnl,
-    capturedAt: previous.capturedAt,
-    warnings: [
-      ...new Set([
-        ...incoming.warnings,
-        "Position reconciliation unavailable. Showing last known exposure and marks, not a confirmed current position book.",
-      ]),
-    ],
+    positions: retainPositions ? previous.positions : incoming.positions,
+    pnl: retainPositions ? previous.pnl : incoming.pnl,
+    holdings: retainHoldings ? previous.holdings : incoming.holdings,
+    warnings: [...new Set(warnings)],
   };
 }
 

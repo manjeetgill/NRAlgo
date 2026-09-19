@@ -9,6 +9,8 @@ type Row = {
   exchange: string;
   product: string;
   quantity: number;
+  pledgedQuantity: number | null;
+  t1Quantity: number | null;
   averagePrice: number | null;
   markPrice: number | null;
   pnl: number | null;
@@ -112,6 +114,9 @@ export function BrokerPortfolioPanel({
                               "Instrument",
                               "Exchange / product",
                               "Units",
+                              ...(kind === "holdings"
+                                ? ["Pledged", "T1 / unsettled"]
+                                : []),
                               "Average",
                               "Reported mark",
                               "Reported P&L",
@@ -131,6 +136,20 @@ export function BrokerPortfolioPanel({
                                 {row.exchange} {row.product}
                               </td>
                               <td>{row.quantity}</td>
+                              {kind === "holdings" && (
+                                <td>
+                                  {row.pledgedQuantity === null
+                                    ? "Unavailable"
+                                    : row.pledgedQuantity}
+                                </td>
+                              )}
+                              {kind === "holdings" && (
+                                <td>
+                                  {row.t1Quantity === null
+                                    ? "Unavailable"
+                                    : row.t1Quantity}
+                                </td>
+                              )}
                               <td>{rupees(row.averagePrice)}</td>
                               <td>{rupees(row.markPrice)}</td>
                               <td>{rupees(row.pnl)}</td>

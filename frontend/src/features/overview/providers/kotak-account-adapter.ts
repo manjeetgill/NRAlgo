@@ -14,6 +14,7 @@ const numberOrNull = (value: unknown) =>
 export const kotakAccountAdapter: BrokerAccountAdapter = {
   id: "kotak",
   name: "Kotak Neo",
+  supportsStreamingPrices: true,
   /** GET reads authentication state only; no quotes or execution are requested. */
   async loadConnectionStatus() {
     const status = await requestApiJson("/brokers/kotak/status");
@@ -43,6 +44,18 @@ export const kotakAccountAdapter: BrokerAccountAdapter = {
           numberOrNull(row.quantity) !== null,
       )
         ? reports.positions.rows
+        : null;
+    const holdingRows: WireRow[] | null =
+      Array.isArray(reports.holdings?.rows) &&
+      reports.holdings.rows.every(
+        /** Do not treat malformed holdings as an empty demat book. */ (
+          row: WireRow | null,
+        ) =>
+          row !== null &&
+          typeof row === "object" &&
+          numberOrNull(row.quantity) !== null,
+      )
+        ? reports.holdings.rows
         : null;
     // Carry immutable valuation coefficients forward for token-matched streaming marks.
     const snapshot: AccountSnapshot = {
@@ -78,7 +91,30 @@ export const kotakAccountAdapter: BrokerAccountAdapter = {
               markedAt: null,
             }),
           ) ?? null,
-      warnings: [reports.limits?.error, reports.positions?.error].filter(
+      holdings:
+        holdingRows?.map(
+          /** Keep broker-reported pledge/T1 fields nullable when Kotak omits them. */ (
+            row,
+            index,
+          ) => ({
+            id: `${row.exchange}|${row.instrumentToken || row.symbol}|${index}`,
+            instrument: String(row.instrumentToken ?? ""),
+            exchange: String(row.exchange ?? ""),
+            symbol: String(row.symbol ?? "Unknown holding"),
+            product: String(row.product ?? ""),
+            quantity: row.quantity as number,
+            pledgedQuantity: numberOrNull(row.pledgedQuantity),
+            t1Quantity: numberOrNull(row.t1Quantity),
+            averagePrice: numberOrNull(row.averagePrice),
+            markPrice: numberOrNull(row.markPrice),
+            pnl: numberOrNull(row.pnl),
+          }),
+        ) ?? null,
+      warnings: [
+        reports.limits?.error,
+        reports.positions?.error,
+        reports.holdings?.error,
+      ].filter(
         /** Only server-supplied readable errors belong in the user-facing warning list. */
         (message): message is string =>
           typeof message === "string" && Boolean(message),
@@ -87,6 +123,11 @@ export const kotakAccountAdapter: BrokerAccountAdapter = {
     if (rows === null && !reports.positions?.error) {
       snapshot.warnings.push(
         "Position data is incomplete; the account is not assumed empty.",
+      );
+    }
+    if (holdingRows === null && !reports.holdings?.error) {
+      snapshot.warnings.push(
+        "Holding data is incomplete; the demat account is not assumed empty.",
       );
     }
     return { ...snapshot, pnl: calculatePositionPnl(snapshot) };
@@ -112,8 +153,3 @@ export const kotakAccountAdapter: BrokerAccountAdapter = {
     );
   },
 };
-
-/** Only implemented account adapters are selectable; no placeholder balances. */
-export const availableBrokers: readonly BrokerAccountAdapter[] = [
-  kotakAccountAdapter,
-];

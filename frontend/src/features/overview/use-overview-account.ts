@@ -12,7 +12,10 @@ import {
  * Initial selection and explicit refresh load snapshots. Only the server's streamed-price
  * cache is polled, never broker positions, funds, order history or trade history.
  * Adapter/session changes invalidate pending responses. */
-export function useOverviewAccount(broker: BrokerAccountAdapter, csrf: string) {
+export function useOverviewAccount(
+  broker: BrokerAccountAdapter | null,
+  csrf: string,
+) {
   const [live, setLive] = useState<AccountSnapshot | null>(null);
   const [connected, setConnected] = useState<boolean | null>(null);
   const [mfaEnabled, setMfaEnabled] = useState<boolean | null>(null);
@@ -30,6 +33,14 @@ export function useOverviewAccount(broker: BrokerAccountAdapter, csrf: string) {
     /** Load readiness independently, then only the configured account's funds/positions.
      * This callback handles its own rejection so event handlers can safely invoke it with void. */
     async () => {
+      if (!broker) {
+        setConnected(false);
+        setLive(null);
+        liveSnapshot.current = null;
+        setLoading(false);
+        setError("");
+        return;
+      }
       if (inFlight.current) {
         return;
       }
@@ -118,8 +129,16 @@ export function useOverviewAccount(broker: BrokerAccountAdapter, csrf: string) {
    * Cleanup cancels this consumer, but leaves the shared feed available to other screens. */
   useEffect(() => {
     const subscribedSnapshot = liveSnapshot.current;
+    if (!broker) {
+      setFeedMessage("No connected broker selected");
+      return;
+    }
     if (!subscribedSnapshot?.positions?.length || connected !== true) {
       setFeedMessage("No active price subscription · last known values only");
+      return;
+    }
+    if (!broker.supportsStreamingPrices) {
+      setFeedMessage("Broker snapshot prices · refresh to update");
       return;
     }
     let cancelled = false,

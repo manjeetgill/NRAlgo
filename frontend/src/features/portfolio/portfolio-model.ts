@@ -5,11 +5,14 @@ export type PortfolioProvider = z.infer<typeof portfolioProviderSchema>;
 
 const portfolioRowSchema = z
   .object({
-    instrumentToken: z.string().regex(/^\d{1,20}$/),
+    /** Kotak may omit a holding token; positions and Zerodha holdings retain numeric tokens. */
+    instrumentToken: z.string().regex(/^(?:|\d{1,20})$/),
     symbol: z.string().min(1).max(120),
     exchange: z.string().min(1).max(120),
     product: z.string().max(120),
     quantity: z.number().int().safe(),
+    pledgedQuantity: z.number().int().nonnegative().safe().nullable(),
+    t1Quantity: z.number().int().nonnegative().safe().nullable(),
     averagePrice: z.number().finite().nullable(),
     markPrice: z.number().finite().nullable(),
     pnl: z.number().finite().nullable(),
@@ -103,6 +106,10 @@ export function clubPortfolioRows(
       );
       const knownMarks = group.every((item) => item.row.markPrice !== null);
       const knownPnl = group.every((item) => item.row.pnl !== null);
+      const knownPledged = group.every(
+        (item) => item.row.pledgedQuantity !== null,
+      );
+      const knownT1 = group.every((item) => item.row.t1Quantity !== null);
       const absoluteUnits = group.reduce(
         (sum, item) => sum + Math.abs(item.row.quantity),
         0,
@@ -127,6 +134,12 @@ export function clubPortfolioRows(
             ? first.product
             : "Multiple",
         quantity,
+        pledgedQuantity: knownPledged
+          ? group.reduce((sum, item) => sum + item.row.pledgedQuantity!, 0)
+          : null,
+        t1Quantity: knownT1
+          ? group.reduce((sum, item) => sum + item.row.t1Quantity!, 0)
+          : null,
         averagePrice:
           investedAmount !== null && absoluteUnits
             ? investedAmount / absoluteUnits

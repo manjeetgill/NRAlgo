@@ -4,14 +4,14 @@ import { useRef, useState } from "react";
 import { LiveOrderTicket } from "./live-order-ticket";
 import { Button } from "@/components/ui/button";
 import { useOverviewAccount } from "@/features/overview/use-overview-account";
-import { availableBrokers } from "@/features/overview/providers/kotak-account-adapter";
+import { brokerAccountAdapters } from "@/features/overview/providers/broker-account-adapters";
 import {
   formatAccountMoney,
   type AccountPosition,
 } from "@/features/overview/account-model";
 /** No order is placed or account armed by opening this screen. */
 export function LiveTradingScreen({ csrf }: { csrf: string }) {
-  const broker = availableBrokers[0];
+  const broker = brokerAccountAdapters[0];
   const account = useOverviewAccount(broker, csrf);
   const [selected, setSelected] = useState<AccountPosition | null>(null);
   const reviewDialog = useRef<HTMLDialogElement>(null);
