@@ -11,6 +11,7 @@ check:
 install:
 	npm ci --registry=https://registry.npmjs.org
 	npm ci --prefix frontend --registry=https://registry.npmjs.org
+	npm run hooks:install
 	python3 -m venv .runtime/python-venv
 	.runtime/python-venv/bin/pip install --requirement calculation_engine/requirements.lock
 build:
@@ -24,7 +25,6 @@ preflight:
 deploy:
 	$(MAKE) preflight
 	docker compose build --pull
-	docker compose run --rm --no-deps api node --input-type=module -e "import {createApiApplication} from './dist/backend/main.js'; createApiApplication({}, process.env); console.log('Production configuration valid.');"
 	docker compose up -d --wait --wait-timeout 180
 	docker compose exec -T api node -e "fetch('http://127.0.0.1:8000/api/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
 logs:
