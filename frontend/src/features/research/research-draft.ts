@@ -3,11 +3,13 @@ export type ResearchLeg = {
   stockCode: string;
   side: "buy" | "sell";
   quantity: number;
+  dataInstrumentId?: string;
   expiryDate?: string;
   right?: "call" | "put";
   strikePrice?: number;
 };
 export type ResearchDefinition = {
+  schemaVersion: 1;
   broker: "kotak";
   name: string;
   market: "cash" | "options";
@@ -25,10 +27,21 @@ export type ResearchDefinition = {
 export interface ResearchDraft {
   definition: ResearchDefinition;
   savedId: string;
+  /** Transient displayed marks from the selected live/stored chain. They are
+   * scenario inputs only and never become part of a saved strategy or order. */
+  marketReferences?: {
+    stockCode: string;
+    expiryDate: string;
+    right: "call" | "put";
+    strikePrice: number;
+    price: number;
+    observedAt?: number;
+  }[];
 }
 const initial: ResearchDefinition = {
+  schemaVersion: 1,
   broker: "kotak",
-  name: "Cash intraday basket",
+  name: "Cash daily research",
   market: "cash",
   legs: [{ stockCode: "RELIANCE", side: "buy", quantity: 1 }],
   capital: 100000,

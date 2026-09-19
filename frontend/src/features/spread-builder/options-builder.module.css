@@ -1,0 +1,275 @@
+.builder {
+  display: grid;
+  gap: 18px;
+  color: #18243a;
+}
+/* The right workspace always leads with payoff, followed by its selected positions. */
+.builder > .header {
+  display: none;
+}
+.builder > .split {
+  display: contents;
+}
+.builder > .positionsPanel {
+  order: 2;
+}
+.builder > .split > .panel {
+  order: 1;
+}
+.builder > .split > .scenarioPanel {
+  order: 3;
+}
+/* Replay uses the same hierarchy with denser position and calculation panels. */
+.simulator {
+  gap: 6px;
+}
+.simulator .panel {
+  padding: 10px 12px;
+  border-radius: 4px;
+  gap: 10px;
+}
+.simulator .fields {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.simulator .contractFields,
+.simulator .positionNotice {
+  display: none;
+}
+.simulator .positionsPanel {
+  max-height: 250px;
+  overflow: hidden;
+}
+.simulator .positionsPanel .tableScroll {
+  max-height: 164px;
+  overflow: auto;
+}
+.simulator .positionsPanel .legs {
+  min-width: 620px;
+}
+.simulator .positionsPanel th,
+.simulator .positionsPanel td {
+  padding: 5px 4px;
+}
+.simulator .positionsPanel input {
+  min-width: 48px;
+  min-height: 30px;
+  padding: 4px 5px;
+}
+.simulator .positionsPanel select {
+  min-width: 54px;
+  min-height: 30px;
+  padding: 4px;
+}
+.simulator .positionFooter {
+  min-height: 24px;
+}
+.simulator .scenarioPanel {
+  display: none;
+}
+.simulator .metrics {
+  gap: 8px;
+}
+.simulator .metric {
+  padding: 8px 10px;
+}
+.simulator .empty {
+  min-height: 220px;
+}
+.builder h2,
+.builder h3,
+.builder p {
+  margin: 0;
+}
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.eyebrow {
+  color: #64748b;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+.muted {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.panel {
+  background: #fff;
+  border: 1px solid #e1e7f0;
+  border-radius: 14px;
+  padding: 22px;
+  min-width: 0;
+  display: grid;
+  gap: 18px;
+}
+.fields {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+.builder label {
+  display: grid;
+  gap: 7px;
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 600;
+}
+.builder input,
+.builder select {
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid #dce3ef;
+  border-radius: 7px;
+  width: 100%;
+  color: #18243a;
+  background: #fff;
+  font: inherit;
+}
+.builder input[type="range"] {
+  padding: 0;
+  accent-color: #5366dd;
+  min-height: 24px;
+}
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.65fr) minmax(260px, 0.75fr);
+  gap: 18px;
+  align-items: start;
+}
+.tableScroll {
+  overflow-x: auto;
+}
+.builder table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.builder th {
+  text-align: left;
+  padding: 10px 8px;
+  color: #64748b;
+  background: #f8faff;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.builder td {
+  padding: 10px 8px;
+  border-bottom: 1px solid #edf1f7;
+}
+.legs {
+  min-width: 760px;
+}
+.legs input {
+  min-width: 72px;
+}
+.legs input[type="checkbox"] {
+  min-width: 16px;
+  min-height: 16px;
+  width: 16px;
+  height: 16px;
+  accent-color: #5366dd;
+}
+.legs select {
+  min-width: 70px;
+}
+.buy {
+  border-left: 3px solid #16a34a;
+}
+.sell {
+  border-left: 3px solid #ef4444;
+}
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.metric {
+  padding: 14px;
+  border: 1px solid #e8edf5;
+  border-radius: 10px;
+  display: grid;
+  gap: 7px;
+  font-size: 11px;
+  color: #64748b;
+}
+.metric strong {
+  font-size: 16px;
+  color: #18243a;
+  overflow-wrap: anywhere;
+}
+.positive {
+  color: #15803d !important;
+}
+.negative {
+  color: #dc2626 !important;
+}
+.target {
+  padding: 18px;
+  border-radius: 10px;
+  background: #f5f7ff;
+  display: grid;
+  gap: 8px;
+}
+.target strong {
+  font-size: 25px;
+}
+.empty {
+  display: grid;
+  place-content: center;
+  text-align: center;
+  gap: 10px;
+  min-height: 290px;
+  border: 1px dashed #dce3ef;
+  border-radius: 10px;
+  background: #fbfcff;
+}
+.legend {
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+.actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.scenarioPanel > summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+.scenarioBody {
+  display: grid;
+  gap: 18px;
+  margin-top: 18px;
+}
+.icon {
+  border: 0;
+  background: transparent;
+  color: #64748b;
+  padding: 8px;
+  cursor: pointer;
+}
+@media (max-width: 1100px) {
+  .split {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 650px) {
+  .fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .metrics {
+    grid-template-columns: 1fr;
+  }
+  .panel {
+    padding: 14px;
+  }
+}
