@@ -36,7 +36,7 @@ function databaseProcess(command: string, args: string[]) {
   const url = new URL(process.env.DATABASE_URL || "");
   const child = spawn(command, args, {
     env: {
-      ...process.env,
+      PATH: process.env.PATH,
       PGHOST: url.hostname,
       PGPORT: url.port || "5432",
       PGUSER: decodeURIComponent(url.username),
@@ -57,6 +57,9 @@ function databaseProcess(command: string, args: string[]) {
 }
 /** Create an authenticated archive: 4-byte version, 12-byte IV, ciphertext, 16-byte GCM tag. */
 async function createBackup() {
+  if (process.env.APP_ENV === "production" && !process.env.BACKUP_S3_URI) {
+    throw new Error("Production requires off-server backups.");
+  }
   await mkdir(backupDirectory, { recursive: true, mode: 0o700 });
   const name = `nralgo-${new Date().toISOString().replace(/[:.]/g, "-")}.dump.enc`;
   const temporary = resolve(backupDirectory, `${name}.partial`),
@@ -76,6 +79,7 @@ async function createBackup() {
     const handle = await open(temporary, "a");
     try {
       await handle.write(cipher.getAuthTag());
+      await handle.sync();
     } finally {
       await handle.close();
     }
@@ -103,9 +107,19 @@ async function createBackup() {
             `${s3.replace(/\/$/, "")}/${name}`,
             "--sse",
             "AES256",
+            "--checksum-algorithm",
+            "SHA256",
             "--only-show-errors",
           ],
-          { stdio: "ignore", timeout: 300000 },
+          {
+            stdio: "ignore",
+            timeout: 300000,
+            env: {
+              PATH: process.env.PATH,
+              HOME: process.env.HOME,
+              AWS_REGION: process.env.AWS_REGION,
+            },
+          },
         );
         upload.on("error", () =>
           reject(new Error("Off-server backup failed.")),
@@ -116,8 +130,56 @@ async function createBackup() {
             : reject(new Error("Off-server backup failed.")),
         );
       });
+      // A successful process exit alone is insufficient: verify the remote object's length.
+      const location = new URL(`${s3.replace(/\/$/, "")}/${name}`);
+      const remoteSize = await new Promise<number>((resolve, reject) => {
+        const check = spawn(
+          "aws",
+          [
+            "s3api",
+            "head-object",
+            "--bucket",
+            location.hostname,
+            "--key",
+            location.pathname.slice(1),
+            "--query",
+            "ContentLength",
+            "--output",
+            "text",
+          ],
+          {
+            stdio: ["ignore", "pipe", "ignore"],
+            timeout: 30000,
+            env: {
+              PATH: process.env.PATH,
+              HOME: process.env.HOME,
+              AWS_REGION: process.env.AWS_REGION,
+            },
+          },
+        );
+        let output = "";
+        check.stdout.on("data", (chunk) => {
+          output += String(chunk);
+          if (output.length > 1000) {
+            check.kill();
+          }
+        });
+        check.on("error", () =>
+          reject(new Error("Off-server verification failed.")),
+        );
+        check.on("exit", (code) =>
+          code === 0
+            ? resolve(Number(output.trim()))
+            : reject(new Error("Off-server verification failed.")),
+        );
+      });
+      if (remoteSize !== (await stat(destination)).size) {
+        throw new Error("Off-server backup size mismatch.");
+      }
     }
-    await writeFile(healthFile, String(Date.now()), { mode: 0o600 });
+    const marker = `${healthFile}.partial`;
+    await writeFile(marker, String(Date.now()), { mode: 0o600 });
+    await rename(marker, healthFile);
     // Delete only this service's encrypted archives older than 14 days, never arbitrary files.
     for (const entry of await readdir(backupDirectory)) {
       if (/^nralgo-[\dTZ-]+\.dump\.enc$/.test(entry)) {
@@ -176,12 +238,16 @@ async function decryptBackup(input: string, output: string) {
 }
 
 try {
-  if (process.argv.includes("--healthcheck")) {
+  if (
+    process.argv.includes("--healthcheck") ||
+    process.argv.includes("--status")
+  ) {
     const lastSuccess = Number(await readFile(healthFile, "utf8"));
-    if (
-      !Number.isFinite(lastSuccess) ||
-      Date.now() - lastSuccess > 26 * 3600000
-    ) {
+    const ageHours = (Date.now() - lastSuccess) / 3600000;
+    if (process.argv.includes("--status")) {
+      console.debug(JSON.stringify({ ageHours }));
+    }
+    if (!Number.isFinite(lastSuccess) || ageHours < 0 || ageHours > 26) {
       process.exitCode = 1;
     }
   } else if (process.argv[2] === "--decrypt") {
