@@ -319,6 +319,15 @@ export function createZerodhaConnection(
             owner.user_id,
             `zerodha:${createHash("sha256").update(client.account.user_id.trim().toUpperCase()).digest("hex")}`,
           );
+          if (
+            pending.get(owner.token_hash) !== marker ||
+            connections.get(owner.token_hash)?.client !== client
+          ) {
+            return fail(
+              409,
+              "Authorization changed. Check the current broker connection.",
+            );
+          }
           await savedSessions?.save(
             owner,
             "zerodha",
@@ -327,8 +336,10 @@ export function createZerodhaConnection(
           );
           res.json(status(owner));
         } catch {
-          connections.delete(owner.token_hash);
-          await savedSessions?.remove(owner.user_id, "zerodha");
+          if (pending.get(owner.token_hash) === marker) {
+            connections.delete(owner.token_hash);
+            await savedSessions?.remove(owner.user_id, "zerodha");
+          }
           return fail(
             502,
             "Zerodha login could not be completed. Start a new login; do not retry this callback.",

@@ -158,6 +158,16 @@ Implementation references: [Compose secret mounts](https://docs.docker.com/compo
 
 ## Maintenance
 
+### Broker session recovery
+
+Broker authorization tokens are encrypted in PostgreSQL with `BROKER_ENCRYPTION_KEY`, bound to the user, provider and original app login. Keep this key stable across restarts and outside the database; changing it requires fresh broker authorization. Passwords, MPIN and TOTP codes are never persisted. Existing memory-only connections require one fresh authorization after this upgrade.
+
+After an API restart, broker/data reads attempt bounded, read-only verification before publishing a restored connection. Expiry is never extended (Kotak retains the app's eight-hour cap; Kite retains the next-06:00-IST cap). Logout/session deletion cascades to saved tokens; disconnect and security changes remove them explicitly. Live trading permission is not restored. Kite disconnect attempts remote API-token revocation; if that cannot be confirmed, the UI reports it. Kotak disconnect removes local access only.
+
+Kotak feed interruptions retry at most five times with backoff while the original login remains valid and the viewer polls. Authentication rejection, explicit stop and session expiry are not retried. No order or login submission is automatically retried. Local storage assumes the existing single-API-process deployment; horizontal replicas require distributed connection/revocation coordination.
+
+Run `node --import tsx scripts/verify-broker-sessions.mjs` against local PostgreSQL to check migration replay, encrypted restart recovery, isolation, logout cleanup, verification races and bounded fake-socket retries. It creates and removes only a disposable verification database and never contacts a real broker.
+
 Keep this as the only project Markdown file. Next.js agent-file generation is disabled in `frontend/next.config.ts`. Read the installed framework's relevant documentation under `frontend/node_modules/next/dist/docs/` before changing Next behavior.
 
 Do not remove validation, ownership checks, explicit confirmation or execution-risk code to reduce line count. Shared utilities and broker/analytics boundaries are intentionally separate. Prefer meaningful commits such as “Add stored option history” or “Simplify live order screen”, without mandatory type prefixes. Never include secrets, databases, generated build output or imported price files in a commit.

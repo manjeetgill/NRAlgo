@@ -127,6 +127,72 @@ try {
     "PASS: Kotak verified-before-publish, disconnect race and outage fail closed",
   );
 
+  const sockets = [];
+  const streaming = new KotakMarketDataClient(
+    async () => ({ stat: "Ok", data: [] }),
+    () => {
+      const handlers = new Map();
+      const socket = {
+        addEventListener: (name, cb) => handlers.set(name, cb),
+        send() {},
+        close() {},
+        emit: (name, value = {}) => handlers.get(name)?.(value),
+      };
+      sockets.push(socket);
+      return socket;
+    },
+  );
+  await streaming.restoreSession(
+    owner.user_id,
+    owner.token_hash,
+    payload.expires,
+    payload,
+  );
+  const subscription = {
+    kind: "touchline",
+    mode: "subscribe",
+    instruments: [{ exchange: "nse_cm", instrument: "123" }],
+  };
+  streaming.startMarketDataStream(
+    owner.user_id,
+    owner.token_hash,
+    subscription,
+  );
+  const originalNow = Date.now;
+  let clock = Date.now();
+  try {
+    Date.now = () => clock;
+    for (let i = 0; i < 8; i++) {
+      sockets.at(-1).emit("error");
+      streaming.getMarketDataStreamSnapshot(owner.user_id, owner.token_hash);
+      clock += 31000;
+      streaming.getMarketDataStreamSnapshot(owner.user_id, owner.token_hash);
+    }
+    assert.equal(sockets.length, 6, "only five automatic reconnects");
+    streaming.startMarketDataStream(
+      owner.user_id,
+      owner.token_hash,
+      subscription,
+    );
+    sockets
+      .at(-1)
+      .emit("message", { data: JSON.stringify({ message_code: 1120 }) });
+    const count = sockets.length;
+    clock += 60000;
+    assert.equal(
+      streaming.getMarketDataStreamSnapshot(owner.user_id, owner.token_hash)
+        .state,
+      "authentication-failed",
+    );
+    assert.equal(sockets.length, count, "no auth rejection retry");
+  } finally {
+    Date.now = originalNow;
+    streaming.close();
+  }
+  console.debug(
+    "PASS: bounded feed recovery and authentication rejection stops retries",
+  );
+
   await saved.save(owner, "zerodha", payload.expires, {
     accessToken: "test-kite-token",
   });

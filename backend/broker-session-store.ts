@@ -26,7 +26,14 @@ export class BrokerSessionStore {
     value: unknown,
   ) {
     const revision = this.revision(owner.user_id);
-    const ciphertext = this.vault.seal(this.context(owner, provider), value);
+    const deadline = Math.min(expires, owner.expires * 1000);
+    if (!Number.isFinite(deadline) || deadline <= Date.now()) {
+      throw new Error("Broker session expired.");
+    }
+    const ciphertext = this.vault.seal(this.context(owner, provider), {
+      expires: deadline,
+      value,
+    });
     await this.db.transaction(async (query) => {
       await query(
         "SELECT user_id FROM user_settings WHERE user_id=$1 FOR UPDATE",
@@ -66,10 +73,26 @@ export class BrokerSessionStore {
       return null;
     }
     try {
-      return {
-        expires: row.expires,
-        value: this.vault.open(this.context(owner, provider), row.ciphertext),
-      };
+      const decoded = this.vault.open(
+        this.context(owner, provider),
+        row.ciphertext,
+      ) as { expires: number; value: unknown };
+      if (
+        !decoded ||
+        typeof decoded.expires !== "number" ||
+        !Number.isFinite(decoded.expires)
+      ) {
+        throw new Error("Invalid session envelope");
+      }
+      const expires = Math.min(
+        row.expires,
+        decoded.expires,
+        owner.expires * 1000,
+      );
+      if (expires <= Date.now()) {
+        return null;
+      }
+      return { expires, value: decoded.value };
     } catch {
       await this.remove(owner.user_id, provider);
       return null;

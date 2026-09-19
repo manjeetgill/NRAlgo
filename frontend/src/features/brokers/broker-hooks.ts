@@ -76,6 +76,21 @@ export function useBrokerConnection(
   const [expiresAt, setExpiresAt] = useState<number | null>(null);
   const generation = useRef(0);
   const pending = useRef(false);
+  useEffect(() => {
+    if (!connected || !expiresAt) {
+      return;
+    }
+    const timer = setTimeout(
+      () => {
+        setConnected(false);
+        setError(
+          "Broker session expired. Authorize again to resume live data.",
+        );
+      },
+      Math.max(0, expiresAt - Date.now()),
+    );
+    return () => clearTimeout(timer);
+  }, [connected, expiresAt]);
 
   /** Read status on adapter/session change; cleanup only invalidates reads, never disconnects the broker. */
   useEffect(() => {
@@ -353,6 +368,23 @@ export function useZerodhaConnection(csrf: string) {
   > | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  useEffect(() => {
+    if (!connection?.connected || !connection.expiresAt) {
+      return;
+    }
+    const timer = setTimeout(
+      () => {
+        setConnection((current) =>
+          current ? { ...current, connected: false, account: null } : current,
+        );
+        setError(
+          "Zerodha session expired. Authorize again to resume broker access.",
+        );
+      },
+      Math.max(0, connection.expiresAt - Date.now()),
+    );
+    return () => clearTimeout(timer);
+  }, [connection?.connected, connection?.expiresAt]);
   useEffect(() => {
     const abort = new AbortController();
     requestApiJson(
