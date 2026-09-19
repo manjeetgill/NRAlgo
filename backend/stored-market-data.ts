@@ -357,6 +357,17 @@ export async function readOptionEodChain(
   if (!metadata || !metadata.expiries.includes(input.expiryDate)) {
     return null;
   }
+  // Historical strike grids are irregular. Count real contracts below spot;
+  // extrapolating the first two strikes can place the ATM page thousands away.
+  const [centre] = await store.transaction((query) =>
+    query<{ below: number; spot: number | null }>(
+      `SELECT COUNT(*) FILTER (WHERE i.strike_price<c.underlying_price)::int AS below,
+       MAX(c.underlying_price) FILTER (WHERE c.underlying_price>0) AS spot
+       FROM option_eod_instruments i JOIN option_eod_candles c ON c.instrument_id=i.id
+       WHERE i.underlying=$1 AND i.expiry_date=$2::date AND c.day=$3::date`,
+      [input.underlying, input.expiryDate, metadata.day],
+    ),
+  );
   const rows = await store.transaction((query) =>
     query<{
       id: string;
@@ -394,7 +405,11 @@ export async function readOptionEodChain(
         strikePrice: Number(row.strike_price),
         lotSize: row.lot_size ?? 0,
       },
-      price: Number(row.close) > 0 ? Number(row.close) : Number(row.settlement),
+      // At expiry a zero close is not the underlying's settlement price.
+      price:
+        Number(row.close) > 0 || metadata.day === input.expiryDate
+          ? Number(row.close)
+          : Number(row.settlement),
       bid: null,
       ask: null,
       openInterest:
@@ -411,11 +426,19 @@ export async function readOptionEodChain(
     receivedAt: observedAt,
     observedAt,
     pageOffset: input.offset,
+    atmOffset: Math.max(
+      0,
+      Math.min(
+        total - 50,
+        Math.floor((Number(centre?.below ?? 0) - 24) / 2) * 2,
+      ),
+    ),
     dataMode: "historical" as const,
     sessionDay: metadata.day,
     underlyingPrice:
-      rows.find((row) => Number(row.underlying_price) > 0)?.underlying_price ??
-      null,
+      centre?.spot === null || centre?.spot === undefined
+        ? null
+        : Number(centre.spot),
     warning:
       "End-of-day exchange observations; bid/ask depth and intraday movement are unavailable.",
   };

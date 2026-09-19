@@ -116,7 +116,11 @@ def stored_daily(payload: StoredDailyRequest) -> dict[str, object]:
 @app.post("/v1/options/payoff", dependencies=[Depends(authorize)])
 def options_payoff(payload: PayoffRequest) -> dict[str, object]:
     """Calculate expiry payoff, target-date marks and portfolio Greeks."""
-    return {"engineVersion": ENGINE_VERSION, "result": calculate_payoff(payload)}
+    try:
+        return {"engineVersion": ENGINE_VERSION, "result": calculate_payoff(payload)}
+    except ValueError as error:
+        # Expected pricing-domain failures are actionable input errors, not outages.
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
 
 @app.post("/v1/options/greeks", dependencies=[Depends(authorize)])

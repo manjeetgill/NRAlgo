@@ -41,6 +41,7 @@ export type OptionChainSnapshot = {
   dataMode?: OptionChainMode;
   observedAt?: number;
   pageOffset?: number;
+  atmOffset?: number;
   sessionDay?: string;
   underlyingPrice?: number | null;
 };

@@ -475,7 +475,7 @@ def save_manifest(path: Path, manifest: dict[str, object]) -> None:
     atomic_write(path, (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode())
 
 
-def is_complete(entry: object, raw_path: Path, normalized_path: Path) -> bool:
+def is_complete(entry: object, raw_path: Path, normalized_path: Path, symbols: tuple[str, ...]) -> bool:
     """Resume only when both saved artifacts still match their manifest hashes."""
 
     if not isinstance(entry, dict) or entry.get("status") != "complete":
@@ -484,18 +484,21 @@ def is_complete(entry: object, raw_path: Path, normalized_path: Path) -> bool:
         return False
     return (
         entry.get("normalizerVersion") == NORMALIZER_VERSION
+        and entry.get("symbols") == sorted(symbols)
         and sha256(raw_path.read_bytes()) == entry.get("rawSha256")
         and sha256(normalized_path.read_bytes()) == entry.get("normalizedSha256")
     )
 
 
 def iter_days(first: date, last: date) -> Iterable[date]:
-    """Yield weekdays only; exchange holidays are handled as missing archives."""
+    """Probe every date: special exchange sessions can fall on weekends.
+
+    A missing archive is recorded as unavailable, never certified as a holiday.
+    """
 
     current = first
     while current <= last:
-        if current.weekday() < 5:
-            yield current
+        yield current
         current += timedelta(days=1)
 
 
@@ -522,7 +525,7 @@ def run(args: argparse.Namespace) -> int:
         key = day.isoformat()
         raw_path = root / "raw" / f"{key}.zip"
         normalized_path = root / "normalized" / f"{key}.csv"
-        if is_complete(days.get(key), raw_path, normalized_path):
+        if is_complete(days.get(key), raw_path, normalized_path, symbols):
             print(f"skip {key}: verified local copy")
             continue
         url, expected_family = archive_url(day)
@@ -553,10 +556,11 @@ def run(args: argparse.Namespace) -> int:
             days[key] = {
                 "status": "complete",
                 "normalizerVersion": NORMALIZER_VERSION,
+                "symbols": sorted(symbols),
                 "url": url,
                 "schema": family,
                 "legacyProvider": (
-                    "bhavcopy-3.0" if expected_family == "legacy" else None
+                    args.legacy_provider if expected_family == "legacy" else None
                 ),
                 "rawSha256": sha256(payload),
                 "normalizedSha256": sha256(normalized),
