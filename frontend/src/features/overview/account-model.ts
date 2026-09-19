@@ -1,8 +1,78 @@
-/** Pure Overview presentation and valuation functions; no network calls or account mutations. */
-import type {
-  AccountSnapshot,
-  PriceTick,
-} from "@/features/overview/overview-types";
+/**
+ * Shared account-display contracts and pure valuation helpers for overview and live positions.
+ * Values use INR, exchange units and epoch milliseconds. Unknown marks remain unknown;
+ * these presentation calculations never authorize execution or replace server risk checks.
+ */
+export type { TradingMode as AccountMode } from "@/lib/trading-mode";
+import type { TradingMode as AccountMode } from "@/lib/trading-mode";
+/** Navigation targets understood by the workspace shell; no execution commands are exposed. */
+export type OverviewDestination =
+  | "Strategies"
+  | "Strategy lab"
+  | "Broker paper"
+  | "Brokers"
+  | "Live trading"
+  | "Account & security"
+  | "Activity log";
+/** One open position, with signed units and optional broker-supplied INR valuation coefficients. */
+export interface AccountPosition {
+  id: string;
+  instrument: string;
+  exchange: string;
+  symbol: string;
+  quantity: number;
+  averagePrice: number | null;
+  markPrice: number | null;
+  pnl: number | null;
+  pnlBase: number | null;
+  pnlPerMark: number | null;
+  markedAt: number | null;
+}
+/** A point-in-time account read. Null means unavailable; an empty position list means verified flat. */
+export interface AccountSnapshot {
+  mode: AccountMode;
+  availableFunds: number | null;
+  pnl: number | null;
+  positions: AccountPosition[] | null;
+  capturedAt: number;
+  warnings: string[];
+}
+/** Normalized cache quote, matched by exchange/token rather than display symbol. */
+export interface PriceTick {
+  instrument: string;
+  exchange: string;
+  price: number;
+  receivedAt: number;
+  fresh: boolean;
+}
+/** Read-only adapter boundary. Only provider implementations know broker API paths and payloads. */
+export interface BrokerAccountAdapter {
+  id: string;
+  name: string;
+  /** Read broker authentication without loading or creating a virtual ledger. */
+  loadConnectionStatus(): Promise<boolean>;
+  /** A read-only account adapter: screen navigation must never submit or arm orders. */
+  loadPaperAccount(): Promise<{
+    connected: boolean;
+    snapshot: AccountSnapshot;
+  }>;
+  /** Load funds/open positions once; reject transport failures and preserve partial-report unknowns. */
+  loadLiveAccount(csrf: string): Promise<AccountSnapshot>;
+  /** Subscribe cached live positions with CSRF protection; never arm, submit or modify orders. */
+  startPositionFeed(csrf: string): Promise<void>;
+  /** Read normalized streamed quotes from the server cache, not recurring account reports. */
+  readPriceTicks(): Promise<PriceTick[]>;
+}
+/** Minimal authenticated workspace data required by this screen; no broker credentials. */
+export interface OverviewWorkspace {
+  csrf: string;
+  halted: boolean;
+  live_configured?: boolean;
+  paper_trading_enabled?: boolean;
+  strategies: { id: string; name: string; status: string }[];
+  jobs: { id: string; status: string }[];
+  events: { id: number; message: string; created_at: string }[];
+}
 
 /** Preserve known exposure during an outage, never interpret a failed read as a confirmed flat book.
  * Call only within the same authenticated account; the hook clears all state on account/mode changes.

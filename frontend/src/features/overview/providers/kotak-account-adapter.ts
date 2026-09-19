@@ -1,12 +1,12 @@
 /** Kotak wire normalization lives here, not in the Overview screen or shared model.
  * Adding a broker means implementing BrokerAccountAdapter and registering it once. */
 import { requestApiJson } from "../../../lib/api";
-import { calculatePositionPnl } from "../overview-model";
-import type {
-  AccountPosition,
-  AccountSnapshot,
-  BrokerAccountAdapter,
-} from "../overview-types";
+import {
+  calculatePositionPnl,
+  type AccountPosition,
+  type AccountSnapshot,
+  type BrokerAccountAdapter,
+} from "../account-model";
 
 type WireRow = Record<string, unknown>;
 /** Only finite server numbers represent known balances; missing values stay null. */

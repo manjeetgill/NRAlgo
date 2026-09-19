@@ -12,7 +12,7 @@ import {
 import { PayoffGraph } from "./payoff-graph";
 import styles from "./options-builder.module.css";
 import { requestApiJson } from "@/lib/api";
-import { storedInstrumentSearchSchema } from "@/lib/stored-instruments";
+import { storedInstrumentSearchSchema } from "@/lib/stored-market-data";
 
 type EditorLeg = {
   id: string;

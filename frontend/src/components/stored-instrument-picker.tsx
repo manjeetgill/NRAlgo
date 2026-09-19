@@ -7,8 +7,8 @@ import {
   storedInstrumentSearchSchema,
   type StoredInstrument,
   type StoredInstrumentSearch,
-} from "@/lib/stored-instruments";
-export type { StoredInstrument } from "@/lib/stored-instruments";
+} from "@/lib/stored-market-data";
+export type { StoredInstrument } from "@/lib/stored-market-data";
 
 /** Debounce cancellable catalog reads and clear a previous identity when search text changes. */
 export function StoredInstrumentPicker({

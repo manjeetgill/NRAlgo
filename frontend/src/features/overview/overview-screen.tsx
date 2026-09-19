@@ -17,15 +17,13 @@ import { availableBrokers } from "@/features/overview/providers/kotak-account-ad
 import {
   formatAccountMoney,
   formatActivityTime,
-} from "@/features/overview/overview-model";
+  type OverviewDestination,
+  type OverviewWorkspace,
+} from "@/features/overview/account-model";
 import { useOverviewAccount } from "@/features/overview/use-overview-account";
 import { MarketInsightsPanel } from "@/features/overview/market-insights-panel";
 import { getTradingMode, isTradingEventVisible } from "@/lib/trading-mode";
 import { orderAuditEvents } from "@/features/activity/audit-model";
-import type {
-  OverviewDestination,
-  OverviewWorkspace,
-} from "@/features/overview/overview-types";
 import styles from "@/features/overview/overview-screen.module.css";
 
 /** Overview is a read-only orientation screen. Every action either loads account data

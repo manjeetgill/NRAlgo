@@ -1,11 +1,31 @@
-/** Validated transport from the stored daily-candle database into the existing backtest model. */
+/**
+ * Browser boundary for operator-imported market data: instrument schemas and validated daily reads.
+ * Shared by pickers and research screens; preserves source, identity and adjustment metadata.
+ * Missing history is not synthesized and this module performs no backtest calculations.
+ */
 import { z } from "zod";
 import { requestApiJson } from "./api";
-import {
-  storedInstrumentSchema,
-  type StoredInstrument,
-} from "./stored-instruments";
 import { validateHistoryDataset, type HistoryDataset } from "./market-history";
+
+export const storedInstrumentSchema = z.object({
+  id: z.string().min(1).max(120),
+  symbol: z.string().min(1).max(60),
+  name: z.string().min(1).max(160),
+  kind: z.enum(["equity", "index"]),
+  series: z.string().max(10),
+  exchange: z.literal("NSE"),
+  first_day: z.iso.date(),
+  last_day: z.iso.date(),
+  candle_count: z.number().int().positive(),
+});
+export const storedInstrumentSearchSchema = z.object({
+  items: z.array(storedInstrumentSchema),
+  nextOffset: z.number().int().nonnegative().nullable(),
+});
+export type StoredInstrument = z.infer<typeof storedInstrumentSchema>;
+export type StoredInstrumentSearch = z.infer<
+  typeof storedInstrumentSearchSchema
+>;
 
 const storedCandleSchema = z.object({
   day: z.iso.date(),

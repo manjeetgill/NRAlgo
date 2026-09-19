@@ -12,7 +12,7 @@ import { useDailyBacktest } from "./use-daily-backtest";
 import { formatInr } from "@/lib/format";
 import { downloadText } from "@/lib/download";
 import { StoredInstrumentPicker } from "@/components/stored-instrument-picker";
-import type { StoredInstrument } from "@/lib/stored-instruments";
+import type { StoredInstrument } from "@/lib/stored-market-data";
 
 /** Keep stored data/results private to this mounted screen; changing input invalidates the report. */
 export function BacktestStudioScreen({

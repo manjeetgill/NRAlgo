@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { requestApiJson } from "@/lib/api";
 import type { HistoryDataset } from "@/lib/market-history";
-import { fetchStoredDailyHistory } from "@/lib/stored-market-history";
-import type { StoredInstrument } from "@/lib/stored-instruments";
+import {
+  fetchStoredDailyHistory,
+  type StoredInstrument,
+} from "@/lib/stored-market-data";
 import type { BacktestSettings, DailyBar } from "./backtest-report";
 import {
   backtestReportSchema,

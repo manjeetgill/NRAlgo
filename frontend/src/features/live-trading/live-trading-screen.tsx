@@ -5,8 +5,10 @@ import { LiveOrderTicket } from "./live-order-ticket";
 import { Button } from "@/components/ui/button";
 import { useOverviewAccount } from "@/features/overview/use-overview-account";
 import { availableBrokers } from "@/features/overview/providers/kotak-account-adapter";
-import { formatAccountMoney } from "@/features/overview/overview-model";
-import type { AccountPosition } from "@/features/overview/overview-types";
+import {
+  formatAccountMoney,
+  type AccountPosition,
+} from "@/features/overview/account-model";
 /** No order is placed or account armed by opening this screen. */
 export function LiveTradingScreen({ csrf }: { csrf: string }) {
   const broker = availableBrokers[0];

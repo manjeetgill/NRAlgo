@@ -4,12 +4,10 @@ import { requestApiJson } from "@/lib/api";
 import {
   applyPriceTicks,
   retainKnownExposure,
-} from "@/features/overview/overview-model";
-import type {
-  AccountMode,
-  AccountSnapshot,
-  BrokerAccountAdapter,
-} from "@/features/overview/overview-types";
+  type AccountMode,
+  type AccountSnapshot,
+  type BrokerAccountAdapter,
+} from "@/features/overview/account-model";
 
 /** Own Overview's read-only account lifecycle; rendering components never call APIs.
  * Initial selection and explicit refresh load snapshots. Only the server's streamed-price
