@@ -24,6 +24,8 @@ type LiveStatus = {
   enabled: boolean;
   armed: boolean;
   halted: boolean;
+  activeBrokerId?: string;
+  provider?: string;
   reason?: string;
   orders?: {
     id: string;
@@ -36,7 +38,13 @@ const money = (paise: number) =>
   (paise / 100).toLocaleString("en-IN", { style: "currency", currency: "INR" });
 
 /** Render explicit live controls, retaining server, MFA, risk and confirmation safeguards. */
-export function LiveOrderTicket({ csrf }: { csrf: string }) {
+export function LiveOrderTicket({
+  csrf,
+  initialOrder,
+}: {
+  csrf: string;
+  initialOrder?: { contract: BrokerInstrument; side: "buy" | "sell" };
+}) {
   const statusGate = useRef(createLatestRequest());
   const actionPending = useRef(false);
   const [status, setStatus] = useState<LiveStatus | null>(null),
@@ -53,12 +61,16 @@ export function LiveOrderTicket({ csrf }: { csrf: string }) {
   });
   const [token, setToken] = useState(""),
     [armProof, setArmProof] = useState("");
-  const [market, setMarket] = useState<"cash" | "options">("cash"),
-    [query, setQuery] = useState("");
+  const [market, setMarket] = useState<"cash" | "options">(
+      initialOrder ? "options" : "cash",
+    ),
+    [query, setQuery] = useState(initialOrder?.contract.symbol ?? "");
   const [items, setItems] = useState<BrokerInstrument[]>([]),
     [selected, setSelected] = useState<BrokerInstrument | null>(null);
-  const [side, setSide] = useState<"buy" | "sell">("buy"),
-    [quantity, setQuantity] = useState(""),
+  const [side, setSide] = useState<"buy" | "sell">(initialOrder?.side ?? "buy"),
+    [quantity, setQuantity] = useState(
+      initialOrder ? String(initialOrder.contract.lotSize) : "",
+    ),
     [price, setPrice] = useState("");
   const [preview, setPreview] = useState<Preview | null>(null),
     [proof, setProof] = useState("");
@@ -144,13 +156,22 @@ export function LiveOrderTicket({ csrf }: { csrf: string }) {
         <div>
           <h2>Live execution</h2>
           <p>Connected broker · LIMIT / DAY · NSE cash and long options</p>
+          {initialOrder && (
+            <p>
+              From option chain: {initialOrder.contract.symbol}. Search and
+              select the exact contract from the active broker before reviewing.
+              Chain tokens and prices are never used as execution authorization.
+              Selling only reduces a tracked long position.
+            </p>
+          )}
         </div>
       </div>
       <fieldset disabled={busy}>
         <legend>Live trading control</legend>
         <p role="status">
           Server capability: {status?.enabled ? "Available" : "Locked"} · Live
-          trading: {status?.armed ? "Enabled" : "Disabled"}. {status?.reason}
+          trading: {status?.armed ? "Enabled" : "Disabled"} · Active broker:{" "}
+          {status?.provider?.toUpperCase() ?? "Not selected"}. {status?.reason}
         </p>
         <p>
           Enabling is temporary and requires reconciliation, an authenticator
@@ -169,9 +190,9 @@ export function LiveOrderTicket({ csrf }: { csrf: string }) {
         execution. Every live order requires explicit authorization.
       </p>
       <p>
-        Funds use Kotak RMS buying power, not a settled cash ledger. Halting
-        requests cancellation of app-managed orders; it does not close
-        positions.
+        Funds use the active broker&apos;s available buying power, not a settled
+        cash ledger. Halting requests cancellation of app-managed orders; it
+        does not close positions.
       </p>
       {error && <p role="alert">{error}</p>}
       {message && <p role="status">{message}</p>}
@@ -315,7 +336,7 @@ export function LiveOrderTicket({ csrf }: { csrf: string }) {
                     </select>
                   </label>
                   <label>
-                    Search Kotak contract
+                    Search active broker contract
                     <input
                       value={query}
                       onChange={(e) => setQuery(e.target.value.toUpperCase())}
@@ -474,8 +495,8 @@ export function LiveOrderTicket({ csrf }: { csrf: string }) {
               {uncertain && (
                 <p role="alert">
                   Submission outcome needs review. New tickets are locked in
-                  this view. Reconcile and check Kotak before continuing; do not
-                  recreate this order.
+                  this view. Reconcile and check the active broker before
+                  continuing; do not recreate this order.
                 </p>
               )}
               <table>

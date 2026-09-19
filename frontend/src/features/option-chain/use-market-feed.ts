@@ -4,10 +4,13 @@ import { useEffect, useState } from "react";
 import { requestApiJson } from "@/lib/api";
 import type { LiveTick } from "@/components/live-option-chain";
 /** Sequential cache reads stop on navigation and pause when hidden; the shared socket remains server-owned. */
-export function useMarketFeed(csrf: string) {
+export function useMarketFeed(csrf: string, enabled = true) {
   const [ticks, setTicks] = useState<LiveTick[]>([]);
   const [error, setError] = useState("");
   useEffect(() => {
+    if (!enabled) {
+      return;
+    }
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
     /** Consume only normalized records from the existing cached feed endpoint. */
@@ -51,6 +54,6 @@ export function useMarketFeed(csrf: string) {
       controller.abort();
       clearTimeout(timer);
     };
-  }, [csrf]);
+  }, [csrf, enabled]);
   return { ticks, error };
 }

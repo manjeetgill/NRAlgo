@@ -1,11 +1,17 @@
 "use client";
-/** Dedicated live option-chain screen. Contract selection edits a research draft only. */
+/** Reference-style chain with separate research drafts and explicit broker order review. */
 import {
   LiveOptionChain,
   type ChainContract,
 } from "@/components/live-option-chain";
 import { Button } from "@/components/ui/button";
 import { useMarketFeed } from "./use-market-feed";
+import { useEffect, useRef, useState } from "react";
+import { UnderlyingSearch } from "@/components/underlying-search";
+import { IndependentChart } from "./independent-chart";
+import { LiveOrderTicket } from "@/features/live-trading/live-order-ticket";
+import { useBrokerRegistry } from "@/features/brokers/use-broker-registry";
+import styles from "./option-chain.module.css";
 /** Initial selection loads metadata/quotes once; subsequent prices use the shared stream cache. */
 export function OptionChainScreen({
   csrf,
@@ -18,32 +24,144 @@ export function OptionChainScreen({
   onAddLeg: (contract: ChainContract, side: "buy" | "sell") => string;
   onOpenBuilder: () => void;
 }) {
-  const feed = useMarketFeed(csrf);
+  const [underlying, setUnderlying] = useState("NIFTY");
+  const [chartOpen, setChartOpen] = useState(false);
+  const [dataMode, setDataMode] = useState<"live" | "historical" | null>(null);
+  const feed = useMarketFeed(csrf, Boolean(underlying) && dataMode === "live");
+  const brokers = useBrokerRegistry(csrf, null);
+  const activeBroker = brokers.brokers.find(
+    (broker) => broker.id === brokers.activeBrokerId,
+  );
+  const [order, setOrder] = useState<{
+    contract: ChainContract;
+    side: "buy" | "sell";
+  } | null>(null);
+  const orderDialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    if (order) {
+      orderDialog.current?.showModal();
+    }
+  }, [order]);
   return (
-    <section className="screen-stack" aria-label="Option chain workspace">
-      <div className="screen-toolbar">
-        <p>
-          Select a call or put price to inspect its contract and add a draft
-          leg.
-        </p>
+    <section
+      className={`screen-stack ${styles.workspace}`}
+      aria-label="Option chain workspace"
+    >
+      <div className={styles.toolbar}>
+        <div>
+          <h2>Option chain</h2>
+        </div>
+        <label>
+          Index / Stock
+          <select
+            aria-label="Option chain index or stock"
+            value={
+              [
+                "NIFTY",
+                "BANKNIFTY",
+                "FINNIFTY",
+                "MIDCPNIFTY",
+                "NIFTYNXT50",
+              ].includes(underlying)
+                ? underlying
+                : "stock"
+            }
+            onChange={(event) =>
+              setUnderlying(
+                event.target.value === "stock" ? "" : event.target.value,
+              )
+            }
+          >
+            {["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "NIFTYNXT50"].map(
+              (symbol) => (
+                <option key={symbol}>{symbol}</option>
+              ),
+            )}
+            <option value="stock">Search stock…</option>
+          </select>
+        </label>
+        <Button variant="secondary" onClick={onOpenBuilder}>
+          Builder ({legCount})
+        </Button>
+        <div className={styles.broker}>
+          <span>
+            For live trading:{" "}
+            {activeBroker
+              ? `${activeBroker.provider.toUpperCase()} · ${activeBroker.status}`
+              : "No active broker"}
+          </span>{" "}
+          <a href="#/brokers">Manage brokers →</a>
+        </div>
       </div>
-      {feed.error && (
+      {brokers.error && <p role="alert">{brokers.error}</p>}
+      {!["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "NIFTYNXT50"].includes(
+        underlying,
+      ) && (
+        <UnderlyingSearch
+          csrf={csrf}
+          selected={underlying}
+          onSelect={setUnderlying}
+        />
+      )}
+      {underlying && feed.error && (
         <p role="alert" className="error">
           {feed.error}
         </p>
       )}
-      <LiveOptionChain
-        csrf={csrf}
-        ticks={feed.ticks}
-        onAddLeg={onAddLeg}
-        compact
-      />
-      <div className="screen-toolbar">
-        <p>Prices open contract details. The chain does not place orders.</p>
-        <Button variant="secondary" onClick={onOpenBuilder}>
-          Open builder ({legCount}) →
+      {underlying && (
+        <LiveOptionChain
+          key={underlying}
+          selectedUnderlying={underlying}
+          experience="chain"
+          onDataMode={setDataMode}
+          csrf={csrf}
+          ticks={dataMode === "live" ? feed.ticks : []}
+          onAddLeg={onAddLeg}
+          compact
+          analytics
+          onTrade={
+            activeBroker?.status === "connected" && dataMode === "live"
+              ? (contract, side) => setOrder({ contract, side })
+              : undefined
+          }
+        />
+      )}
+      <details className={styles.notes}>
+        <summary>Data & order information</summary>
+        <p>
+          B / S opens live order review; selecting a row never submits an order.
+          Greeks and IV are shown only when supplied by the source.
+        </p>
+      </details>
+      {!underlying && (
+        <p className={styles.empty}>
+          Select an index or stock above to load expiries and the option chain.
+        </p>
+      )}
+      <details onToggle={(event) => setChartOpen(event.currentTarget.open)}>
+        <summary>Historical price chart</summary>
+        {chartOpen && <IndependentChart />}
+      </details>
+      <dialog
+        ref={orderDialog}
+        className={`workspace-dialog ${styles.ticket}`}
+        onClose={() => setOrder(null)}
+        aria-label="Review option order"
+      >
+        <Button
+          variant="secondary"
+          onClick={() => orderDialog.current?.close()}
+        >
+          Close order review
         </Button>
-      </div>
+        {order && (
+          <LiveOrderTicket
+            key={`${brokers.activeBrokerId}:${order.contract.symbol}:${order.side}`}
+            csrf={csrf}
+            initialOrder={order}
+          />
+        )}
+      </dialog>
     </section>
   );
 }

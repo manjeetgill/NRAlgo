@@ -2,7 +2,8 @@
 /** Kotak live snapshots. All requests are manual and paginated;
  * selecting metadata only prefills a paper ticket, never places an order or trusts its premium.
  */
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useMarketFeed } from "@/features/option-chain/use-market-feed";
 import { requestApiJson } from "@/lib/api";
 import { Button } from "./ui/button";
 import type { BrokerInstrument } from "./instrument-picker";
@@ -12,12 +13,14 @@ type ChainRow = BrokerInstrument & {
   ask: number | null;
   openInterest: number | null;
   stale: boolean;
+  tickAt?: number;
 };
 type Chain = {
   items: ChainRow[];
   expiries: string[];
   total: number;
   nextOffset: number | null;
+  warning?: string;
 };
 /** A generation fence discards in-flight results after changing the underlying or expiry. */
 export function KotakOptionChain({
@@ -38,6 +41,44 @@ export function KotakOptionChain({
     [busy, setBusy] = useState(false),
     [offset, setOffset] = useState(0);
   const generation = useRef(0);
+  const feed = useMarketFeed(csrf, Boolean(chain?.items.length));
+  // The broker can supply stream prices even when the initial REST batch is unavailable.
+  // Keep the last observed price visible and label it stale when ticks stop arriving.
+  useEffect(() => {
+    setChain((previous) =>
+      previous
+        ? {
+            ...previous,
+            items: previous.items.map((item) => {
+              const tick = feed.ticks.find(
+                (value) =>
+                  value.exchange === "nse_fo" &&
+                  String(value.instrument) === item.instrument,
+              );
+              if (
+                tick?.receivedRecently &&
+                typeof tick.ltp === "number" &&
+                Number.isFinite(tick.ltp) &&
+                tick.ltp > 0
+              ) {
+                return {
+                  ...item,
+                  price: tick.ltp,
+                  bid: tick.depth?.buy?.[0]?.price ?? item.bid,
+                  ask: tick.depth?.sell?.[0]?.price ?? item.ask,
+                  openInterest: tick.openInterest ?? item.openInterest,
+                  tickAt: tick.receivedAt,
+                  stale: false,
+                };
+              }
+              return item.tickAt && Date.now() - item.tickAt > 15000
+                ? { ...item, stale: true }
+                : item;
+            }),
+          }
+        : previous,
+    );
+  }, [feed.ticks]);
   /** Fetch the selected bounded option-chain page; never substitute fabricated prices on failure. */
   async function load(nextOffset: number, metadata = false) {
     const current = ++generation.current;
@@ -45,6 +86,27 @@ export function KotakOptionChain({
     setError("");
     setChain(null);
     try {
+      // Seek the middle of the selected expiry before fetching a bounded quote batch.
+      // The lowest listed strikes frequently have no quotes.
+      if (!metadata && nextOffset === -1) {
+        const contracts = await requestApiJson(
+          "/market/instruments",
+          "POST",
+          {
+            market: "options",
+            query: underlying,
+            underlying,
+            expiryDate: expiry,
+            offset: 0,
+          },
+          csrf,
+          95000,
+        );
+        if (current !== generation.current) {
+          return;
+        }
+        nextOffset = Math.max(0, Math.floor(contracts.total / 2) - 24);
+      }
       const result = await requestApiJson(
         "/paper/kotak/option-chain",
         "POST",
@@ -63,6 +125,16 @@ export function KotakOptionChain({
       setOffset(nextOffset);
       if (metadata) {
         setExpiry(result.expiries[0] || "");
+      } else if (result.items.length) {
+        await requestApiJson(
+          "/market/live-feed",
+          "POST",
+          {
+            instruments: result.items.map((item: ChainRow) => item.instrument),
+          },
+          csrf,
+          95000,
+        );
       }
     } catch (failure) {
       if (current === generation.current) {
@@ -80,7 +152,7 @@ export function KotakOptionChain({
     <section className="kotak-data-panel" aria-label="Kotak option chain">
       <h3>Kotak live option chain</h3>
       <p>
-        Broker snapshots · up to 50 contracts per page · no automatic refresh.
+        Broker snapshots and shared price feed · up to 50 contracts per page.
         Closed-market or old quotes are marked stale.
       </p>
       <fieldset disabled={disabled || busy}>
@@ -119,12 +191,18 @@ export function KotakOptionChain({
             ))}
           </select>
         </label>
-        <Button type="button" disabled={!expiry} onClick={() => void load(0)}>
+        <Button type="button" disabled={!expiry} onClick={() => void load(-1)}>
           Load / refresh Kotak chain
         </Button>
       </fieldset>
       {busy && <p role="status">Loading Kotak market data…</p>}
       {error && <p role="alert">{error}</p>}
+      {chain?.warning && chain.items.some((item) => item.price === null) && (
+        <p role="status">{chain.warning}</p>
+      )}
+      {chain?.items.length && feed.error ? (
+        <p role="alert">{feed.error}</p>
+      ) : null}
       {chain && !busy && (
         <>
           {!chain.expiries.length && (
@@ -156,7 +234,7 @@ export function KotakOptionChain({
                     <td>{item.openInterest ?? "Unavailable"}</td>
                     <td>{item.lotSize}</td>
                     <td>
-                      {item.stale ? "Stale / unavailable" : "Live snapshot"}
+                      {item.stale ? "Stale / unavailable" : "Price snapshot"}
                     </td>
                     {onSelect && (
                       <td>

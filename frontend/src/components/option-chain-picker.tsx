@@ -4,7 +4,9 @@
  * It adds/replaces a research leg only; the parent must save before quoting or simulating.
  */
 import { useState } from "react";
-import { KotakOptionChain } from "./kotak-option-chain";
+import { InstrumentPicker, type BrokerInstrument } from "./instrument-picker";
+import { useMarketFeed } from "@/features/option-chain/use-market-feed";
+import { requestApiJson } from "@/lib/api";
 type Leg = {
   stockCode: string;
   expiryDate: string;
@@ -27,6 +29,16 @@ export function OptionChainPicker({
   onSelect: (leg: Leg, index: number) => void;
 }) {
   const [target, setTarget] = useState(0);
+  const [selected, setSelected] = useState<BrokerInstrument | null>(null);
+  const [quoteError, setQuoteError] = useState("");
+  const feed = useMarketFeed(csrf, Boolean(selected));
+  const quote = selected
+    ? feed.ticks.find(
+        (tick) =>
+          tick.exchange === "nse_fo" &&
+          String(tick.instrument) === selected.instrument,
+      )
+    : undefined;
   const index = Math.min(target, legCount);
   return (
     <section className="research-chain" aria-label="Option chain picker">
@@ -47,14 +59,32 @@ export function OptionChainPicker({
           </option>
         </select>
       </label>
-      <KotakOptionChain
+      <InstrumentPicker
+        market="options"
         csrf={csrf}
         disabled={disabled}
-        selectionLabel="Use research contract"
+        onClear={() => {
+          setSelected(null);
+          setQuoteError("");
+        }}
         onSelect={(item) => {
           if (!item.option || (index === legCount && legCount >= 4)) {
             return;
           }
+          setSelected(item);
+          setQuoteError("");
+          // Subscribe only the explicitly selected contract; search results never fetch quotes.
+          void requestApiJson(
+            "/market/live-feed",
+            "POST",
+            { instruments: [item.instrument] },
+            csrf,
+            95000,
+          ).catch((cause) =>
+            setQuoteError(
+              cause instanceof Error ? cause.message : "Quote unavailable.",
+            ),
+          );
           onSelect(
             {
               stockCode: item.symbol,
@@ -66,6 +96,18 @@ export function OptionChainPicker({
           );
         }}
       />
+      {selected && (
+        <p role="status">
+          {selected.name} · Last price{" "}
+          {typeof quote?.ltp === "number"
+            ? `₹${quote.ltp.toFixed(2)}`
+            : "Loading…"}
+          {quote && !quote.receivedRecently ? " · Last known price" : ""}
+        </p>
+      )}
+      {selected && (quoteError || feed.error) && (
+        <p role="alert">{quoteError || feed.error}</p>
+      )}
       <p>
         Selection starts at one lot. Review side and quantity in the builder.
         This selection creates research inputs only; it cannot submit an order.

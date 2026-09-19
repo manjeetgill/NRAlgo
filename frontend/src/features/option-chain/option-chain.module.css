@@ -1,0 +1,218 @@
+/* Dense mirrored option-chain presentation; scoped to this screen, never other chain consumers. */
+.workspace {
+  gap: 6px;
+  background: #fff;
+  color: #26323c;
+  padding: 0;
+  border-radius: 0;
+  min-width: 0;
+}
+.workspace > label {
+  max-width: 260px;
+  margin: 0;
+}
+.workspace :global(.analytics-chain) {
+  margin-top: 0;
+}
+.workspace :global(.analytics-chain .chain-toolbar) {
+  padding: 8px 12px;
+}
+.workspace :global(.analytics-chain .chain-toolbar label) {
+  max-width: 240px;
+}
+.workspace :global(.analytics-chain header) {
+  padding: 10px 12px;
+}
+.toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid #e5e8eb;
+  padding: 8px;
+}
+.toolbar h2 {
+  margin: 0;
+  font-size: 16px;
+}
+.toolbar p {
+  margin: 4px 0 0;
+  color: #66737e;
+}
+.toolbar a {
+  display: inline-block;
+  background: #303a44;
+  color: #fff;
+  border-radius: 5px;
+  padding: 9px 12px;
+  text-decoration: none;
+}
+.empty {
+  padding: 40px 16px;
+  text-align: center;
+  color: #66737e;
+}
+.ticket {
+  width: min(960px, 95vw);
+  max-height: 90vh;
+  overflow: auto;
+}
+.workspace :global(.analytics-chain .chain-scroll) {
+  height: max(340px, calc(100dvh - 245px));
+  max-height: none;
+  overflow: auto;
+}
+.workspace :global(.analytics-chain table) {
+  min-width: 1060px;
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12px;
+}
+.workspace :global(.analytics-chain td),
+.workspace :global(.analytics-chain th) {
+  padding: 6px 5px;
+  text-align: center;
+  white-space: nowrap;
+  border-bottom: 1px solid #edf0f2;
+}
+.workspace :global(.analytics-chain thead) {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #f5f6f7;
+}
+.workspace :global(.analytics-chain thead th) {
+  background: #f5f6f7;
+  color: #475569;
+  font-size: 11px;
+  letter-spacing: 0;
+}
+.workspace :global(.analytics-chain .chain-strike) {
+  background: #f1f3f5;
+  font-weight: 700;
+}
+.workspace :global(.analytics-chain tbody tr:hover td) {
+  background: #f5fafd;
+}
+.workspace :global(.chain-trade-actions button) {
+  border: 1px solid #a8b3bc;
+  background: #fff;
+  color: #187850;
+  border-radius: 4px;
+  padding: 3px 7px;
+  margin: 2px;
+  cursor: pointer;
+}
+.workspace :global(.chain-trade-actions button + button) {
+  color: #c34444;
+}
+.workspace :global(.chain-trade-actions button:disabled) {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.workspace :global(.chain-trade-actions button:focus-visible) {
+  outline: 2px solid #168cb4;
+  outline-offset: 2px;
+}
+.workspace :global(.chain-call-heading) {
+  color: #a84949;
+}
+.workspace :global(.chain-put-heading) {
+  color: #187850;
+}
+.toolbar > label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 12px;
+}
+.toolbar select,
+.workspace :global(.analytics-chain .chain-toolbar select) {
+  width: auto;
+  min-height: 32px;
+  padding: 5px 8px;
+  font-size: 12px;
+}
+.toolbar > button {
+  min-height: 32px;
+  padding: 5px 10px;
+}
+.broker {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+.broker a {
+  padding: 6px 9px;
+}
+.notes {
+  font-size: 11px;
+  padding: 2px 8px;
+}
+.workspace :global(.analytics-chain) {
+  display: grid;
+  grid-template-columns: minmax(170px, 220px) minmax(0, 1fr);
+  border-radius: 0;
+  min-width: 0;
+}
+.workspace :global(.analytics-chain > *) {
+  grid-column: 1 / -1;
+}
+.workspace :global(.analytics-chain > header) {
+  grid-column: 2;
+  grid-row: 1;
+  padding: 6px 10px;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  background: #f8fafc;
+  font-size: 11px;
+  border-bottom: 1px solid #e2e8f0;
+}
+.workspace :global(.analytics-chain > header h3) {
+  display: none;
+}
+.workspace :global(.analytics-chain > .chain-toolbar) {
+  grid-column: 1;
+  grid-row: 1;
+  padding: 6px 8px;
+  border-top: 0;
+}
+.workspace :global(.analytics-chain .chain-toolbar label) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+.workspace :global(.analytics-chain .chain-scroll) {
+  min-width: 0;
+}
+.workspace :global(.analytics-chain footer) {
+  padding: 6px 8px;
+}
+.workspace :global(.analytics-chain .chain-note) {
+  margin: 0;
+  padding: 4px 8px;
+  font-size: 11px;
+}
+@media (max-width: 760px) {
+  .broker {
+    margin-left: 0;
+    flex-wrap: wrap;
+  }
+  .workspace :global(.analytics-chain) {
+    grid-template-columns: 1fr;
+  }
+  .workspace :global(.analytics-chain > header),
+  .workspace :global(.analytics-chain > .chain-toolbar) {
+    grid-column: 1;
+    grid-row: auto;
+  }
+  .workspace :global(.analytics-chain .chain-scroll) {
+    height: max(320px, calc(100dvh - 300px));
+  }
+}

@@ -4,6 +4,17 @@ import { requestApiJson } from "@/lib/api";
 import type { BrokerInstrument } from "./instrument-picker";
 import { Button } from "./ui/button";
 import dynamic from "next/dynamic";
+import {
+  useOptionChain,
+  type ChainContract,
+  type LiveTick,
+  type OptionChainSnapshot,
+} from "@/features/option-chain/use-option-chain";
+
+export type {
+  ChainContract,
+  LiveTick,
+} from "@/features/option-chain/use-option-chain";
 
 /** Load the canvas library only when a user opens a contract chart; never render it on the server. */
 const ContractPriceChart = dynamic(
@@ -14,41 +25,10 @@ const ContractPriceChart = dynamic(
   },
 );
 
-export type LiveTick = {
-  exchange: string;
-  instrument: string;
-  ltp?: number;
-  receivedRecently?: boolean;
-  receivedAt?: number;
-  openInterest?: number;
-  volume?: string;
-  change?: number;
-  depth?: {
-    buy: { price: number; quantity?: number }[];
-    sell: { price: number; quantity?: number }[];
-  };
-};
-export type ChainContract = BrokerInstrument & {
-  price: number | null;
-  bid: number | null;
-  ask: number | null;
-  openInterest: number | null;
-  stale: boolean;
-  tickAt?: number;
-  volume?: number | null;
-  change?: number | null;
-};
 type Contract = ChainContract;
 /** A stable empty dependency prevents price renders from reloading the broker chain. */
 const EMPTY_POSITION_STRIKES: { symbol: string; strike: number }[] = [];
-type Chain = {
-  source?: string;
-  warning?: string;
-  items: Contract[];
-  expiries: string[];
-  total: number;
-  nextOffset: number | null;
-};
+type Chain = OptionChainSnapshot;
 const amount = (value: number | null | undefined) =>
   typeof value === "number" && Number.isFinite(value)
     ? value.toLocaleString("en-IN", {
@@ -57,19 +37,85 @@ const amount = (value: number | null | undefined) =>
       })
     : "—";
 
+/** Centre the first stored page around spot without adding broker quote requests. */
+function historicalAtmOffset(chain: Chain): number {
+  if (
+    chain.dataMode !== "historical" ||
+    typeof chain.underlyingPrice !== "number" ||
+    chain.underlyingPrice <= 0
+  ) {
+    return 0;
+  }
+  const strikes = [
+    ...new Set(
+      chain.items
+        .map((item) => item.option?.strikePrice)
+        .filter((strike): strike is number => typeof strike === "number"),
+    ),
+  ].sort((left, right) => left - right);
+  if (strikes.length < 2) {
+    return 0;
+  }
+  const step = strikes[1] - strikes[0];
+  const contractsPerStrike = Math.max(
+    1,
+    Math.round(chain.items.length / strikes.length),
+  );
+  if (!Number.isFinite(step) || step <= 0) {
+    return 0;
+  }
+  const visibleStrikeCount = Math.max(
+    1,
+    Math.floor(chain.items.length / contractsPerStrike),
+  );
+  const targetFirstStrike =
+    chain.underlyingPrice - Math.floor(visibleStrikeCount / 2) * step;
+  const strikeShift = Math.max(
+    0,
+    Math.round((targetFirstStrike - strikes[0]) / step),
+  );
+  const maximumOffset = Math.max(0, chain.total - chain.items.length);
+  const candidate = strikeShift * contractsPerStrike;
+  return Math.min(
+    maximumOffset - (maximumOffset % contractsPerStrike),
+    candidate - (candidate % contractsPerStrike),
+  );
+}
+
 /** One master/quote snapshot per selection. Subsequent marks share the overview's tick batch. */
 export function LiveOptionChain({
   csrf,
   ticks,
   positionStrikes = EMPTY_POSITION_STRIKES,
+  activeLegs = [],
   onAddLeg,
   compact = false,
+  selectedUnderlying,
+  experience,
+  asOf,
+  onDataMode,
+  onReferenceData,
+  onTrade,
+  analytics = false,
 }: {
   csrf: string;
   ticks: LiveTick[];
   positionStrikes?: { symbol: string; strike: number }[];
+  activeLegs?: ReadonlyArray<{
+    expiryDate?: string;
+    strikePrice?: number;
+    right?: "call" | "put";
+    side: "buy" | "sell";
+  }>;
   onAddLeg?: (contract: ChainContract, side: "buy" | "sell") => string;
   compact?: boolean;
+  selectedUnderlying?: string;
+  experience?: "builder" | "simulator" | "chain";
+  asOf?: string;
+  onDataMode?: (mode: "live" | "historical") => void;
+  onReferenceData?: (reference: { spot: number; day?: string }) => void;
+  onTrade?: (contract: ChainContract, side: "buy" | "sell") => void;
+  analytics?: boolean;
 }) {
   const detailDialog = useRef<HTMLDialogElement>(null);
   const [selectedToken, setSelectedToken] = useState("");
@@ -82,17 +128,20 @@ export function LiveOptionChain({
   } | null>(null);
   const [memberError, setMemberError] = useState("");
   const [symbols, setSymbols] = useState<string[]>([]);
-  const [underlying, setUnderlying] = useState("NIFTY");
+  const [underlying, setUnderlying] = useState(selectedUnderlying || "NIFTY");
   const [expiry, setExpiry] = useState("");
   const [expiries, setExpiries] = useState<string[]>([]);
   const [chain, setChain] = useState<Chain | null>(null);
+  const [sourceInfo, setSourceInfo] = useState<
+    Pick<Chain, "source" | "dataMode" | "observedAt">
+  >({ dataMode: experience === "simulator" ? "historical" : undefined });
   const [offset, setOffset] = useState(-1);
-  const [displayedOffset, setDisplayedOffset] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [searchError, setSearchError] = useState("");
   const [feedError, setFeedError] = useState("");
   const generation = useRef(0);
+  const appendNextPage = useRef(false);
   // React strict-mode remounts and fast selections must not overlap broker operations.
   const queue = useRef<Promise<unknown>>(Promise.resolve());
   const read = useCallback(
@@ -105,9 +154,21 @@ export function LiveOptionChain({
     },
     [csrf],
   );
+  /** Add the workspace policy to discovery reads; legacy live screens omit it. */
+  const workspaceBody = useCallback(
+    (body: Record<string, unknown>) => ({
+      ...body,
+      ...(experience ? { experience } : {}),
+      ...(asOf ? { asOf } : {}),
+    }),
+    [experience, asOf],
+  );
 
   /** Resolve official index membership on selection; abort the previous HTTP read on change/unmount. */
   useEffect(() => {
+    if (selectedUnderlying) {
+      return;
+    }
     const controller = new AbortController();
     setMembers(null);
     setMemberError("");
@@ -138,7 +199,7 @@ export function LiveOptionChain({
       }
     })();
     return () => controller.abort();
-  }, [index]);
+  }, [index, selectedUnderlying]);
 
   const eligibleStocks =
     members?.index === index
@@ -147,17 +208,23 @@ export function LiveOptionChain({
 
   /** Load broker-supported underlying facets once per session; ignore a departed screen's promise. */
   useEffect(() => {
+    if (selectedUnderlying) {
+      return;
+    }
     let cancelled = false;
     setSearchError("");
     void (async () => {
       try {
         // Every NSE call trading symbol ends in CE. Facets cover the matching
         // master, not just the 50 returned contracts, so this prefills symbols.
-        const result = await read("/market/instruments", {
-          market: "options",
-          query: "CE",
-          offset: 0,
-        });
+        const result = await read(
+          "/market/instruments",
+          workspaceBody({
+            market: "options",
+            query: "CE",
+            offset: 0,
+          }),
+        );
         if (!cancelled) {
           setSymbols(result.underlyings);
         }
@@ -170,7 +237,7 @@ export function LiveOptionChain({
     return () => {
       cancelled = true;
     };
-  }, [read]);
+  }, [read, selectedUnderlying, workspaceBody]);
 
   /** Replace expiries when the underlying changes, fencing old results before selecting the first expiry. */
   useEffect(() => {
@@ -181,15 +248,28 @@ export function LiveOptionChain({
     setExpiries([]);
     setExpiry("");
     setOffset(-1);
-    void read("/market/option-chain", { underlying, offset: 0 })
+    appendNextPage.current = false;
+    void read("/market/option-chain", workspaceBody({ underlying, offset: 0 }))
       .then((result) => {
         if (current !== generation.current) {
           return;
         }
         setExpiries(result.expiries);
         setExpiry(result.expiries[0] || "");
+        setSourceInfo({
+          source: result.source,
+          dataMode: result.dataMode,
+          observedAt: result.observedAt,
+        });
+        if (result.dataMode) {
+          onDataMode?.(result.dataMode);
+        }
         if (!result.expiries.length) {
-          setError("No current expiries found for this underlying.");
+          setError(
+            result.dataMode === "historical"
+              ? "No stored option-chain snapshot exists for this scrip yet."
+              : "No current expiries found for this underlying.",
+          );
         }
       })
       .catch((failure) => {
@@ -205,7 +285,7 @@ export function LiveOptionChain({
     return () => {
       generation.current = current + 1;
     };
-  }, [underlying, read]);
+  }, [underlying, read, workspaceBody, onDataMode]);
 
   /** Load one strike page and subscribe its contracts; cleanup invalidates results without stopping the shared feed. */
   useEffect(() => {
@@ -213,24 +293,30 @@ export function LiveOptionChain({
       return;
     }
     const current = ++generation.current;
+    const shouldAppend = appendNextPage.current && offset >= 0;
     setBusy(true);
     setError("");
     setFeedError("");
-    setChain(null);
+    if (!shouldAppend) {
+      setChain(null);
+    }
     void (async () => {
       try {
         let start = offset;
-        if (start < 0) {
+        if (start < 0 && !experience) {
           // The master resolves exact identities even when native chain quotes are unavailable.
           // Seek around an open position (or the middle of the listed strikes), never the first deep-ITM page.
           const search = (start: number) =>
-            read("/market/instruments", {
-              market: "options",
-              query: underlying,
-              underlying,
-              expiryDate: expiry,
-              offset: start,
-            });
+            read(
+              "/market/instruments",
+              workspaceBody({
+                market: "options",
+                query: underlying,
+                underlying,
+                expiryDate: expiry,
+                offset: start,
+              }),
+            );
           const first = await search(0);
           const target = positionStrikes.find(
             (p) =>
@@ -259,17 +345,67 @@ export function LiveOptionChain({
           }
           start -= start % 2;
         }
-        const result: Chain = await read("/market/option-chain", {
-          underlying,
-          expiryDate: expiry,
-          offset: start,
-        });
+        if (start < 0) {
+          start = 0;
+        }
+        let result: Chain = await read(
+          "/market/option-chain",
+          workspaceBody({
+            underlying,
+            expiryDate: expiry,
+            offset: start,
+          }),
+        );
+        if (offset < 0 && experience && result.dataMode === "historical") {
+          const centredOffset = historicalAtmOffset(result);
+          if (centredOffset > 0) {
+            start = centredOffset;
+            result = await read(
+              "/market/option-chain",
+              workspaceBody({
+                underlying,
+                expiryDate: expiry,
+                offset: centredOffset,
+              }),
+            );
+          }
+        }
         if (current !== generation.current) {
           return;
         }
-        setDisplayedOffset(start);
-        setChain(result);
-        if (result.items.length) {
+        setChain((previous) => {
+          if (!shouldAppend || !previous) {
+            return result;
+          }
+          const contracts = new Map(
+            previous.items.map((item) => [item.instrument, item]),
+          );
+          result.items.forEach((item) => contracts.set(item.instrument, item));
+          return {
+            ...result,
+            items: [...contracts.values()],
+            pageOffset: previous.pageOffset,
+          };
+        });
+        setSourceInfo({
+          source: result.source,
+          dataMode: result.dataMode,
+          observedAt: result.observedAt,
+        });
+        if (result.dataMode) {
+          onDataMode?.(result.dataMode);
+        }
+        if (
+          typeof result.underlyingPrice === "number" &&
+          Number.isFinite(result.underlyingPrice) &&
+          result.underlyingPrice > 0
+        ) {
+          onReferenceData?.({
+            spot: result.underlyingPrice,
+            day: result.sessionDay,
+          });
+        }
+        if (result.items.length && result.dataMode !== "historical") {
           try {
             await read("/market/live-feed", {
               instruments: result.items.map((item) => item.instrument),
@@ -286,6 +422,7 @@ export function LiveOptionChain({
         }
       } finally {
         if (current === generation.current) {
+          appendNextPage.current = false;
           setBusy(false);
         }
       }
@@ -293,83 +430,44 @@ export function LiveOptionChain({
     return () => {
       generation.current = current + 1;
     };
-  }, [underlying, expiry, offset, positionStrikes, read]);
+  }, [
+    underlying,
+    expiry,
+    offset,
+    positionStrikes,
+    read,
+    experience,
+    workspaceBody,
+    onDataMode,
+    onReferenceData,
+  ]);
 
-  /** Merge valid cached ticks into the displayed chain only; this effect never calls a broker API. */
-  useEffect(() => {
-    setChain((previous) =>
-      previous
-        ? {
-            ...previous,
-            items: previous.items.map((item) => {
-              const tick = ticks.find(
-                (t) =>
-                  t.exchange === "nse_fo" &&
-                  String(t.instrument) === item.instrument,
-              );
-              return tick?.receivedRecently &&
-                typeof tick.ltp === "number" &&
-                tick.ltp > 0 &&
-                Number.isFinite(tick.ltp)
-                ? {
-                    ...item,
-                    price: tick.ltp,
-                    volume:
-                      tick.volume !== null &&
-                      tick.volume !== undefined &&
-                      Number.isSafeInteger(Number(tick.volume))
-                        ? Number(tick.volume)
-                        : item.volume,
-                    change:
-                      typeof tick.change === "number"
-                        ? tick.change
-                        : item.change,
-                    bid:
-                      typeof tick.depth?.buy?.[0]?.price === "number"
-                        ? tick.depth.buy[0].price
-                        : item.bid,
-                    ask:
-                      typeof tick.depth?.sell?.[0]?.price === "number"
-                        ? tick.depth.sell[0].price
-                        : item.ask,
-                    openInterest:
-                      typeof tick.openInterest === "number"
-                        ? tick.openInterest
-                        : item.openInterest,
-                    tickAt: tick.receivedAt,
-                    stale: false,
-                  }
-                : item;
-            }),
-          }
-        : previous,
-    );
-  }, [ticks]);
-
-  const pairs = new Map<number, { call?: Contract; put?: Contract }>();
-  for (const item of chain?.items ?? []) {
-    if (!item.option) {
-      continue;
-    }
-    const pair = pairs.get(item.option.strikePrice) ?? {};
-    pair[item.option.right] = item;
-    pairs.set(item.option.strikePrice, pair);
-  }
-  const maxOi = Math.max(
-    1,
-    ...(chain?.items ?? []).map((item) => item.openInterest ?? 0),
+  const optionChain = useOptionChain(chain, ticks);
+  const maxOi = optionChain.maxOpenInterest;
+  /** Append the next contract page when the user reaches the chain's lower edge. */
+  const loadMoreContracts = useCallback(
+    (container: HTMLDivElement) => {
+      const nearBottom =
+        container.scrollHeight - container.scrollTop - container.clientHeight <
+        96;
+      if (
+        !nearBottom ||
+        busy ||
+        appendNextPage.current ||
+        chain?.nextOffset === null ||
+        chain?.nextOffset === undefined
+      ) {
+        return;
+      }
+      appendNextPage.current = true;
+      setOffset(chain.nextOffset);
+    },
+    [busy, chain?.nextOffset],
   );
   const side = (item: Contract | undefined, right: "call" | "put") => {
-    const current =
-      item &&
-      ticks.some(
-        (t) =>
-          t.exchange === "nse_fo" &&
-          String(t.instrument) === item.instrument &&
-          t.receivedRecently &&
-          typeof t.ltp === "number" &&
-          t.ltp > 0,
-      );
+    const current = Boolean(
+      item && optionChain.liveInstruments.has(item.instrument),
+    );
     const oi = (
       <td className={`chain-oi ${right}`}>
         <span
@@ -384,17 +482,21 @@ export function LiveOptionChain({
         title={item?.symbol}
       >
         {item ? (
-          <button
-            className="chain-price-button"
-            aria-label={`Inspect ${item.symbol} ${item.option?.strikePrice} ${right}`}
-            onClick={() => {
-              setSelectedToken(item.instrument);
-              setDraftError("");
-              detailDialog.current?.showModal();
-            }}
-          >
-            {amount(item.price)}
-          </button>
+          compact ? (
+            <span className="chain-price-static">{amount(item.price)}</span>
+          ) : (
+            <button
+              className="chain-price-button"
+              aria-label={`Inspect ${item.symbol} ${item.option?.strikePrice} ${right}`}
+              onClick={() => {
+                setSelectedToken(item.instrument);
+                setDraftError("");
+                detailDialog.current?.showModal();
+              }}
+            >
+              {amount(item.price)}
+            </button>
+          )
         ) : (
           "—"
         )}
@@ -405,23 +507,105 @@ export function LiveOptionChain({
         )}
       </td>
     );
-    if (compact) {
-      const depth = (
-        <td>
-          {amount(item?.bid)} / {amount(item?.ask)}
+    if (analytics) {
+      const unavailable = (label: string) => (
+        <td title={`${label} unavailable from this feed`}>—</td>
+      );
+      const actions = (
+        <td className="chain-trade-actions">
+          {item && (
+            <>
+              <button
+                type="button"
+                aria-label={`Buy ${item.symbol}`}
+                disabled={sourceInfo.dataMode === "historical" || !onTrade}
+                onClick={() => onTrade?.(item, "buy")}
+              >
+                B
+              </button>
+              <button
+                type="button"
+                aria-label={`Sell ${item.symbol}`}
+                disabled={sourceInfo.dataMode === "historical" || !onTrade}
+                onClick={() => onTrade?.(item, "sell")}
+              >
+                S
+              </button>
+            </>
+          )}
         </td>
       );
       return right === "call" ? (
         <>
+          {unavailable("Gamma")}
+          {unavailable("Vega")}
+          {unavailable("Theta")}
+          {unavailable("Delta")}
           {oi}
-          {depth}
+          {actions}
+          {mark}
+          {unavailable("IV")}
+        </>
+      ) : (
+        <>
+          {mark}
+          {actions}
+          {oi}
+          {unavailable("Delta")}
+          {unavailable("Theta")}
+          {unavailable("Vega")}
+          {unavailable("Gamma")}
+        </>
+      );
+    }
+    if (compact) {
+      const selectedSides = new Set(
+        activeLegs
+          .filter(
+            (leg) =>
+              leg.expiryDate === item?.option?.expiryDate &&
+              leg.strikePrice === item?.option?.strikePrice &&
+              leg.right === item?.option?.right,
+          )
+          .map((leg) => leg.side),
+      );
+      const actions = (
+        <td className="chain-leg-actions">
+          {item && onAddLeg ? (
+            <>
+              <button
+                type="button"
+                className={`chain-leg-button buy${selectedSides.has("buy") ? " selected" : ""}`}
+                aria-pressed={selectedSides.has("buy")}
+                aria-label={`Add buy ${item.symbol} ${item.option?.strikePrice} ${right} to payoff`}
+                onClick={() => addContractLeg(item, "buy")}
+              >
+                B
+              </button>
+              <button
+                type="button"
+                className={`chain-leg-button sell${selectedSides.has("sell") ? " selected" : ""}`}
+                aria-pressed={selectedSides.has("sell")}
+                aria-label={`Add sell ${item.symbol} ${item.option?.strikePrice} ${right} to payoff`}
+                onClick={() => addContractLeg(item, "sell")}
+              >
+                S
+              </button>
+            </>
+          ) : (
+            "—"
+          )}
+        </td>
+      );
+      return right === "call" ? (
+        <>
+          {actions}
           {mark}
         </>
       ) : (
         <>
           {mark}
-          {depth}
-          {oi}
+          {actions}
         </>
       );
     }
@@ -449,13 +633,18 @@ export function LiveOptionChain({
       </>
     );
   };
-  const selected = chain?.items.find(
+  const selected = optionChain.items.find(
     (item) => item.instrument === selectedToken,
   );
-  const selectedTick = ticks.find(
-    (tick) =>
-      tick.exchange === "nse_fo" && String(tick.instrument) === selectedToken,
-  );
+  const selectedTick = optionChain.tickByInstrument.get(selectedToken);
+  /** Add a chain row directly to the adjacent payoff without opening a second view. */
+  function addContractLeg(item: Contract, side: "buy" | "sell") {
+    if (!onAddLeg) {
+      return;
+    }
+    const message = onAddLeg(item, side);
+    setDraftError(message);
+  }
   /** Only copy metadata into a draft; stale prices never become executable order premiums. */
   function addSelectedLeg(side: "buy" | "sell") {
     if (!selected || !onAddLeg) {
@@ -468,10 +657,43 @@ export function LiveOptionChain({
       detailDialog.current?.close();
     }
   }
+  /** Keep compact provenance useful without repeating the full provider description. */
+  const compactSourceLabel =
+    sourceInfo.dataMode === "historical"
+      ? `Stored${sourceInfo.observedAt ? ` · ${new Date(sourceInfo.observedAt).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" })}` : ""}`
+      : sourceInfo.dataMode === "live"
+        ? "Live"
+        : "Loading";
+  const sourceDescription = `${chain?.source || sourceInfo.source || "Market data provider"} · ${sourceInfo.observedAt ? new Date(sourceInfo.observedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }) : "current observation"} IST`;
+  /** Reuse the same controlled expiry selector in compact and full layouts. */
+  const expirySelect = (
+    <select
+      aria-label="Option chain expiry"
+      value={expiry}
+      disabled={!expiries.length}
+      onChange={(event) => {
+        setExpiry(event.target.value);
+        setOffset(-1);
+      }}
+    >
+      {!expiries.length && (
+        <option value="">
+          {busy ? "Loading expiries…" : "No expiries available"}
+        </option>
+      )}
+      {expiries.map((day) => (
+        <option key={day}>{day}</option>
+      ))}
+    </select>
+  );
   return (
     <section
-      className={`live-option-chain${compact ? " reference-chain" : ""}`}
-      aria-label="Live option chain"
+      className={`live-option-chain${compact ? " reference-chain" : ""}${analytics ? " analytics-chain" : ""}`}
+      aria-label={
+        sourceInfo.dataMode === "historical"
+          ? "Historical option chain"
+          : "Live option chain"
+      }
     >
       <dialog
         ref={detailDialog}
@@ -498,8 +720,11 @@ export function LiveOptionChain({
               {selected.option?.strikePrice} {selected.option?.right}
             </p>
             <p>
-              Lot size: {selected.lotSize} units · LTP ₹{amount(selected.price)}{" "}
-              ·{" "}
+              Lot size:{" "}
+              {selected.lotSize > 0
+                ? `${selected.lotSize} units`
+                : "unavailable in legacy archive"}{" "}
+              · LTP ₹{amount(selected.price)} ·{" "}
               {selectedTick?.receivedRecently
                 ? "Recent quote"
                 : "Snapshot / stale"}
@@ -514,8 +739,6 @@ export function LiveOptionChain({
               <ContractPriceChart
                 key={selected.instrument}
                 instrument={selected}
-                csrf={csrf}
-                tick={selectedTick}
               />
             )}
             <table>
@@ -590,117 +813,174 @@ export function LiveOptionChain({
           <p>This contract is no longer in the current chain selection.</p>
         )}
       </dialog>
-      <header>
+      <header className={compact ? "chain-compact-header" : undefined}>
         <div>
-          <h3>Option chain</h3>
-          <p>
-            {chain?.source || "Market data provider"} · NSE options · read only
-          </p>
+          <h3>{compact ? underlying : "Option chain"}</h3>
+          {compact ? (
+            <p className="chain-compact-summary">
+              {chain?.underlyingPrice
+                ? `₹${amount(chain.underlyingPrice)}`
+                : "Price unavailable"}
+            </p>
+          ) : (
+            <>
+              <p>
+                {chain?.source || sourceInfo.source || "Market data provider"} ·
+                NSE options ·{" "}
+                {onTrade ? "Review orders before submission" : "read only"}
+              </p>
+              {chain?.underlyingPrice && (
+                <p>Underlying close ₹{amount(chain.underlyingPrice)}</p>
+              )}
+            </>
+          )}
         </div>
-        <span className="chain-source">Shared position price feed</span>
+        {compact ? (
+          <>
+            <label className="chain-expiry-inline">
+              <span>Expiry</span>
+              {expirySelect}
+            </label>
+            <span className="chain-data-badge" title={sourceDescription}>
+              {compactSourceLabel}
+            </span>
+          </>
+        ) : (
+          <span className="chain-source">
+            {sourceInfo.dataMode === "historical"
+              ? `${experience === "chain" ? "Last available close" : "Stored snapshot"}${sourceInfo.observedAt ? ` · ${new Date(sourceInfo.observedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST` : ""}`
+              : sourceInfo.dataMode === "live"
+                ? "Active broker live feed"
+                : "Checking data source…"}
+          </span>
+        )}
       </header>
-      <div className="chain-toolbar">
-        <label>
-          {compact ? "Underlying" : "Select index"}
-          <select
-            aria-label="Option chain index"
-            value={index}
-            onChange={(e) => {
-              setExpiry("");
-              setMembers(null);
-              setMemberError("");
-              setIndex(e.target.value);
-              setUnderlying(e.target.value);
-            }}
-          >
-            {[
-              "NIFTY",
-              "NIFTYNXT50",
-              "FINNIFTY",
-              "BANKNIFTY",
-              "MIDCPNIFTY",
-              "NIFTYFPI",
-            ].map((name) => (
-              <option key={name}>{name}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Constituent stock
-          <select
-            aria-label="Option chain underlying"
-            value={underlying === index ? "" : underlying}
-            disabled={!eligibleStocks.length}
-            onChange={(e) => {
-              setExpiry("");
-              setUnderlying(e.target.value || index);
-            }}
-          >
-            <option value="">
-              {memberError
-                ? "Constituents unavailable"
-                : !members
-                  ? "Loading constituents…"
-                  : !symbols.length
-                    ? "Loading provider symbols…"
-                    : !eligibleStocks.length
-                      ? "No constituents with listed options"
-                      : `Select stock — ${index} chain`}
-            </option>
-            {eligibleStocks.map((symbol) => (
-              <option key={symbol}>{symbol}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Expiry
-          <select
-            aria-label="Live option chain expiry"
-            value={expiry}
-            disabled={!expiries.length}
-            onChange={(e) => {
-              setExpiry(e.target.value);
-              setOffset(-1);
-            }}
-          >
-            {!expiries.length && <option value="">Loading expiries…</option>}
-            {expiries.map((day) => (
-              <option key={day}>{day}</option>
-            ))}
-          </select>
-        </label>
-      </div>
+      {(!compact || !selectedUnderlying) && (
+        <div className="chain-toolbar">
+          {!selectedUnderlying && (
+            <>
+              <label>
+                {compact ? "Underlying" : "Select index"}
+                <select
+                  aria-label="Option chain index"
+                  value={index}
+                  onChange={(e) => {
+                    setExpiry("");
+                    setMembers(null);
+                    setMemberError("");
+                    setIndex(e.target.value);
+                    setUnderlying(e.target.value);
+                  }}
+                >
+                  {[
+                    "NIFTY",
+                    "NIFTYNXT50",
+                    "FINNIFTY",
+                    "BANKNIFTY",
+                    "MIDCPNIFTY",
+                    "NIFTYFPI",
+                  ].map((name) => (
+                    <option key={name}>{name}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Constituent stock
+                <select
+                  aria-label="Option chain underlying"
+                  value={underlying === index ? "" : underlying}
+                  disabled={!eligibleStocks.length}
+                  onChange={(e) => {
+                    setExpiry("");
+                    setUnderlying(e.target.value || index);
+                  }}
+                >
+                  <option value="">
+                    {memberError
+                      ? "Constituents unavailable"
+                      : !members
+                        ? "Loading constituents…"
+                        : !symbols.length
+                          ? "Loading provider symbols…"
+                          : !eligibleStocks.length
+                            ? "No constituents with listed options"
+                            : `Select stock — ${index} chain`}
+                  </option>
+                  {eligibleStocks.map((symbol) => (
+                    <option key={symbol}>{symbol}</option>
+                  ))}
+                </select>
+              </label>
+            </>
+          )}
+          <label>
+            Expiry
+            {expirySelect}
+          </label>
+        </div>
+      )}
       {memberError && <p role="alert">{memberError}</p>}
       {searchError && <p role="alert">Search: {searchError}</p>}
       {error && <p role="alert">{error}</p>}
       {feedError && <p role="alert">Feed: {feedError}</p>}
-      {chain?.warning && !chain.items.some((item) => item.tickAt) && (
+      {draftError && <p role="alert">{draftError}</p>}
+      {chain?.warning && !optionChain.items.some((item) => item.tickAt) && (
         <p role="status">{chain.warning}</p>
       )}
-      {busy && <p role="status">Loading selected option chain…</p>}
-      <div className="table-wrap chain-scroll">
+      {busy && !chain && <p role="status">Loading selected option chain…</p>}
+      <div
+        className="table-wrap chain-scroll"
+        onScroll={(event) => loadMoreContracts(event.currentTarget)}
+      >
         <table>
           <thead>
             <tr>
-              <th colSpan={compact ? 3 : 6} className="chain-call-heading">
+              <th
+                colSpan={analytics ? 8 : compact ? 2 : 6}
+                className="chain-call-heading"
+              >
                 CALLS
               </th>
               <th rowSpan={2} className="chain-strike">
                 Strike
               </th>
-              <th colSpan={compact ? 3 : 6} className="chain-put-heading">
+              {analytics && <th rowSpan={2}>PCR</th>}
+              <th
+                colSpan={analytics ? 7 : compact ? 2 : 6}
+                className="chain-put-heading"
+              >
                 PUTS
               </th>
             </tr>
             <tr>
-              {compact ? (
+              {analytics ? (
                 <>
-                  <th>OI</th>
-                  <th>Bid / Ask</th>
-                  <th>LTP</th>
-                  <th>LTP</th>
-                  <th>Bid / Ask</th>
-                  <th>OI</th>
+                  {[
+                    "Gamma",
+                    "Vega",
+                    "Theta",
+                    "Delta",
+                    "OI",
+                    "Order",
+                    "Call LTP",
+                    "IV",
+                    "Put LTP",
+                    "Order",
+                    "OI",
+                    "Delta",
+                    "Theta",
+                    "Vega",
+                    "Gamma",
+                  ].map((label, index) => (
+                    <th key={`${label}-${index}`}>{label}</th>
+                  ))}
+                </>
+              ) : compact ? (
+                <>
+                  <th>B / S</th>
+                  <th>Call LTP</th>
+                  <th>Put LTP</th>
+                  <th>B / S</th>
                 </>
               ) : (
                 <>
@@ -721,7 +1001,7 @@ export function LiveOptionChain({
             </tr>
           </thead>
           <tbody>
-            {[...pairs]
+            {[...optionChain.pairs]
               .sort(([a], [b]) => a - b)
               .map(([strike, pair]) => (
                 <tr key={strike}>
@@ -729,43 +1009,35 @@ export function LiveOptionChain({
                   <th className="chain-strike">
                     {strike.toLocaleString("en-IN")}
                   </th>
+                  {analytics && (
+                    <td>
+                      {pair.call?.openInterest !== null &&
+                      pair.call?.openInterest !== undefined &&
+                      pair.call.openInterest !== 0 &&
+                      pair.put?.openInterest !== null &&
+                      pair.put?.openInterest !== undefined
+                        ? amount(pair.put.openInterest / pair.call.openInterest)
+                        : "—"}
+                    </td>
+                  )}
                   {side(pair.put, "put")}
                 </tr>
               ))}
           </tbody>
         </table>
+        {busy && chain && (
+          <p className="chain-load-more" role="status">
+            Loading more strikes…
+          </p>
+        )}
       </div>
-      {chain && !chain.items.length && <p>No contracts for this selection.</p>}
-      <footer>
-        <Button
-          variant="secondary"
-          disabled={busy || !displayedOffset}
-          onClick={() => setOffset(Math.max(0, displayedOffset - 50))}
-        >
-          Previous strikes
-        </Button>
-        <span>
-          {chain
-            ? `Contracts ${displayedOffset + 1}–${displayedOffset + chain.items.length} of ${chain.total}`
-            : ""}
-        </span>
-        <Button
-          variant="secondary"
-          disabled={
-            busy ||
-            chain?.nextOffset === null ||
-            chain?.nextOffset === undefined
-          }
-          onClick={() => setOffset(chain!.nextOffset!)}
-        >
-          Next strikes
-        </Button>
-      </footer>
+      {chain && !optionChain.items.length && (
+        <p>No contracts for this selection.</p>
+      )}
       <p className="chain-note">
-        Prices and OI update from the same tick batch as dashboard P&amp;L. This
-        page streams up to 50 chain contracts alongside up to 50 open positions.
-        Snapshot or stale prices are labelled. No repeated position/report API
-        calls.
+        {sourceInfo.dataMode === "historical"
+          ? "Stored premiums are replay observations, not executable quotes. Missing strikes and dates are never filled or estimated."
+          : "Prices and OI update from the same tick batch as dashboard P&L. This page streams up to 50 chain contracts alongside up to 50 open positions. Snapshot or stale prices are labelled. No repeated position/report API calls."}
       </p>
     </section>
   );
