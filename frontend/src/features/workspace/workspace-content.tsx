@@ -64,6 +64,14 @@ const SpreadBuilderScreen = dynamic(
     ),
   { loading: ScreenLoading },
 );
+/** Historical options replay is a distinct destination and cannot submit broker orders. */
+const SimulatorScreen = dynamic(
+  () =>
+    import("@/features/spread-builder/simulator-screen").then(
+      (module) => module.SimulatorScreen,
+    ),
+  { loading: ScreenLoading },
+);
 const OrdersScreen = dynamic(
   () =>
     import("@/features/orders/orders-screen").then(
@@ -118,7 +126,6 @@ export function WorkspaceContent({
   templateId,
   onConfigureTemplate,
   spreadDraft,
-  onDraftChange,
   onAddSpreadLeg,
 }: {
   page: WorkspacePage;
@@ -131,7 +138,6 @@ export function WorkspaceContent({
   templateId: TemplateId;
   onConfigureTemplate: (id: TemplateId) => void;
   spreadDraft?: ResearchDraft;
-  onDraftChange: (draft: ResearchDraft) => void;
   onAddSpreadLeg: (contract: ChainContract, side: "buy" | "sell") => string;
 }) {
   switch (page) {
@@ -155,8 +161,8 @@ export function WorkspaceContent({
     case "Backtest studio":
       return (
         <BacktestStudioScreen
-          csrf={workspace.csrf}
           key={templateId}
+          csrf={workspace.csrf}
           templateId={templateId}
           onBrowse={() => onNavigate("Strategy library")}
         />
@@ -174,12 +180,12 @@ export function WorkspaceContent({
       return (
         <SpreadBuilderScreen
           csrf={workspace.csrf}
-          initialStrategyId={researchStrategyId}
           draft={spreadDraft}
-          onDraftChange={onDraftChange}
-          onExploreOptionChain={onExploreOptionChain}
+          onAddLeg={onAddSpreadLeg}
         />
       );
+    case "Simulator":
+      return <SimulatorScreen csrf={workspace.csrf} />;
     case "Option chain":
       return (
         <OptionChainScreen

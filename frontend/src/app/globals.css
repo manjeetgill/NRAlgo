@@ -1960,6 +1960,33 @@ input::placeholder {
   border-bottom: 1px solid #dce3ed;
 }
 /* Paired, read-only option chain. The centre strike stays distinct at all widths. */
+.market-workspace-toolbar {
+  display: grid;
+  gap: 16px;
+}
+.market-workspace-toolbar > label {
+  display: grid;
+  gap: 6px;
+  max-width: 280px;
+}
+.strategy-market-workspace {
+  display: grid;
+  grid-template-columns: minmax(440px, 0.95fr) minmax(520px, 1.25fr);
+  gap: 16px;
+  align-items: start;
+}
+.strategy-market-chain,
+.strategy-market-payoff {
+  min-width: 0;
+}
+.strategy-market-chain .live-option-chain {
+  margin-top: 0;
+}
+@media (max-width: 1180px) {
+  .strategy-market-workspace {
+    grid-template-columns: 1fr;
+  }
+}
 .live-option-chain {
   margin-top: 24px;
   border: 1px solid #dbe3ed;
@@ -1983,6 +2010,58 @@ input::placeholder {
 .chain-source {
   font-size: 12px;
   color: #64748b;
+}
+.chain-compact-header {
+  min-height: 44px;
+  flex-wrap: nowrap;
+  gap: 8px !important;
+  padding: 6px 10px !important;
+}
+.chain-compact-header > div {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.chain-compact-header h3 {
+  overflow: hidden;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chain-compact-summary {
+  flex: 0 0 auto;
+  color: #475569;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.chain-expiry-inline {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #64748b;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.chain-expiry-inline select {
+  max-width: 132px;
+  min-height: 32px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: white;
+  color: #334155;
+  padding: 4px 6px;
+  font-size: 12px;
+}
+.chain-data-badge {
+  flex: 0 0 auto;
+  border: 1px solid #dbe3ed;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #526470;
+  font-size: 11px;
+  padding: 4px 7px;
+  white-space: nowrap;
 }
 .chain-toolbar {
   display: flex;
@@ -2011,6 +2090,14 @@ input::placeholder {
   max-height: 560px;
   overflow: auto;
 }
+.chain-load-more {
+  margin: 0;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 12px;
+  padding: 8px;
+  text-align: center;
+}
 .live-option-chain table {
   width: 100%;
   border-collapse: collapse;
@@ -2018,11 +2105,81 @@ input::placeholder {
   font-size: 13px;
   min-width: 680px;
 }
+.reference-chain table {
+  min-width: 420px;
+  table-layout: fixed;
+}
+.reference-chain th,
+.reference-chain td {
+  padding-inline: 5px;
+}
+.reference-chain .chain-leg-actions {
+  width: 58px;
+  min-width: 0;
+}
+.reference-chain .chain-ltp {
+  width: 92px;
+}
+.reference-chain .chain-strike {
+  width: 76px;
+}
+.reference-chain .chain-leg-button {
+  width: 24px;
+  min-height: 24px;
+}
 .live-option-chain th,
 .live-option-chain td {
   padding: 9px 12px;
   border: 1px solid #edf0f4;
   text-align: right;
+}
+.chain-leg-actions {
+  min-width: 68px;
+  white-space: nowrap;
+  text-align: center !important;
+}
+.chain-leg-button {
+  width: 28px;
+  min-height: 28px;
+  padding: 0;
+  border: 1px solid currentColor;
+  border-radius: 5px;
+  background: #fff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.chain-leg-button + .chain-leg-button {
+  margin-left: 5px;
+}
+.chain-leg-button.buy {
+  color: #15803d;
+}
+.chain-leg-button.sell {
+  color: #dc2626;
+}
+.chain-leg-button.buy.selected {
+  background: #15803d;
+  color: #fff;
+  box-shadow: 0 0 0 2px #bbf7d0;
+}
+.chain-leg-button.sell.selected {
+  background: #dc2626;
+  color: #fff;
+  box-shadow: 0 0 0 2px #fecaca;
+}
+.chain-leg-button:hover,
+.chain-leg-button:focus-visible {
+  color: #fff;
+  outline-offset: 2px;
+}
+.chain-leg-button.buy:hover,
+.chain-leg-button.buy:focus-visible {
+  background: #15803d;
+}
+.chain-leg-button.sell:hover,
+.chain-leg-button.sell:focus-visible {
+  background: #dc2626;
 }
 .live-option-chain thead {
   position: sticky;
@@ -2047,6 +2204,9 @@ input::placeholder {
 }
 .chain-ltp {
   font-weight: 650;
+}
+.chain-price-static {
+  color: #335cde;
 }
 .chain-ltp small {
   display: block;

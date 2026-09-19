@@ -21,6 +21,7 @@ export const workspaceNavigation: ReadonlyArray<{
   { name: "Backtest studio", icon: FlaskConical },
   { name: "Strategy lab", icon: FlaskConical },
   { name: "Spread builder", icon: Blocks },
+  { name: "Simulator", icon: FlaskConical },
   { name: "Broker paper", icon: Radio },
   { name: "Option chain", icon: Database },
   { name: "Orders & trades", icon: ArrowDownLeft },
@@ -28,6 +29,38 @@ export const workspaceNavigation: ReadonlyArray<{
   { name: "Live trading", icon: ShieldCheck },
   { name: "Account & security", icon: ShieldCheck },
   { name: "Activity log", icon: Clock3 },
+];
+
+/** Six top-level sections; existing page identities and bookmarks remain unchanged. */
+export const workspaceSections: ReadonlyArray<{
+  label: string;
+  icon: typeof Blocks;
+  pages: readonly WorkspacePage[];
+}> = [
+  { label: "Overview", icon: LayoutDashboard, pages: ["Overview"] },
+  {
+    label: "Strategies",
+    icon: Blocks,
+    pages: [
+      "Strategies",
+      "Strategy library",
+      "Strategy lab",
+      "Spread builder",
+      "Simulator",
+    ],
+  },
+  { label: "Backtesting", icon: FlaskConical, pages: ["Backtest studio"] },
+  { label: "Markets", icon: Database, pages: ["Option chain"] },
+  {
+    label: "Trading",
+    icon: ArrowDownLeft,
+    pages: ["Orders & trades", "Live trading", "Broker paper"],
+  },
+  {
+    label: "Settings",
+    icon: ShieldCheck,
+    pages: ["Brokers", "Account & security", "Activity log"],
+  },
 ];
 
 /** Human-facing screen names stay independent from the stable internal navigation keys. */
@@ -46,11 +79,13 @@ export const workspacePageDescriptions: Partial<Record<WorkspacePage, string>> =
     "Strategy library":
       "Explore transparent rules before configuring a historical backtest.",
     "Backtest studio":
-      "Validate signal strategies against broker historical OHLC data.",
+      "Validate signal strategies against stored historical daily OHLC data.",
     "Strategy lab":
-      "Build and replay scheduled strategies using broker historical candles.",
+      "Build and replay cash strategies using stored historical daily candles.",
     "Spread builder":
-      "Select option contracts and evaluate the risk of your basket.",
+      "Build option baskets from current and open-expiry market data.",
+    Simulator:
+      "Replay stored historical option-chain observations without broker execution.",
     "Broker paper":
       "Review quote-driven orders in your separate virtual account.",
     "Option chain":

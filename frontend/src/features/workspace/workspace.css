@@ -1,3 +1,265 @@
+/* Shared workspace layout and reference presentation, consolidated in original cascade order. */
+/* Shared screen shell: narrow viewports use a labelled drawer rather than an icon-only rail. */
+.screen-stack {
+  display: grid;
+  gap: 22px;
+}
+/* Research shows definition and actual results together, collapsing to one column on mobile. */
+.research-workspace-columns {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.9fr) minmax(0, 1.1fr);
+  align-items: start;
+  gap: 22px;
+}
+.research-workspace-columns .research-fields {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.workspace-dialog {
+  border: 1px solid #dee4ed;
+  border-radius: 12px;
+  padding: 26px;
+  color: #162237;
+  width: min(760px, calc(100vw - 32px));
+  max-height: 85vh;
+  overflow: auto;
+}
+.workspace-dialog::backdrop {
+  background: #101a2e80;
+}
+.workspace-section-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+  border-bottom: 1px solid #dbe3ef;
+  padding-bottom: 12px;
+}
+.workspace-section-tabs button {
+  border: 1px solid #dbe3ef;
+  border-radius: 8px;
+  background: white;
+  color: #475569;
+  padding: 10px 16px;
+  font: inherit;
+  cursor: pointer;
+}
+.workspace-section-tabs button[aria-current="page"] {
+  color: #244bce;
+  background: #edf2ff;
+  border-color: #a8b9f5;
+  font-weight: 600;
+}
+.workspace-section-tabs button:focus-visible {
+  outline: 2px solid #335cde;
+  outline-offset: 3px;
+}
+.contract-drawer {
+  margin: 0 0 0 auto;
+  height: 100dvh;
+  max-height: 100dvh;
+  width: min(490px, 100vw);
+  border-radius: 12px 0 0 12px;
+}
+.contract-drawer-chart {
+  width: min(960px, 100vw);
+}
+.chain-price-button {
+  border: 0;
+  background: transparent;
+  color: #335cde;
+  cursor: pointer;
+  padding: 4px;
+  font: inherit;
+  text-decoration: underline dotted;
+  text-underline-offset: 5px;
+}
+@media (max-width: 1150px) {
+  .research-workspace-columns {
+    grid-template-columns: 1fr;
+  }
+}
+.screen-card {
+  padding: 24px;
+}
+.screen-card h2 {
+  font-size: 18px;
+  margin: 0 0 14px;
+}
+.screen-card p,
+.muted {
+  color: #57677d;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.active-broker-options {
+  border: 0;
+  display: grid;
+  gap: 10px;
+  margin: 0 0 16px;
+  padding: 0;
+}
+.active-broker-options .sr-only {
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+.active-broker-option {
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  display: flex;
+  gap: 12px;
+  padding: 13px 15px;
+}
+.active-broker-option:has(input:checked) {
+  border-color: #335cde;
+  box-shadow: 0 0 0 1px #335cde;
+}
+.active-broker-option:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+.active-broker-option span {
+  display: grid;
+  gap: 3px;
+}
+.active-broker-option small {
+  color: #57677d;
+}
+.stored-instrument-results {
+  display: grid;
+  gap: 8px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+.stored-instrument-results .button {
+  justify-content: flex-start;
+  text-align: left;
+  width: 100%;
+}
+.screen-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+.screen-toolbar label {
+  display: grid;
+  gap: 7px;
+  font-size: 12px;
+}
+.screen-toolbar input {
+  min-width: 240px;
+}
+.screen-filters {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.screen-two-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 22px;
+}
+/* Security mirrors the reference's profile/MFA split; all cards retain mobile containment. */
+.account-security-screen {
+  padding: 0;
+}
+.screen-two-columns > *,
+.screen-stack > * {
+  min-width: 0;
+}
+.account-security-screen .screen-card > .button {
+  margin-top: 16px;
+}
+@media (max-width: 700px) {
+  .screen-two-columns {
+    grid-template-columns: 1fr;
+  }
+  .screen-toolbar input {
+    min-width: 0;
+    width: 100%;
+  }
+}
+.navigation-close {
+  display: none;
+}
+@media (max-width: 760px) {
+  .navigation-close {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    color: inherit;
+    background: transparent;
+    border: 1px solid currentColor;
+    padding: 6px;
+    margin-bottom: 12px;
+  }
+  .app-shell .sidebar {
+    visibility: hidden;
+    transform: translateX(-100%);
+    width: 238px;
+    padding: 25px 16px;
+  }
+  .app-shell.navigation-open .sidebar {
+    visibility: visible;
+    transform: translateX(0);
+  }
+  .app-shell .main-shell {
+    margin-left: 0;
+  }
+  .app-shell .sidebar nav span,
+  .app-shell .sidebar .workspace-selector,
+  .app-shell .sidebar .nav-label {
+    display: flex;
+  }
+  .app-shell .sidebar nav button {
+    justify-content: flex-start;
+  }
+  .app-shell .sidebar .brand {
+    font-size: 25px;
+  }
+  .app-shell .navigation-toggle {
+    display: grid;
+    place-items: center;
+    background: white;
+    border: 1px solid #dee4ed;
+    border-radius: 6px;
+    padding: 7px;
+    color: #162237;
+  }
+  .app-shell .navigation-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: #101a2e66;
+    border: 0;
+    z-index: 19;
+  }
+  .app-shell .topbar {
+    gap: 12px;
+    padding: 12px 20px;
+  }
+  .app-shell .breadcrumb {
+    margin-right: auto;
+  }
+}
+@media (max-width: 560px) {
+  .app-shell .content {
+    padding: 22px 16px;
+  }
+  .app-shell .topbar-right {
+    display: none;
+  }
+}
+
 /* Reference presentation tokens. Account state and execution permissions remain independent. */
 .app-shell {
   --ink: #162237;
@@ -473,7 +735,8 @@ body:has(.workspace-dialog[open]) {
   background: white;
 }
 .app-shell .reference-chain table {
-  min-width: 640px;
+  min-width: 420px;
+  table-layout: fixed;
 }
 .app-shell .reference-chain .chain-call-heading,
 .app-shell .reference-chain .chain-put-heading {
@@ -483,6 +746,20 @@ body:has(.workspace-dialog[open]) {
 .app-shell .reference-chain .chain-strike {
   background: #eef2ff;
   color: var(--ink);
+}
+/* Trading canvases use the top bar and sidebar for navigation, preserving height for data. */
+.app-shell .content.trading-canvas {
+  padding-top: 12px;
+}
+.app-shell .content.option-chain-canvas {
+  max-width: none;
+  width: 100%;
+  padding: 8px;
+}
+.app-shell .trading-canvas > .workspace-section-tabs,
+.app-shell .trading-canvas > .heading,
+.app-shell .trading-canvas > footer {
+  display: none;
 }
 @media (max-width: 1200px) {
   .app-shell {
@@ -618,5 +895,179 @@ body:has(.workspace-dialog[open]) {
     animation: none !important;
     transition: none !important;
     scroll-behavior: auto !important;
+  }
+}
+
+/* Bottom dock navigation returns the permanent rail width to data-heavy screens. */
+.app-shell {
+  padding-bottom: 66px;
+}
+.app-shell .main-shell {
+  margin-left: 0;
+}
+.app-shell .sidebar {
+  position: fixed;
+  inset: auto 0 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  width: 100%;
+  height: 66px;
+  overflow: visible;
+  padding: 0 12px;
+  border-top: 1px solid #34445c;
+  background: #18243a;
+  color: #dbe4f3;
+  transform: none;
+  visibility: visible;
+}
+.app-shell .sidebar > .brand,
+.app-shell .sidebar > .brand-subtitle,
+.app-shell .sidebar > .workspace-selector,
+.app-shell .sidebar > .nav-label,
+.app-shell .navigation-close,
+.app-shell .navigation-toggle,
+.app-shell .navigation-overlay {
+  display: none !important;
+}
+.app-shell .sidebar .dock-primary {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: stretch;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.app-shell .sidebar .dock-primary > button {
+  position: relative;
+  display: flex;
+  flex: 0 0 auto;
+  min-width: 94px;
+  min-height: 66px;
+  justify-content: center;
+  padding: 8px 13px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #b7c3d7;
+  font-size: 11px;
+  text-align: center;
+}
+.app-shell .sidebar .dock-primary > button:hover,
+.app-shell .sidebar .dock-primary > button.active {
+  background: #263854;
+  color: white;
+}
+.app-shell .sidebar .dock-primary > button.active::before {
+  inset: 0 12px auto;
+  width: auto;
+  height: 3px;
+  background: #8da6ff;
+}
+.app-shell .dock-submenu {
+  position: absolute;
+  left: var(--dock-position);
+  bottom: calc(100% + 8px);
+  z-index: 42;
+  display: grid;
+  width: max-content;
+  min-width: 190px;
+  max-width: min(280px, calc(100vw - 24px));
+  overflow: hidden;
+  padding: 6px;
+  border: 1px solid #34445c;
+  border-radius: 10px;
+  background: #18243a;
+  box-shadow: 0 16px 38px #0f172a40;
+  transform: translateX(-50%);
+}
+.app-shell .dock-submenu button {
+  min-height: 38px;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #dbe4f3;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  white-space: nowrap;
+}
+.app-shell .dock-submenu button:hover,
+.app-shell .dock-submenu button[aria-current="page"] {
+  background: #304665;
+  color: white;
+}
+.app-shell .sidebar-bottom {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 0 8px;
+  padding: 0;
+}
+.app-shell .sidebar-bottom .learn-link {
+  display: grid;
+  min-width: 42px;
+  min-height: 42px;
+  place-items: center;
+  padding: 0;
+  border-radius: 8px;
+}
+.app-shell .sidebar-bottom .learn-link span,
+.app-shell .sidebar-bottom .profile > div {
+  display: none;
+}
+.app-shell .sidebar-bottom .profile {
+  display: flex;
+  gap: 4px;
+  margin: 0;
+  padding: 0 0 0 6px;
+  border: 0;
+}
+.app-shell .sidebar-bottom .profile > button {
+  display: grid;
+  min-width: 38px;
+  min-height: 38px;
+  place-items: center;
+  margin: 0;
+}
+.app-shell .content {
+  max-width: none;
+}
+@media (max-width: 760px) {
+  .app-shell {
+    padding-bottom: 60px;
+  }
+  .app-shell .sidebar {
+    height: 60px;
+    padding: 0 6px;
+  }
+  .app-shell .sidebar .dock-primary > button {
+    min-width: 68px;
+    min-height: 60px;
+    padding: 6px 9px;
+  }
+  .app-shell .sidebar .dock-primary > button span {
+    display: none;
+  }
+  .app-shell .sidebar-bottom {
+    margin-left: 2px;
+  }
+  .app-shell .sidebar-bottom .profile > button,
+  .app-shell .sidebar-bottom .learn-link {
+    display: none;
+  }
+  .app-shell .dock-submenu {
+    position: fixed;
+    right: 8px;
+    bottom: 68px;
+    left: 8px;
+    width: auto;
+    max-width: none;
+    transform: none;
   }
 }

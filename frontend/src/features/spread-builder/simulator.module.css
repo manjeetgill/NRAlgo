@@ -1,0 +1,108 @@
+/* Index-only historical simulator: saved option chain left, payoff/positions right. */
+.simulator {
+  gap: 8px;
+}
+.commandPanel {
+  display: flex !important;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 6px !important;
+  min-height: 48px;
+  overflow-x: auto;
+  padding: 6px 8px !important;
+  scrollbar-width: thin;
+}
+.commandPanel > p {
+  margin: 0 0 8px;
+  color: #526470;
+  font-size: 12px;
+}
+.modeSwitch {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+.modeSwitch button {
+  min-height: 34px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+.replayToolbar {
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  flex-wrap: nowrap;
+  gap: 6px;
+  min-width: 0;
+  padding: 0;
+}
+.replayToolbar label {
+  display: block;
+  flex: 0 0 auto;
+}
+.replayToolbar select {
+  width: 96px;
+}
+.replayToolbar input {
+  width: 132px;
+}
+.replayToolbar select,
+.replayToolbar input {
+  min-height: 34px;
+  padding: 5px 8px;
+  font-size: 12px;
+}
+.dataLabel {
+  flex: 0 0 auto;
+  border: 1px solid #dbe3ed;
+  border-radius: 999px;
+  background: #f8fafc;
+  font-size: 12px;
+  color: #526470;
+  padding: 5px 8px;
+  white-space: nowrap;
+}
+.workspace.workspace {
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 8px;
+}
+.workspace :global(.chain-scroll) {
+  max-height: calc(100vh - 250px);
+  overflow: auto;
+}
+.workspace :global(.chain-strike) {
+  background: #eaf9fc;
+}
+.workspace :global(.live-option-chain) {
+  border-radius: 4px;
+}
+.workspace :global(.live-option-chain header),
+.workspace :global(.live-option-chain footer) {
+  padding: 8px 12px;
+}
+.workspace :global(.chain-toolbar) {
+  gap: 8px;
+  padding: 8px 12px;
+}
+.workspace :global(.live-option-chain th),
+.workspace :global(.live-option-chain td) {
+  padding-block: 6px;
+}
+.workspace :global(.chain-expiry-inline > span),
+.workspace :global(.chain-data-badge) {
+  display: none;
+}
+.workspace :global(.chain-compact-header h3) {
+  flex: 0 0 auto;
+}
+.workspace :global(.chain-expiry-inline select) {
+  max-width: 108px;
+}
+.workspace :global(.chain-note) {
+  display: none;
+}
+@media (max-width: 1100px) {
+  .workspace.workspace {
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  }
+}

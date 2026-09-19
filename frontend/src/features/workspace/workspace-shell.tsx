@@ -1,29 +1,26 @@
 "use client";
 /** Shared layout owns navigation only. Session, forms, quotes and broker commands have separate owners. */
-import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Activity,
-  ChevronRight,
-  CircleHelp,
-  LockKeyhole,
-  LogOut,
-  Menu,
-  X,
-} from "lucide-react";
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
+import { Activity, CircleHelp, LockKeyhole, LogOut, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getTradingMode, isTradingPageVisible } from "@/lib/trading-mode";
 import {
   getWorkspacePageHash,
   getWorkspacePageLabel,
-  workspaceNavigation,
+  workspaceSections,
   workspacePageDescriptions,
   resolveWorkspacePage,
 } from "./workspace-navigation";
 import { WorkspaceContent } from "./workspace-content";
 import { ScreenErrorBoundary } from "./screen-error-boundary";
 import type { WorkspacePage, WorkspaceSnapshot } from "./workspace-types";
-import "./workspace-responsive.css";
-import "./workspace-parity.css";
+import "./workspace.css";
 import { WorkspaceHelp } from "./workspace-help";
 import { workspaceTour } from "./workspace-tour";
 import type { TemplateId } from "@/features/strategy-library/strategy-templates";
@@ -47,12 +44,10 @@ export function WorkspaceShell({
   onSignOut: () => Promise<void>;
 }) {
   const [requestedPage, setPage] = useState<WorkspacePage>("Overview");
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [openSection, setOpenSection] = useState("");
   const [tourStep, setTourStep] = useState<number | null>(null);
   const [helpRequest, setHelpRequest] = useState(0);
   const navigationRef = useRef<HTMLElement>(null);
-  const contentRef = useRef<HTMLDivElement>(null);
-  const menuButtonRef = useRef<HTMLButtonElement>(null);
   const [researchStrategyId, setResearchStrategyId] = useState("");
   const [templateId, setTemplateId] = useState<TemplateId>("ema");
   const [spreadDraft, setSpreadDraft] = useState<ResearchDraft>();
@@ -63,13 +58,25 @@ export function WorkspaceShell({
   const page = isTradingPageVisible(requestedPage, tradingMode)
     ? requestedPage
     : "Overview";
+  const sections = workspaceSections
+    .map((section) => ({
+      ...section,
+      pages: section.pages.filter((item) =>
+        isTradingPageVisible(item, tradingMode),
+      ),
+    }))
+    .filter((section) => section.pages.length > 0);
+  const openSectionIndex = sections.findIndex(
+    (section) => section.label === openSection,
+  );
+  const openSectionData = sections[openSectionIndex];
   useEffect(() => {
     setTourStep(null);
   }, [tradingMode]);
   /** Stable navigation callback lets independent screens own their effects. */
   const onNavigate = useCallback((destination: WorkspacePage) => {
     setPage(destination);
-    setMenuOpen(false);
+    setOpenSection("");
     window.location.hash = getWorkspacePageHash(destination);
   }, []);
   /** Restore deep links and browser history; unknown or hidden destinations fail back to Overview. */
@@ -81,11 +88,11 @@ export function WorkspaceShell({
           ? destination
           : "Overview",
       );
-      setMenuOpen(false);
+      setOpenSection("");
     }
     function closeOnEscape(event: KeyboardEvent) {
       if (event.key === "Escape") {
-        setMenuOpen(false);
+        setOpenSection("");
       }
     }
     restoreLocation();
@@ -96,65 +103,6 @@ export function WorkspaceShell({
       window.removeEventListener("keydown", closeOnEscape);
     };
   }, [tradingMode]);
-  /** Mobile navigation is modal: contain keyboard focus and disable the background until dismissal.
-   * Cleanup restores the trigger and removes listeners on navigation, Escape, resize or unmount. */
-  useEffect(() => {
-    if (!menuOpen) {
-      return;
-    }
-    const query = window.matchMedia("(max-width: 760px)");
-    if (!query.matches) {
-      setMenuOpen(false);
-      return;
-    }
-    const navigation = navigationRef.current,
-      content = contentRef.current,
-      trigger = menuButtonRef.current;
-    if (!navigation || !content) {
-      return;
-    }
-    content.inert = true;
-    /** Only visible enabled controls participate in the focus cycle. */
-    const controls = () =>
-      Array.from(
-        navigation.querySelectorAll<HTMLElement>(
-          'a[href], button:not([disabled]), [tabindex="0"]',
-        ),
-      ).filter((element) => element.getClientRects().length > 0);
-    controls()[0]?.focus();
-    /** Wrap Tab at either edge; Escape is also handled by the shell's close listener. */
-    function keepFocus(event: KeyboardEvent) {
-      if (event.key !== "Tab") {
-        return;
-      }
-      const items = controls(),
-        first = items[0],
-        last = items.at(-1);
-      if (
-        (event.shiftKey && document.activeElement === first) ||
-        (!event.shiftKey && document.activeElement === last)
-      ) {
-        event.preventDefault();
-        (event.shiftKey ? last : first)?.focus();
-      }
-    }
-    /** Desktop navigation is not modal and must not leave the main screen inert. */
-    function onResize() {
-      if (!query.matches) {
-        setMenuOpen(false);
-      }
-    }
-    navigation.addEventListener("keydown", keepFocus);
-    query.addEventListener("change", onResize);
-    return () => {
-      content.inert = false;
-      navigation.removeEventListener("keydown", keepFocus);
-      query.removeEventListener("change", onResize);
-      if (query.matches) {
-        trigger?.focus();
-      }
-    };
-  }, [menuOpen]);
   /** This shortcut changes presentation only, never account/execution permissions. */
   const onExploreOptionChain = useCallback(() => {
     onNavigate("Option chain");
@@ -176,6 +124,9 @@ export function WorkspaceShell({
       const spreadLegs = spreadDraft?.definition.legs ?? [];
       if (!contract.option) {
         return "Select a listed option contract.";
+      }
+      if (!Number.isSafeInteger(contract.lotSize) || contract.lotSize < 1) {
+        return "This legacy archive does not include a verified lot size. Add the leg in the builder and enter units manually.";
       }
       if (spreadLegs.length >= 4) {
         return "A spread supports at most four legs. Remove one in the builder first.";
@@ -208,6 +159,21 @@ export function WorkspaceShell({
             },
           ],
         },
+        marketReferences: [
+          ...(spreadDraft?.marketReferences ?? []),
+          ...(typeof contract.price === "number" && contract.price >= 0
+            ? [
+                {
+                  stockCode: contract.symbol,
+                  expiryDate: option.expiryDate,
+                  right: option.right,
+                  strikePrice: option.strikePrice,
+                  price: contract.price,
+                  observedAt: contract.tickAt,
+                },
+              ]
+            : []),
+        ],
       });
       setResearchStrategyId("");
       onNavigate("Spread builder");
@@ -228,7 +194,7 @@ export function WorkspaceShell({
     onNavigate(tour[index].page);
   }
   return (
-    <div className={`app-shell${menuOpen ? " navigation-open" : ""}`}>
+    <div className="app-shell">
       <a
         className="workspace-skip"
         href="#workspace-main"
@@ -239,30 +205,12 @@ export function WorkspaceShell({
       >
         Skip to content
       </a>
-      {menuOpen && (
-        <button
-          className="navigation-overlay"
-          aria-label="Close navigation"
-          tabIndex={-1}
-          onClick={() => setMenuOpen(false)}
-        />
-      )}
       <aside
         ref={navigationRef}
         className="sidebar"
         id="workspace-navigation"
-        role={menuOpen ? "dialog" : undefined}
-        aria-modal={menuOpen || undefined}
         aria-label="Workspace navigation menu"
       >
-        <button
-          type="button"
-          className="navigation-close"
-          aria-label="Close navigation menu"
-          onClick={() => setMenuOpen(false)}
-        >
-          <X size={18} />
-        </button>
         <a
           className="brand"
           href="#"
@@ -285,34 +233,58 @@ export function WorkspaceShell({
             <strong>My workspace</strong>
             <small>Private account</small>
           </div>
-          <ChevronRight size={14} />
         </div>
         <p className="nav-label">WORKSPACE</p>
-        <nav aria-label="Workspace navigation">
-          {workspaceNavigation
-            .filter(
-              /** Use the same policy for navigation and rendered content. */ (
-                item,
-              ) => isTradingPageVisible(item.name, tradingMode),
-            )
-            .map(
-              /** Bind known navigation destinations, never mutation handlers. */ ({
-                name,
-                icon: Icon,
-              }) => (
-                <button
-                  key={name}
-                  aria-label={getWorkspacePageLabel(name)}
-                  aria-current={page === name ? "page" : undefined}
-                  className={page === name ? "active" : ""}
-                  onClick={() => onNavigate(name)}
-                >
-                  <Icon size={18} />
-                  <span>{getWorkspacePageLabel(name)}</span>
-                </button>
-              ),
-            )}
+        <nav className="dock-primary" aria-label="Workspace navigation">
+          {sections.map(({ label, icon: Icon, pages }) => (
+            <button
+              key={label}
+              aria-label={label}
+              aria-current={pages.includes(page) ? "page" : undefined}
+              aria-expanded={
+                pages.length > 1 ? openSection === label : undefined
+              }
+              className={pages.includes(page) ? "active" : ""}
+              onClick={() => {
+                if (pages.length === 1) {
+                  onNavigate(pages[0]);
+                  return;
+                }
+                if (!pages.includes(page)) {
+                  onNavigate(pages[0]);
+                }
+                setOpenSection((current) => (current === label ? "" : label));
+              }}
+            >
+              <Icon size={18} />
+              <span>{label}</span>
+            </button>
+          ))}
         </nav>
+        {openSectionData && openSectionData.pages.length > 1 && (
+          <nav
+            className="dock-submenu"
+            aria-label={`${openSectionData.label} pages`}
+            style={
+              {
+                "--dock-position": `${((openSectionIndex + 0.5) / sections.length) * 100}%`,
+              } as CSSProperties
+            }
+          >
+            {openSectionData.pages.map((destination) => (
+              <button
+                key={destination}
+                type="button"
+                aria-current={page === destination ? "page" : undefined}
+                onClick={() => onNavigate(destination)}
+              >
+                {destination === "Strategies"
+                  ? "My strategies"
+                  : getWorkspacePageLabel(destination)}
+              </button>
+            ))}
+          </nav>
+        )}
         <div className="sidebar-bottom">
           <button
             className="learn-link"
@@ -339,18 +311,8 @@ export function WorkspaceShell({
           </div>
         </div>
       </aside>
-      <div ref={contentRef} className="main-shell">
+      <div className="main-shell" onClick={() => setOpenSection("")}>
         <header className="topbar">
-          <button
-            className="navigation-toggle"
-            ref={menuButtonRef}
-            aria-label={menuOpen ? "Close navigation" : "Open navigation"}
-            aria-expanded={menuOpen}
-            aria-controls="workspace-navigation"
-            onClick={() => setMenuOpen(!menuOpen)}
-          >
-            {menuOpen ? <X size={20} /> : <Menu size={20} />}
-          </button>
           <div className="breadcrumb">
             <span className="breadcrumb-root">Workspace /</span>
             <strong>{getWorkspacePageLabel(page)}</strong>
@@ -402,7 +364,11 @@ export function WorkspaceShell({
             </button>
           </div>
         )}
-        <main className="content" id="workspace-main" tabIndex={-1}>
+        <main
+          className={`content${page === "Spread builder" || page === "Option chain" ? " trading-canvas" : ""}${page === "Option chain" ? " option-chain-canvas" : ""}`}
+          id="workspace-main"
+          tabIndex={-1}
+        >
           {page !== "Overview" && (
             <div className="heading">
               <div>
@@ -432,7 +398,6 @@ export function WorkspaceShell({
               templateId={templateId}
               onConfigureTemplate={onConfigureTemplate}
               spreadDraft={spreadDraft}
-              onDraftChange={setSpreadDraft}
               onAddSpreadLeg={onAddSpreadLeg}
             />
           </ScreenErrorBoundary>
