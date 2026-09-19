@@ -1,6 +1,6 @@
 "use client";
 /** Current-master search only. Selecting a row fills a caller-owned ticket; it never submits an order.
- * Cash symbols load after connection; searches are owner-authenticated and CSRF protected.
+ * Symbols load only after typing; searches are owner-authenticated and CSRF protected.
  * No broker secrets enter React.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -28,7 +28,7 @@ type SearchResult = {
   fetchedAt: number;
   nextOffset: number | null;
 };
-/** Browse current supported NSE EQ symbols after connection, then send only verified metadata
+/** Search current supported NSE EQ symbols after typing, then send only verified metadata
  * to the ticket. Pages stay bounded to 50; no full-market quote requests or guessed tokens.
  */
 export function CashSymbolSelect({
@@ -85,21 +85,21 @@ export function CashSymbolSelect({
     },
     [csrf],
   );
-  /** Invalidate old fetches on disconnect/unmount; wallet refreshes do not re-download symbols. */
+  /** A connection alone never loads the full symbol list. */
   useEffect(() => {
-    if (connected) {
-      setQuery("");
-      void load("", 0);
-    } else {
-      setResult(null);
-      setError("");
-      setBusy(false);
+    setResult(null);
+    setError("");
+    setBusy(false);
+    if (!connected || query.trim().length < 2) {
+      return;
     }
+    const timer = setTimeout(() => void load(query, 0), 400);
     const requestGeneration = generation;
     return () => {
+      clearTimeout(timer);
       requestGeneration.current++;
     };
-  }, [connected, load]);
+  }, [connected, load, query]);
   const items = result?.items || [];
   return (
     <section
@@ -111,7 +111,7 @@ export function CashSymbolSelect({
         <input
           value={query}
           maxLength={40}
-          disabled={disabled || busy || !connected}
+          disabled={disabled || !connected}
           placeholder="RELIANCE, HDFCBANK, or token"
           onChange={(event) => setQuery(event.target.value.toUpperCase())}
         />
@@ -119,7 +119,7 @@ export function CashSymbolSelect({
       <Button
         type="button"
         variant="secondary"
-        disabled={disabled || busy || !connected}
+        disabled={disabled || busy || !connected || query.trim().length < 2}
         onClick={() => void load(query, 0)}
       >
         {busy ? "Loading Kotak symbols…" : "Search / refresh Kotak symbols"}
@@ -201,13 +201,15 @@ export function InstrumentPicker({
   csrf,
   disabled,
   onSelect,
+  onClear,
 }: {
   market: "cash" | "options";
   csrf: string;
   disabled: boolean;
   onSelect: (instrument: BrokerInstrument) => void;
+  onClear?: () => void;
 }) {
-  const [query, setQuery] = useState(market === "options" ? "NIFTY" : ""),
+  const [query, setQuery] = useState(""),
     [expiry, setExpiry] = useState(""),
     [right, setRight] = useState("");
   const [result, setResult] = useState<SearchResult | null>(null),
@@ -216,50 +218,81 @@ export function InstrumentPicker({
     [offset, setOffset] = useState(0);
   const [underlying, setUnderlying] = useState("");
   const generation = useRef(0);
+  const [selection, setSelection] = useState<BrokerInstrument | null>(null);
+  const pendingSearch = useRef<AbortController | null>(null);
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Invalidate late searches when this picker leaves the page; no broker subscription is owned here. */
   useEffect(
     () => () => {
       generation.current++;
+      pendingSearch.current?.abort();
     },
     [],
   );
   /** Only the current request may update this broker/market's search results. */
-  async function search(nextOffset = 0) {
-    const current = ++generation.current;
-    setBusy(true);
-    setError("");
-    try {
-      const data = await requestApiJson(
-        "/market/instruments",
-        "POST",
-        {
-          market,
-          query,
-          offset: nextOffset,
-          ...(expiry ? { expiryDate: expiry } : {}),
-          ...(underlying ? { underlying } : {}),
-          ...(right ? { right } : {}),
-        },
-        csrf,
-        60000,
-      );
-      if (current === generation.current) {
-        setResult(data);
-        setOffset(nextOffset);
+  const search = useCallback(
+    async (nextOffset = 0) => {
+      if (query.trim().length < 2 || disabled) {
+        return;
       }
-    } catch (error) {
-      if (current === generation.current) {
-        setResult(null);
-        setError(
-          error instanceof Error ? error.message : "Instrument search failed.",
+      if (searchTimer.current) {
+        clearTimeout(searchTimer.current);
+      }
+      pendingSearch.current?.abort();
+      const controller = new AbortController();
+      pendingSearch.current = controller;
+      const current = ++generation.current;
+      setBusy(true);
+      setError("");
+      try {
+        const data = await requestApiJson(
+          "/market/instruments",
+          "POST",
+          {
+            market,
+            query,
+            offset: nextOffset,
+            ...(expiry ? { expiryDate: expiry } : {}),
+            ...(underlying ? { underlying } : {}),
+            ...(right ? { right } : {}),
+          },
+          csrf,
+          60000,
+          controller.signal,
         );
+        if (current === generation.current) {
+          setResult(data);
+          setOffset(nextOffset);
+        }
+      } catch (error) {
+        if (current === generation.current) {
+          setResult(null);
+          setError(
+            error instanceof Error
+              ? error.message
+              : "Instrument search failed.",
+          );
+        }
+      } finally {
+        if (current === generation.current) {
+          setBusy(false);
+        }
       }
-    } finally {
-      if (current === generation.current) {
-        setBusy(false);
-      }
+    },
+    [csrf, market, query, expiry, underlying, right, disabled],
+  );
+  /** Search metadata after typing pauses; prices/history remain gated by explicit selection. */
+  useEffect(() => {
+    if (selection || query.trim().length < 2 || disabled) {
+      return;
     }
-  }
+    searchTimer.current = setTimeout(() => void search(), 400);
+    return () => {
+      if (searchTimer.current) {
+        clearTimeout(searchTimer.current);
+      }
+    };
+  }, [search, selection, query, disabled]);
   return (
     <section aria-label="Broker instrument picker">
       <h4>
@@ -280,13 +313,19 @@ export function InstrumentPicker({
             value={query}
             minLength={2}
             maxLength={40}
-            disabled={busy || disabled}
+            disabled={disabled}
             placeholder="NIFTY, RELIANCE…"
             onChange={(event) => {
+              generation.current++;
+              pendingSearch.current?.abort();
+              setBusy(false);
+              setSelection(null);
+              onClear?.();
               setQuery(event.target.value.toUpperCase());
               setResult(null);
               setExpiry("");
               setUnderlying("");
+              setRight("");
             }}
           />
         </label>
@@ -349,7 +388,12 @@ export function InstrumentPicker({
         {busy ? "Loading instrument master…" : "Search broker instruments"}
       </Button>
       {error && <p role="alert">{error}</p>}
-      {result && (
+      {selection && (
+        <p role="status">
+          Selected: {selection.name} · {selection.instrument}
+        </p>
+      )}
+      {result && !selection && (
         <>
           <p>
             {result.total} matching instruments · Master fetched{" "}
@@ -386,7 +430,12 @@ export function InstrumentPicker({
                         type="button"
                         disabled={busy || disabled}
                         aria-label={`Select ${item.symbol} ${item.option ? `${item.option.expiryDate} ${item.option.strikePrice} ${item.option.right}` : "cash"}`}
-                        onClick={() => onSelect(item)}
+                        onClick={() => {
+                          generation.current++;
+                          pendingSearch.current?.abort();
+                          setSelection(item);
+                          onSelect(item);
+                        }}
                       >
                         Select contract
                       </Button>
