@@ -1,0 +1,208 @@
+/** Session-bound, memory-only Kite login. Mounted after application auth and CSRF. */
+import type { Express } from "express";
+import { createHash, randomBytes } from "node:crypto";
+import { z } from "zod";
+import { createZerodhaSdk } from "./zerodha-sdk.js";
+import { fail, rateLimit } from "./security.js";
+
+type Sdk = ReturnType<typeof createZerodhaSdk>;
+type Owner = { user_id: string; token_hash: string; expires: number };
+type Pending = { state: string; deadline: number; owner: Owner };
+type Connection = {
+  client: Awaited<ReturnType<Sdk["exchange"]>>;
+  deadline: number;
+  owner: Owner;
+};
+export type ZerodhaConnectionEvents = {
+  connected: (userId: string, accountBinding: string) => Promise<void>;
+  disconnected: (userId: string) => Promise<void>;
+};
+
+/** No credentials persist to the DB or reach frontend state. Each app login owns its broker session. */
+export function createZerodhaConnection(
+  env: NodeJS.ProcessEnv,
+  injected?: Sdk,
+  events?: ZerodhaConnectionEvents,
+) {
+  const sdk =
+    injected ??
+    (env.ZERODHA_API_KEY && env.ZERODHA_API_SECRET
+      ? createZerodhaSdk(env)
+      : null);
+  const callbackUrl = new URL(
+    "/brokers/zerodha/callback",
+    env.APP_ORIGIN || "http://localhost:3000",
+  ).href;
+  const pending = new Map<string, Pending>();
+  const connections = new Map<string, Connection>();
+  function prune() {
+    for (const [key, value] of pending) {
+      if (value.deadline <= Date.now()) {
+        pending.delete(key);
+      }
+    }
+    for (const [key, value] of connections) {
+      if (value.deadline <= Date.now()) {
+        connections.delete(key);
+      }
+    }
+  }
+  const timer = setInterval(prune, 60000);
+  timer.unref();
+  function status(owner: Owner) {
+    prune();
+    const connected = connections.get(owner.token_hash);
+    return {
+      configured: Boolean(sdk),
+      connected: Boolean(connected),
+      callbackUrl,
+      account: connected?.client.account ?? null,
+    };
+  }
+  function disconnect(userId: string) {
+    for (const [key, value] of pending) {
+      if (value.owner.user_id === userId) {
+        pending.delete(key);
+      }
+    }
+    for (const [key, value] of connections) {
+      if (value.owner.user_id === userId) {
+        connections.delete(key);
+      }
+    }
+    void events?.disconnected(userId).catch(() => {});
+  }
+  /** Runtime connectivity is session-bound; durable registry state alone never proves access. */
+  function isConnected(userId: string, sessionHash: string) {
+    prune();
+    const connection = connections.get(sessionHash);
+    return Boolean(connection && connection.owner.user_id === userId);
+  }
+  return {
+    disconnect,
+    isConnected,
+    close() {
+      clearInterval(timer);
+      pending.clear();
+      connections.clear();
+    },
+    register(app: Express) {
+      app.use(
+        "/api/brokers/zerodha",
+        rateLimit(20, 60000, (req) => req.res!.locals.session.user_id),
+      );
+      app.get("/api/brokers/zerodha", (_req, res) => {
+        res.json({
+          ...status(res.locals.session),
+          csrf: res.locals.session.csrf,
+        });
+      });
+      app.post("/api/brokers/zerodha/login", (_req, res) => {
+        if (!sdk) {
+          return fail(
+            409,
+            "Configure ZERODHA_API_KEY and ZERODHA_API_SECRET on the server first.",
+          );
+        }
+        prune();
+        if (pending.size >= 1000) {
+          return fail(503, "Login capacity reached. Try again later.");
+        }
+        const owner: Owner = res.locals.session;
+        const state = randomBytes(32).toString("base64url");
+        pending.set(owner.token_hash, {
+          owner,
+          state,
+          deadline: Math.min(Date.now() + 300000, owner.expires * 1000),
+        });
+        res.json({ url: sdk.loginUrl(state) });
+      });
+      app.post("/api/brokers/zerodha/callback", async (req, res) => {
+        const input = z
+          .object({
+            state: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+            request_token: z.string().min(1).max(256),
+          })
+          .strict()
+          .parse(req.body);
+        const owner: Owner = res.locals.session;
+        prune();
+        const attempt = pending.get(owner.token_hash);
+        if (!sdk || !attempt || attempt.state !== input.state) {
+          return fail(
+            409,
+            "This Zerodha login has expired or belongs to another session. Start again.",
+          );
+        }
+        // Consume before awaiting: duplicate callbacks cannot exchange the same token twice.
+        pending.delete(owner.token_hash);
+        const marker = { ...attempt, state: "exchanging" };
+        pending.set(owner.token_hash, marker);
+        try {
+          const client = await sdk.exchange(input.request_token);
+          await client.verify();
+          if (
+            pending.get(owner.token_hash) !== marker ||
+            marker.deadline <= Date.now()
+          ) {
+            return fail(409, "Login cancelled or expired. Start again.");
+          }
+          if (connections.size >= 1000 && !connections.has(owner.token_hash)) {
+            return fail(503, "Connection capacity reached.");
+          }
+          // Next 06:00 IST is 00:30 UTC. Never retain beyond the application session.
+          const nextExpiry = new Date(Date.now());
+          nextExpiry.setUTCHours(0, 30, 0, 0);
+          if (nextExpiry.getTime() <= Date.now()) {
+            nextExpiry.setUTCDate(nextExpiry.getUTCDate() + 1);
+          }
+          connections.set(owner.token_hash, {
+            owner,
+            client,
+            deadline: Math.min(nextExpiry.getTime(), owner.expires * 1000),
+          });
+          await events?.connected(
+            owner.user_id,
+            `zerodha:${createHash("sha256").update(client.account.user_id.trim().toUpperCase()).digest("hex")}`,
+          );
+          res.json(status(owner));
+        } catch {
+          connections.delete(owner.token_hash);
+          return fail(
+            502,
+            "Zerodha login could not be completed. Start a new login; do not retry this callback.",
+          );
+        } finally {
+          if (pending.get(owner.token_hash) === marker) {
+            pending.delete(owner.token_hash);
+          }
+        }
+      });
+      app.post("/api/brokers/zerodha/verify", async (_req, res) => {
+        const owner: Owner = res.locals.session;
+        prune();
+        const current = connections.get(owner.token_hash);
+        if (current) {
+          try {
+            await current.client.verify();
+          } catch {
+            if (connections.get(owner.token_hash) === current) {
+              connections.delete(owner.token_hash);
+            }
+            return fail(
+              409,
+              "Zerodha verification failed. Reconnect your account.",
+            );
+          }
+        }
+        res.json(status(owner));
+      });
+      app.post("/api/brokers/zerodha/disconnect", async (_req, res) => {
+        pending.delete(res.locals.session.token_hash);
+        connections.delete(res.locals.session.token_hash);
+        await events?.disconnected(res.locals.session.user_id);
+        res.json(status(res.locals.session));
+      });
+    },
+  };
+}
