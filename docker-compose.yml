@@ -12,6 +12,9 @@ x-app: &app
   cap_drop: [ALL]
   security_opt: ["no-new-privileges:true"]
   stop_grace_period: 30s
+  read_only: true
+  pids_limit: 128
+  tmpfs: ["/tmp:size=64m,mode=1777"]
 x-database: &database
   DATABASE_URL: postgresql://nexus_app:${APP_DATABASE_PASSWORD:?Set APP_DATABASE_PASSWORD to 64 hex characters}@db:5432/nexus
   APP_ENV: production
@@ -20,6 +23,12 @@ services:
   db:
     <<: *service
     image: postgres:17-alpine
+    mem_limit: 768m
+    memswap_limit: 768m
+    cpus: 0.75
+    pids_limit: 128
+    shm_size: 128m
+    command: [postgres, -c, shared_buffers=128MB, -c, work_mem=4MB, -c, maintenance_work_mem=64MB, -c, max_connections=40]
     environment:
       POSTGRES_USER: nexus
       POSTGRES_DB: nexus
@@ -34,6 +43,9 @@ services:
   migrate:
     <<: *app
     restart: "no"
+    mem_limit: 384m
+    memswap_limit: 384m
+    cpus: 0.5
     build:
       context: .
       target: backend
@@ -48,11 +60,16 @@ services:
         condition: service_healthy
   api:
     <<: *app
+    mem_limit: 512m
+    memswap_limit: 512m
+    cpus: 1.0
+    cpu_shares: 1024
     build:
       context: .
       target: backend
     environment:
       <<: *database
+      NODE_OPTIONS: --max-old-space-size=320
       APP_ORIGIN: https://${APP_DOMAIN:?Set APP_DOMAIN to your hostname}
       MARKET_DATA_PROVIDER: ${MARKET_DATA_PROVIDER:-kotak}
       ZERODHA_API_KEY: ${ZERODHA_API_KEY:-}
@@ -86,10 +103,19 @@ services:
       start_period: 20s
   calculator:
     <<: *app
+    mem_limit: 768m
+    memswap_limit: 768m
+    cpus: 0.75
+    cpu_shares: 256
+    pids_limit: 64
     build:
       context: .
       target: calculation
     environment:
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
       CALCULATION_SERVICE_TOKEN: ${CALCULATION_SERVICE_TOKEN:?Set a separate calculation-service token}
     healthcheck:
       test:
@@ -105,6 +131,12 @@ services:
       start_period: 15s
   web:
     <<: *app
+    mem_limit: 384m
+    memswap_limit: 384m
+    cpus: 0.5
+    environment:
+      NODE_OPTIONS: --max-old-space-size=256
+    tmpfs: ["/tmp:size=32m,mode=1777", "/app/.next/cache:size=32m,uid=1000,gid=1000"]
     build:
       context: .
       target: web
@@ -126,6 +158,10 @@ services:
   caddy:
     <<: *service
     image: caddy:2-alpine
+    mem_limit: 128m
+    memswap_limit: 128m
+    cpus: 0.25
+    pids_limit: 64
     environment:
       APP_DOMAIN: ${APP_DOMAIN:?Set APP_DOMAIN to your hostname}
     ports: ["80:80", "443:443"]
@@ -138,6 +174,10 @@ services:
         condition: service_healthy
   backup:
     <<: *app
+    mem_limit: 256m
+    memswap_limit: 256m
+    cpus: 0.25
+    cpu_shares: 128
     build:
       context: .
       target: backup
