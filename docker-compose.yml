@@ -32,7 +32,18 @@ services:
     cpus: 0.75
     pids_limit: 128
     shm_size: 128m
-    command: [postgres, -c, shared_buffers=128MB, -c, work_mem=4MB, -c, maintenance_work_mem=64MB, -c, max_connections=40]
+    command:
+      [
+        postgres,
+        -c,
+        shared_buffers=128MB,
+        -c,
+        work_mem=4MB,
+        -c,
+        maintenance_work_mem=64MB,
+        -c,
+        max_connections=40,
+      ]
     environment:
       POSTGRES_USER: nexus
       POSTGRES_DB: nexus
@@ -61,9 +72,16 @@ services:
       DB_PASSWORD_FILE: /run/secrets/postgres_password
       APP_DATABASE_PASSWORD_FILE: /run/secrets/app_database_password
       BACKUP_DATABASE_PASSWORD_FILE: /run/secrets/backup_database_password
-    secrets: [postgres_password, app_database_password, backup_database_password]
+    secrets:
+      [postgres_password, app_database_password, backup_database_password]
     networks: [data]
-    command: [node, --import, ./dist/backend/runtime-secrets.js, dist/backend/database.js]
+    command:
+      [
+        node,
+        --import,
+        ./dist/backend/runtime-secrets.js,
+        dist/backend/database.js,
+      ]
     depends_on:
       db:
         condition: service_healthy
@@ -90,7 +108,19 @@ services:
       TRUST_EDGE_IP: "true"
       CALCULATION_SERVICE_URL: http://calculator:8010
       CALCULATION_SERVICE_TOKEN_FILE: /run/secrets/calculation_service_token
-    secrets: [app_database_password, setup_token, broker_encryption_key, registration_token, calculation_service_token, zerodha_api_key, zerodha_api_secret]
+      HISTORICAL_ARCHIVE_DIRECTORY: /app/.runtime/historical-parquet
+    secrets:
+      [
+        app_database_password,
+        setup_token,
+        broker_encryption_key,
+        registration_token,
+        calculation_service_token,
+        zerodha_api_key,
+        zerodha_api_secret,
+      ]
+    volumes:
+      - ${HISTORICAL_ARCHIVE_DIRECTORY:-./.runtime/historical-parquet}:/app/.runtime/historical-parquet:ro
     networks: [gateway, data, analytics, broker_egress]
     depends_on:
       migrate:
@@ -144,7 +174,8 @@ services:
     cpus: 0.5
     environment:
       NODE_OPTIONS: --max-old-space-size=256
-    tmpfs: ["/tmp:size=32m,mode=1777", "/app/.next/cache:size=32m,uid=1000,gid=1000"]
+    tmpfs:
+      ["/tmp:size=32m,mode=1777", "/app/.next/cache:size=32m,uid=1000,gid=1000"]
     image: ${WEB_IMAGE:?Use the digest-pinned release manifest}
     networks: [frontend, gateway]
     depends_on:
@@ -240,10 +271,10 @@ secrets:
 
 networks:
   edge: {}
-  frontend: {internal: true}
-  gateway: {internal: true}
-  data: {internal: true}
-  analytics: {internal: true}
+  frontend: { internal: true }
+  gateway: { internal: true }
+  data: { internal: true }
+  analytics: { internal: true }
   broker_egress: {}
   reference_egress: {}
   backup_egress: {}

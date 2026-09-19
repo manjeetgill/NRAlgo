@@ -19,3 +19,16 @@ backups/
 # Generated test evidence is separate from application runtime data.
 tests/artifacts/
 __pycache__/
+
+# Credentials and private exports must never enter Git, even outside .runtime.
+*.key
+*.pem
+*.p12
+*.pfx
+*.dump
+*.backup
+*.sqlite
+*.sqlite3
+*.log
+secrets/
+postgres-access.json

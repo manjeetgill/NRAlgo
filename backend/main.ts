@@ -41,6 +41,7 @@ import { registerDatabaseBrowserRoutes } from "./database-browser-routes.js";
 import { createZerodhaConnection } from "./zerodha-connection.js";
 import { BrokerSessionStore } from "./broker-session-store.js";
 import { registerEodRoutes } from "./stored-market-data.js";
+import { HistoricalCandleStore } from "./historical-candle-store.js";
 import {
   recordBrokerConnected,
   recordBrokerDisconnected,
@@ -124,9 +125,11 @@ export function createApiApplication(
   const brokerAccess = new BrokerRequestCoordinator();
   const calculationClient =
     injectedCalculationClient || new CalculationClient(env);
+  const history = new HistoricalCandleStore(store);
   const calculationRunner = new CalculationJobRunner(
     store,
     calculationClient,
+    history,
     env.LIVE_TRADING_ENABLED !== "true",
   );
   const zerodha = createZerodhaConnection(
@@ -787,6 +790,7 @@ export function createApiApplication(
     production,
     marketData,
     calculationClient,
+    history,
   );
   registerCalculationRoutes(app, store, calculationRunner, calculationClient);
   registerHistoricalMarketDataRoutes(
@@ -813,7 +817,7 @@ export function createApiApplication(
   );
   registerDatabaseBrowserRoutes(app, store);
   zerodha.register(app);
-  registerEodRoutes(app, store);
+  registerEodRoutes(app, store, history);
   calculationRunner.start();
   app.use((req, res) => res.status(404).json({ detail: "Not found" }));
   const errorHandler: ErrorRequestHandler = (err: unknown, req, res, next) => {

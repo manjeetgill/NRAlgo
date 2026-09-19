@@ -9,7 +9,13 @@ import {
   scrypt,
   timingSafeEqual,
 } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { resolve } from "node:path";
 import type { RequestHandler } from "express";
 import { root } from "./database.js";
@@ -110,7 +116,15 @@ export function credentialVault(env: NodeJS.ProcessEnv) {
     const directory = resolve(root, ".runtime"),
       path = resolve(directory, "broker.key");
     mkdirSync(directory, { recursive: true, mode: 0o700 });
+    if (lstatSync(directory).isSymbolicLink()) {
+      throw new Error("Local runtime directory must not be a symlink.");
+    }
+    chmodSync(directory, 0o700);
     try {
+      if (!lstatSync(path).isFile() || lstatSync(path).isSymbolicLink()) {
+        throw new Error("Local broker key must be a regular file.");
+      }
+      chmodSync(path, 0o600);
       hex = readFileSync(path, "utf8").trim();
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
@@ -118,11 +132,15 @@ export function credentialVault(env: NodeJS.ProcessEnv) {
       }
       hex = randomBytes(32).toString("hex");
       try {
-        writeFileSync(path, hex, { flag: "wx", mode: 0o600 });
+        writeFileSync(path, hex, { flag: "wx", mode: 0o600, flush: true });
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
           throw error;
         }
+        if (!lstatSync(path).isFile() || lstatSync(path).isSymbolicLink()) {
+          throw new Error("Local broker key must be a regular file.");
+        }
+        chmodSync(path, 0o600);
         hex = readFileSync(path, "utf8").trim();
       }
     }

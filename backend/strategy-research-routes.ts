@@ -15,6 +15,7 @@ import {
 } from "./research-contracts.js";
 import { readStoredDailyCandle } from "./stored-market-data.js";
 import { CalculationClient } from "./calculation-client.js";
+import type { HistoricalCandleStore } from "./historical-candle-store.js";
 
 /** Count one broker request before sending it. The database lock prevents two concurrent
  * routes from spending the same remaining allowance. Production callers also need MFA.
@@ -72,6 +73,7 @@ export function registerResearchRoutes(
   requireMfa: boolean,
   brokerDataReader: MarketDataProvider,
   calculationClient: Pick<CalculationClient, "storedDaily">,
+  history: HistoricalCandleStore,
 ) {
   const catalog = brokerDataReader.instruments;
   const researchLimit = rateLimit(
@@ -285,13 +287,16 @@ export function registerResearchRoutes(
       fail(422, "Reselect this strategy from the stored instrument catalog.");
     }
     const candle = await readStoredDailyCandle(
-      store,
+      history,
       dataInstrumentId!,
       leg.stockCode,
       input.day,
     );
     if (!candle) {
-      fail(422, "No stored daily candle exists for this scrip and session.");
+      return fail(
+        422,
+        "No stored daily candle exists for this scrip and session.",
+      );
     }
     let calculation;
     try {
@@ -364,7 +369,7 @@ export function registerResearchRoutes(
     const skipped: { day: string; reason: string }[] = [];
     for (const day of days) {
       const candle = await readStoredDailyCandle(
-        store,
+        history,
         dataInstrumentId!,
         leg.stockCode,
         day,

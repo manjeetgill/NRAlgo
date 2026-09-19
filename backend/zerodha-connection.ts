@@ -128,7 +128,8 @@ export type ZerodhaConnectionEvents = {
   disconnected: (userId: string) => Promise<void>;
 };
 
-/** No credentials persist to the DB or reach frontend state. Each app login owns its broker session. */
+/** Broker sessions persist only through the encrypted session store, never frontend state.
+ * Each application login owns its broker session; broker passwords are never retained. */
 export function createZerodhaConnection(
   env: NodeJS.ProcessEnv,
   injected?: Sdk,

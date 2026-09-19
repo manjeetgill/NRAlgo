@@ -5,6 +5,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { Express } from "express";
 import { z } from "zod";
 import type { Store } from "./database.js";
+import type { HistoricalCandleStore } from "./historical-candle-store.js";
 import {
   CalculationClient,
   calculationBacktestSettingsSchema,
@@ -84,6 +85,7 @@ export class CalculationJobRunner {
   constructor(
     private readonly store: Store,
     private readonly client: Pick<CalculationClient, "dailyBacktest">,
+    private readonly history: HistoricalCandleStore,
     private readonly researchEnabled = true,
   ) {}
 
@@ -309,55 +311,40 @@ export class CalculationJobRunner {
 
   /** Load bounded, ordered candles after matching both stable identity and symbol. */
   private async loadDataset(input: DailyJobInput, signal: AbortSignal) {
-    return this.store.transaction(async (query) => {
-      await query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
-      const [instrument] = await query<{ id: string; symbol: string }>(
-        "SELECT id,symbol FROM eod_instruments WHERE id=$1 AND symbol=$2",
-        [input.instrumentId, input.symbol],
-      );
-      if (!instrument) {
-        throw new Error("Stored instrument is unavailable.");
-      }
-      const rows: StoredBar[] = [];
-      // Read bounded pages from one consistent snapshot; the final payload is capped at 10,000 bars.
-      for (let offset = 0; offset <= 10000; offset += 500) {
-        signal.throwIfAborted();
-        const batch = await query<StoredBar>(
-          "SELECT day::text AS day,open,high,low,close,source FROM eod_candles WHERE instrument_id=$1 AND day>=$2::date AND day<=$3::date ORDER BY day LIMIT 500 OFFSET $4",
-          [input.instrumentId, input.from, input.to, offset],
-        );
-        rows.push(...batch);
-        if (batch.length < 500) {
-          break;
-        }
-      }
-      if (rows.length < 60 || rows.length > 10000) {
-        throw new Error("Requires 60–10,000 stored daily candles.");
-      }
-      return {
-        bars: rows.map((row) => ({
-          date: row.day,
-          open: Number(row.open),
-          high: Number(row.high),
-          low: Number(row.low),
-          close: Number(row.close),
-        })),
-        sources: [
-          ...new Set(
-            rows.map((row) =>
-              row.source.startsWith("local-dataset:")
-                ? "Stored historical dataset"
-                : row.source,
-            ),
+    signal.throwIfAborted();
+    const rows = (await this.history.readBacktestBars(
+      input.instrumentId,
+      input.symbol,
+      input.from,
+      input.to,
+    )) as StoredBar[];
+    signal.throwIfAborted();
+    if (rows.length < 60 || rows.length > 10000) {
+      throw new Error("Requires 60–10,000 stored daily candles.");
+    }
+    return {
+      bars: rows.map((row) => ({
+        date: row.day,
+        open: Number(row.open),
+        high: Number(row.high),
+        low: Number(row.low),
+        close: Number(row.close),
+      })),
+      sources: [
+        ...new Set(
+          rows.map((row) =>
+            row.source.startsWith("local-dataset:")
+              ? "Stored historical dataset"
+              : row.source,
           ),
-        ],
-        adjustmentPolicy: rows.some((row) =>
-          row.source.startsWith("local-dataset:"),
-        )
-          ? "Adjustment policy unknown; verify the stored dataset before relying on returns."
-          : "Stored prices are unadjusted.",
-      };
-    });
+        ),
+      ],
+      adjustmentPolicy: rows.some((row) =>
+        row.source.startsWith("local-dataset:"),
+      )
+        ? "Adjustment policy unknown; verify the stored dataset before relying on returns."
+        : "Stored prices are unadjusted.",
+    };
   }
 }
 

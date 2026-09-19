@@ -77,6 +77,14 @@ function dependencies(folder) {
 
 try {
   const revision = process.argv[2];
+  // Scan before installing dependencies or running any code from the candidate snapshot.
+  if (!revision) {
+    run(
+      "node",
+      [path.join(root, "scripts/check-secrets.mjs"), "--staged"],
+      root,
+    );
+  }
   if (revision) {
     // Resolve the commit before archiving; options or arbitrary paths are not accepted.
     const commit = execFileSync(
@@ -95,6 +103,24 @@ try {
       cwd: root,
     });
     console.log("Checking staged files only.");
+  }
+  // Use today's guard even for an older commit that did not yet contain the scanner.
+  const { inspectSecrets } = await import("./check-secrets.mjs");
+  for (const entry of fs.readdirSync(snapshot, {
+    recursive: true,
+    withFileTypes: true,
+  })) {
+    if (!entry.isFile()) {
+      continue;
+    }
+    const file = path.join(entry.parentPath, entry.name);
+    const relative = path.relative(snapshot, file).split(path.sep).join("/");
+    const findings = inspectSecrets(relative, fs.readFileSync(file, "utf8"));
+    if (findings.length) {
+      throw new Error(
+        `Secret guard: ${JSON.stringify(relative)}: ${findings.join(", ")}`,
+      );
+    }
   }
   dependencies("");
   dependencies("frontend");

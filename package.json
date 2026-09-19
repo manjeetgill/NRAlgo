@@ -15,12 +15,17 @@
     "dev": "npm run build:backend && node --env-file-if-exists=.env --import tsx run.ts",
     "start": "node --env-file-if-exists=.env dist/backend/main.js",
     "migrate": "node --env-file-if-exists=.env --import tsx backend/database.ts",
+    "historical:archive": "node --env-file-if-exists=.env --import tsx scripts/migrate-eod-to-parquet.mjs",
+    "historical:verify": "node --env-file-if-exists=.env --import tsx scripts/migrate-eod-to-parquet.mjs --verify",
+    "historical:verify-archive": "node --env-file-if-exists=.env --import tsx scripts/migrate-eod-to-parquet.mjs --archive-only",
+    "historical:retire-postgres": "node --env-file-if-exists=.env --import tsx scripts/retire-postgres-eod-candles.mjs --confirm-retire-eod-candles",
     "typecheck": "tsc --noEmit",
     "build:backend": "tsc",
     "check": "npm run lint && npm run typecheck && npm --prefix frontend run typecheck",
     "build": "npm run build:backend && npm --prefix frontend run build"
   },
   "dependencies": {
+    "@duckdb/node-api": "1.4.5-r.1",
     "csv-parse": "7.0.2",
     "express": "^5.1.0",
     "kiteconnect": "5.3.0",

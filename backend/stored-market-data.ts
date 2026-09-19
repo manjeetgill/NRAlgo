@@ -6,6 +6,7 @@
 import type { Express } from "express";
 import { z } from "zod";
 import type { Store } from "./database.js";
+import type { HistoricalCandleStore } from "./historical-candle-store.js";
 const instrumentSchema = z
   .object({
     id: z.string().min(1).max(120),
@@ -38,20 +39,14 @@ export type StoredDailyCandle = z.infer<typeof candleSchema>;
 
 /** Resolve one exact stored candle for research; symbol matching prevents stale ID reuse. */
 export async function readStoredDailyCandle(
-  store: Store,
+  history: HistoricalCandleStore,
   instrumentId: string,
   symbol: string,
   day: string,
 ) {
-  return store.transaction(async (query) => {
-    const [row] = await query<
-      StoredDailyCandle & { instrument_id: string; symbol: string }
-    >(
-      "SELECT c.instrument_id,i.symbol,c.day::text AS day,c.open,c.high,c.low,c.close,c.volume,c.source FROM eod_candles c JOIN eod_instruments i ON i.id=c.instrument_id WHERE c.instrument_id=$1 AND i.symbol=$2 AND c.day=$3",
-      [instrumentId, symbol, day],
-    );
-    return row ?? null;
-  });
+  return history.readDailyCandle(instrumentId, symbol, day) as Promise<
+    (StoredDailyCandle & { instrument_id: string; symbol: string }) | null
+  >;
 }
 
 /** Idempotent normalized import boundary for the future equity/index file downloader. */
@@ -98,7 +93,11 @@ export async function importEodData(
 }
 
 /** App login required, broker login not required. Only imported instruments are advertised. */
-export function registerEodRoutes(app: Express, store: Store) {
+export function registerEodRoutes(
+  app: Express,
+  store: Store,
+  history: HistoricalCandleStore,
+) {
   app.get("/api/eod/instruments", async (req, res) => {
     const { q, offset } = z
       .object({
@@ -106,12 +105,7 @@ export function registerEodRoutes(app: Express, store: Store) {
         offset: z.coerce.number().int().min(0).max(100000).default(0),
       })
       .parse(req.query);
-    const rows = await store.transaction((query) =>
-      query(
-        "SELECT i.id,i.symbol,i.name,i.kind,i.series,i.exchange,MIN(c.day)::text AS first_day,MAX(c.day)::text AS last_day,COUNT(*)::int AS candle_count FROM eod_instruments i JOIN eod_candles c ON c.instrument_id=i.id WHERE strpos(upper(i.symbol),upper($1))>0 OR strpos(upper(i.name),upper($1))>0 GROUP BY i.id,i.symbol,i.name,i.kind,i.series,i.exchange ORDER BY i.symbol,i.id LIMIT 51 OFFSET $2",
-        [q, offset],
-      ),
-    );
+    const rows = await history.searchInstruments(q, offset);
     res.json({
       items: rows.slice(0, 50),
       nextOffset: rows.length > 50 ? offset + 50 : null,
@@ -128,15 +122,9 @@ export function registerEodRoutes(app: Express, store: Store) {
         message: "Stored history start must not be after its end.",
       })
       .parse(req.query);
-    const result = await store.transaction(async (query) => {
-      const [instrument] = await query(
-        "SELECT id,symbol,name,kind,series,exchange FROM eod_instruments WHERE id=$1",
-        [id],
-      );
-      const candles = await query(
-        "SELECT day::text AS day,open,high,low,close,volume,source,imported_at FROM eod_candles WHERE instrument_id=$1 AND ($2::date IS NULL OR day >= $2::date) AND ($3::date IS NULL OR day <= $3::date) ORDER BY day ASC LIMIT 10001",
-        [id, from ?? null, to ?? null],
-      );
+    const instrument = await history.readInstrument(id);
+    const candles = await history.readCandles(id, from, to);
+    const result = (() => {
       if (candles.length > 10000) {
         throw Object.assign(new Error("Stored history range is too large."), {
           status: 422,
@@ -163,8 +151,9 @@ export function registerEodRoutes(app: Express, store: Store) {
         ],
         interval: "day",
         fetchedAt: new Date().toISOString(),
+        storage: history.mode(),
       };
-    });
+    })();
     res.json(result);
   });
 }

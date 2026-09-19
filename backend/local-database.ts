@@ -2,10 +2,19 @@
  * so it does not modify an existing Homebrew database or require a paid/Docker Desktop service.
  * Private generated connection settings live in ignored .runtime/postgres-access.json.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import pg from "pg";
 
@@ -22,14 +31,118 @@ interface LocalPostgresConfiguration {
   port: number;
 }
 
+/** Local bootstrap key is separate from the encrypted connection file. This prevents accidental
+ * disclosure of that file, not compromise of this OS user. Use FileVault/EBS encryption as well.
+ * Production does not use this bootstrap: its credentials come from mounted Secrets Manager files.
+ */
+function localConfigurationKey(create: boolean): Buffer {
+  mkdirSync(runtimeDirectory, { recursive: true, mode: 0o700 });
+  if (lstatSync(runtimeDirectory).isSymbolicLink()) {
+    throw new Error("Local runtime directory must not be a symlink.");
+  }
+  chmodSync(runtimeDirectory, 0o700);
+  const path = resolve(runtimeDirectory, "postgres.key");
+  if (create && !existsSync(path)) {
+    try {
+      writeFileSync(path, randomBytes(32), {
+        flag: "wx",
+        mode: 0o600,
+        flush: true,
+      });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
+        throw error;
+      }
+    }
+  }
+  if (!lstatSync(path).isFile() || lstatSync(path).isSymbolicLink()) {
+    throw new Error("Local database key must be a regular file.");
+  }
+  chmodSync(path, 0o600);
+  const key = readFileSync(path);
+  if (key.length !== 32) {
+    throw new Error("Invalid local database key.");
+  }
+  return key;
+}
+
+/** Atomically replace legacy plaintext only after writing an authenticated encrypted envelope.
+ * Never rotate keys/passwords implicitly: existing clusters must remain recoverable.
+ */
+function saveLocalConfiguration(
+  config: LocalPostgresConfiguration,
+  replace = false,
+) {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", localConfigurationKey(true), iv);
+  cipher.setAAD(Buffer.from("nraialgo:local-postgres:v1"));
+  const ciphertext = Buffer.concat([
+    cipher.update(JSON.stringify(config)),
+    cipher.final(),
+  ]);
+  const envelope = JSON.stringify({
+    version: 1,
+    iv: iv.toString("base64"),
+    tag: cipher.getAuthTag().toString("base64"),
+    ciphertext: ciphertext.toString("base64"),
+  });
+  if (!replace) {
+    writeFileSync(configurationPath, envelope, {
+      flag: "wx",
+      mode: 0o600,
+      flush: true,
+    });
+    return;
+  }
+  const temporary = `${configurationPath}.${randomBytes(8).toString("hex")}.tmp`;
+  try {
+    writeFileSync(temporary, envelope, {
+      flag: "wx",
+      mode: 0o600,
+      flush: true,
+    });
+    renameSync(temporary, configurationPath);
+  } finally {
+    if (existsSync(temporary)) {
+      unlinkSync(temporary);
+    }
+  }
+}
+
 /** Read the private local connection file without ever logging its passwords. */
 export function readLocalPostgresConfiguration(): LocalPostgresConfiguration | null {
   if (!existsSync(configurationPath)) {
     return null;
   }
-  const config = JSON.parse(
-    readFileSync(configurationPath, "utf8"),
-  ) as LocalPostgresConfiguration;
+  if (
+    !lstatSync(configurationPath).isFile() ||
+    lstatSync(configurationPath).isSymbolicLink()
+  ) {
+    throw new Error("Local database configuration must be a regular file.");
+  }
+  chmodSync(configurationPath, 0o600);
+  const stored = JSON.parse(readFileSync(configurationPath, "utf8"));
+  let config: LocalPostgresConfiguration;
+  if (stored.version !== undefined) {
+    if (stored.version !== 1) {
+      throw new Error("Unsupported local database configuration.");
+    }
+    const cipher = createDecipheriv(
+      "aes-256-gcm",
+      localConfigurationKey(false),
+      Buffer.from(stored.iv, "base64"),
+    );
+    cipher.setAAD(Buffer.from("nraialgo:local-postgres:v1"));
+    cipher.setAuthTag(Buffer.from(stored.tag, "base64"));
+    config = JSON.parse(
+      Buffer.concat([
+        cipher.update(Buffer.from(stored.ciphertext, "base64")),
+        cipher.final(),
+      ]).toString("utf8"),
+    );
+  } else {
+    config = stored;
+  }
   if (
     !config.adminUrl ||
     !config.applicationUrl ||
@@ -37,6 +150,9 @@ export function readLocalPostgresConfiguration(): LocalPostgresConfiguration | n
     !Number.isInteger(config.port)
   ) {
     throw new Error("Invalid local PostgreSQL configuration.");
+  }
+  if (stored.version === undefined) {
+    saveLocalConfiguration(config, true);
   }
   return config;
 }
@@ -103,10 +219,7 @@ export async function ensureLocalPostgres(): Promise<LocalPostgresConfiguration>
       applicationPassword,
       port,
     };
-    writeFileSync(configurationPath, JSON.stringify(config, null, 2), {
-      flag: "wx",
-      mode: 0o600,
-    });
+    saveLocalConfiguration(config);
   }
   if (!existsSync(resolve(clusterDirectory, "PG_VERSION"))) {
     const password = decodeURIComponent(new URL(config.adminUrl).password);
