@@ -1,0 +1,16 @@
+{
+  "note": "Reviewed CM weekday closures only, not a complete historical session calendar. Muhurat dates are not closures. Weekends are not automatically verified closures. The 2023-06-29 and 2024-01-22 amendments are corroborated by other official NSE circulars explicitly referencing the original CM trading-holiday notices, whose direct URLs return 404. Does not certify availability for every index, listing or series.",
+  "groups": [
+    {"source": "https://archives.nseindia.com/content/circulars/CMTR46623.pdf", "closedDates": ["2021-10-15", "2021-11-05", "2021-11-19"]},
+    {"source": "https://archives.nseindia.com/content/circulars/CMTR50560.pdf", "closedDates": ["2022-01-26", "2022-03-01", "2022-03-18", "2022-04-14", "2022-04-15", "2022-05-03", "2022-08-09", "2022-08-15", "2022-08-31", "2022-10-05", "2022-10-26", "2022-11-08"]},
+    {"source": "https://archives.nseindia.com/content/circulars/CMTR54757.pdf", "closedDates": ["2023-01-26", "2023-03-07", "2023-03-30", "2023-04-04", "2023-04-07", "2023-04-14", "2023-05-01", "2023-08-15", "2023-09-19", "2023-10-02", "2023-10-24", "2023-11-14", "2023-11-27", "2023-12-25"]},
+    {"source": "https://nsearchives.nseindia.com/content/circulars/CMTR59722.pdf", "closedDates": ["2024-01-26", "2024-03-08", "2024-03-25", "2024-03-29", "2024-04-11", "2024-04-17", "2024-05-01", "2024-06-17", "2024-07-17", "2024-08-15", "2024-10-02", "2024-11-15", "2024-12-25"]},
+    {"source": "https://nsearchives.nseindia.com/content/circulars/CMTR61518.pdf", "closedDates": ["2024-05-20"]},
+    {"source": "https://nsearchives.nseindia.com/content/circulars/CMTR64960.pdf", "closedDates": ["2024-11-20"]},
+    {"source": "https://nsearchives.nseindia.com/content/circulars/CMTR65587.pdf", "closedDates": ["2025-02-26", "2025-03-14", "2025-03-31", "2025-04-10", "2025-04-14", "2025-04-18", "2025-05-01", "2025-08-15", "2025-08-27", "2025-10-02", "2025-10-22", "2025-11-05", "2025-12-25"]},
+    {"source": "https://nsearchives.nseindia.com/content/circulars/CMTR71775.pdf", "closedDates": ["2026-01-26", "2026-03-03", "2026-03-26", "2026-03-31", "2026-04-03", "2026-04-14", "2026-05-01", "2026-05-28", "2026-06-26", "2026-09-14"]},
+    {"source": "https://nsearchives.nseindia.com/content/circulars/CMTR72260.pdf", "closedDates": ["2026-01-15"]},
+    {"source": "https://nsearchives.nseindia.com/content/circulars/CMPT57296.pdf", "closedDates": ["2023-06-29"]},
+    {"source": "https://nsearchives.nseindia.com/content/circulars/SURV60342.pdf", "closedDates": ["2024-01-22"]}
+  ]
+}
