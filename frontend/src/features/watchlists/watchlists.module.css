@@ -1,0 +1,137 @@
+.workspace {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  min-width: 0;
+}
+.sidebar,
+.chart {
+  background: white;
+  border: 1px solid #e1e6ee;
+  border-radius: 10px;
+  min-width: 0;
+}
+.sidebar {
+  overflow: hidden;
+}
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px;
+  border-bottom: 1px solid #edf0f5;
+  font-size: 12px;
+}
+.toolbar button {
+  padding: 7px 10px;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.toolbar input {
+  min-width: 0;
+  width: 100%;
+}
+.selector {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  flex: 1;
+}
+.selector select {
+  width: 100%;
+  min-width: 0;
+  padding: 8px;
+}
+.search {
+  padding: 12px;
+  max-height: 390px;
+  overflow: auto;
+  border-bottom: 1px solid #edf0f5;
+}
+.search button {
+  white-space: normal;
+  text-align: left;
+  font-size: 12px;
+}
+.items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 65vh;
+  overflow-y: auto;
+}
+.items li {
+  display: flex;
+  border-bottom: 1px solid #edf0f5;
+}
+.scrip {
+  flex: 1;
+  display: grid;
+  gap: 4px;
+  text-align: left;
+  padding: 14px 12px;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.scrip strong {
+  font-size: 13px;
+  color: #1c2940;
+}
+.scrip small {
+  font-size: 11px;
+  color: #66758c;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.selected {
+  background: #eef2ff;
+  box-shadow: inset 3px 0 #4263eb;
+}
+.remove {
+  width: 32px;
+  border: 0;
+  background: transparent;
+  color: #66758c;
+  font-size: 20px;
+  cursor: pointer;
+}
+.remove:hover {
+  color: #b42318;
+  background: #fff0ef;
+}
+.scrip:focus-visible,
+.remove:focus-visible {
+  outline: 2px solid #4263eb;
+  outline-offset: -2px;
+}
+.chart {
+  padding: 16px;
+  overflow: hidden;
+}
+.empty {
+  padding: 30px 15px;
+  color: #66758c;
+  font-size: 13px;
+}
+.footer {
+  padding: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.footer > button {
+  font-size: 12px;
+}
+@media (max-width: 850px) {
+  .workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .items {
+    max-height: 240px;
+  }
+}

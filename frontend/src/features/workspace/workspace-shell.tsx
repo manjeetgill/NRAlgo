@@ -3,9 +3,9 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
-  type CSSProperties,
 } from "react";
 import { Activity, CircleHelp, LockKeyhole, LogOut, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -49,6 +49,12 @@ export function WorkspaceShell({
   const [tourStep, setTourStep] = useState<number | null>(null);
   const [helpRequest, setHelpRequest] = useState(0);
   const navigationRef = useRef<HTMLElement>(null);
+  const submenuRef = useRef<HTMLElement>(null);
+  const hoverCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [submenuPosition, setSubmenuPosition] = useState({
+    left: 8,
+    bottom: 74,
+  });
   const [researchStrategyId, setResearchStrategyId] = useState("");
   const [templateId, setTemplateId] = useState<TemplateId>("ema");
   const [spreadDraft, setSpreadDraft] = useState<ResearchDraft>();
@@ -59,6 +65,63 @@ export function WorkspaceShell({
     (section) => section.label === openSection,
   );
   const openSectionData = sections[openSectionIndex];
+  function keepSubmenuOpen() {
+    if (hoverCloseTimer.current) {
+      clearTimeout(hoverCloseTimer.current);
+    }
+  }
+  function scheduleSubmenuClose() {
+    keepSubmenuOpen();
+    hoverCloseTimer.current = setTimeout(() => setOpenSection(""), 180);
+  }
+  useEffect(
+    () => () => {
+      if (hoverCloseTimer.current) {
+        clearTimeout(hoverCloseTimer.current);
+      }
+    },
+    [],
+  );
+  /** Anchor to the actual button, including when the bottom dock scrolls. */
+  useLayoutEffect(() => {
+    if (!openSection) {
+      return;
+    }
+    function positionSubmenu() {
+      const trigger = navigationRef.current?.querySelector<HTMLButtonElement>(
+        '.dock-primary > button[aria-expanded="true"]',
+      );
+      const menu = submenuRef.current;
+      if (!trigger || !menu) {
+        return;
+      }
+      const rect = trigger.getBoundingClientRect();
+      setSubmenuPosition({
+        left: Math.max(
+          8,
+          Math.min(
+            rect.left + rect.width / 2 - menu.offsetWidth / 2,
+            window.innerWidth - menu.offsetWidth - 8,
+          ),
+        ),
+        bottom: window.innerHeight - rect.top + 8,
+      });
+    }
+    function closeOutside(event: PointerEvent) {
+      if (!navigationRef.current?.contains(event.target as Node)) {
+        setOpenSection("");
+      }
+    }
+    positionSubmenu();
+    window.addEventListener("resize", positionSubmenu);
+    window.addEventListener("scroll", positionSubmenu, true);
+    document.addEventListener("pointerdown", closeOutside);
+    return () => {
+      window.removeEventListener("resize", positionSubmenu);
+      window.removeEventListener("scroll", positionSubmenu, true);
+      document.removeEventListener("pointerdown", closeOutside);
+    };
+  }, [openSection]);
   /** Stable navigation callback lets independent screens own their effects. */
   const onNavigate = useCallback((destination: WorkspacePage) => {
     setPage(destination);
@@ -192,6 +255,13 @@ export function WorkspaceShell({
         className="sidebar"
         id="workspace-navigation"
         aria-label="Workspace navigation menu"
+        onBlur={(event) => {
+          if (
+            !event.currentTarget.contains(event.relatedTarget as Node | null)
+          ) {
+            setOpenSection("");
+          }
+        }}
       >
         <a
           className="brand"
@@ -226,16 +296,27 @@ export function WorkspaceShell({
               aria-expanded={
                 pages.length > 1 ? openSection === label : undefined
               }
+              aria-controls={pages.length > 1 ? "dock-submenu" : undefined}
+              onPointerEnter={(event) => {
+                if (event.pointerType === "touch") {
+                  return;
+                }
+                keepSubmenuOpen();
+                setOpenSection(pages.length > 1 ? label : "");
+              }}
+              onPointerLeave={(event) => {
+                if (event.pointerType !== "touch") {
+                  scheduleSubmenuClose();
+                }
+              }}
               className={pages.includes(page) ? "active" : ""}
               onClick={() => {
+                keepSubmenuOpen();
                 if (pages.length === 1) {
                   onNavigate(pages[0]);
                   return;
                 }
-                if (!pages.includes(page)) {
-                  onNavigate(pages[0]);
-                }
-                setOpenSection((current) => (current === label ? "" : label));
+                setOpenSection(label);
               }}
             >
               <Icon size={18} />
@@ -245,13 +326,13 @@ export function WorkspaceShell({
         </nav>
         {openSectionData && openSectionData.pages.length > 1 && (
           <nav
+            ref={submenuRef}
+            id="dock-submenu"
             className="dock-submenu"
+            onPointerEnter={keepSubmenuOpen}
+            onPointerLeave={scheduleSubmenuClose}
             aria-label={`${openSectionData.label} pages`}
-            style={
-              {
-                "--dock-position": `${((openSectionIndex + 0.5) / sections.length) * 100}%`,
-              } as CSSProperties
-            }
+            style={submenuPosition}
           >
             {openSectionData.pages.map((destination) => (
               <button

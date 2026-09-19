@@ -16,13 +16,13 @@ export const workspaceNavigation: ReadonlyArray<{
   icon: typeof Blocks;
 }> = [
   { name: "Overview", icon: LayoutDashboard },
+  { name: "Watchlists", icon: Database },
   { name: "Portfolio", icon: BriefcaseBusiness },
   { name: "Strategies", icon: Blocks },
   { name: "Strategy library", icon: Blocks },
   { name: "Backtest studio", icon: FlaskConical },
   { name: "Strategy lab", icon: FlaskConical },
   { name: "Spread builder", icon: Blocks },
-  { name: "Simulator", icon: FlaskConical },
   { name: "Option chain", icon: Database },
   { name: "Orders & trades", icon: ArrowDownLeft },
   { name: "Brokers", icon: Wallet },
@@ -41,19 +41,13 @@ export const workspaceSections: ReadonlyArray<{
   {
     label: "Strategies",
     icon: Blocks,
-    pages: [
-      "Strategies",
-      "Strategy library",
-      "Strategy lab",
-      "Spread builder",
-      "Simulator",
-    ],
+    pages: ["Strategies", "Strategy library", "Strategy lab", "Spread builder"],
   },
   { label: "Backtesting", icon: FlaskConical, pages: ["Backtest studio"] },
   {
     label: "Markets",
     icon: Database,
-    pages: ["Portfolio", "Option chain"],
+    pages: ["Watchlists", "Portfolio", "Option chain"],
   },
   {
     label: "Trading",
@@ -87,11 +81,11 @@ export const workspacePageDescriptions: Partial<Record<WorkspacePage, string>> =
       "Build and replay cash strategies using stored historical daily candles.",
     "Spread builder":
       "Build option baskets from current and open-expiry market data.",
-    Simulator:
-      "Replay stored historical option-chain observations without broker execution.",
     "Option chain":
       "Explore listed contracts and prices from the shared market feed.",
     Portfolio: "View one connected broker portfolio or club all real accounts.",
+    Watchlists:
+      "Your scrips, one click to chart. Stored daily data · no broker required.",
     "Orders & trades":
       "Search and inspect records from the selected account domain.",
     Brokers:

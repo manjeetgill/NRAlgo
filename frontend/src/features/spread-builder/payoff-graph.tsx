@@ -1,6 +1,10 @@
 "use client";
 import { useId, useState } from "react";
-export type PayoffPoint = { spot: number; expiry: number; scenario: number };
+export type PayoffPoint = {
+  spot: number;
+  expiry: number;
+  scenario: number;
+};
 const money = (value: number) =>
   new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(value);
 /** Real-price x coordinates preserve strike spacing; separate expiry and model curves. */

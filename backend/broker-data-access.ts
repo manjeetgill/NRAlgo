@@ -39,7 +39,7 @@ export interface BrokerMarketDataReader extends BrokerAccountReader {
     instruments: string[],
     segment?: MarketSegment,
   ): Promise<MarketSnapshot[]>;
-  /** Fetch one trading day's candles. The simulator validates candle alignment and OHLC. */
+  /** Fetch one trading day's candles. Research calculations validate alignment and OHLC. */
   getHistoricalCandlesForDay(
     userId: string,
     sessionHash: string,

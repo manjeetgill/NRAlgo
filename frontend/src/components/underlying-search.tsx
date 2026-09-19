@@ -14,7 +14,7 @@ export function UnderlyingSearch({
   csrf: string;
   selected: string;
   onSelect: (symbol: string) => void;
-  experience?: "builder" | "simulator";
+  experience?: "builder";
   asOf?: string;
 }) {
   const [query, setQuery] = useState("");

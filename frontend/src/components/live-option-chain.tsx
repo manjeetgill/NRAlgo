@@ -40,6 +40,9 @@ const amount = (value: number | null | undefined) =>
 
 /** Centre the first stored page around spot without adding broker quote requests. */
 function historicalAtmOffset(chain: Chain): number {
+  if (Number.isSafeInteger(chain.atmOffset) && chain.atmOffset! >= 0) {
+    return chain.atmOffset!;
+  }
   if (
     chain.dataMode !== "historical" ||
     typeof chain.underlyingPrice !== "number" ||
@@ -103,6 +106,7 @@ export function LiveOptionChain({
   ticks: LiveTick[];
   positionStrikes?: { symbol: string; strike: number }[];
   activeLegs?: ReadonlyArray<{
+    stockCode?: string;
     expiryDate?: string;
     strikePrice?: number;
     right?: "call" | "put";
@@ -111,7 +115,7 @@ export function LiveOptionChain({
   onAddLeg?: (contract: ChainContract, side: "buy" | "sell") => string;
   compact?: boolean;
   selectedUnderlying?: string;
-  experience?: "builder" | "simulator" | "chain";
+  experience?: "builder" | "chain";
   asOf?: string;
   onDataMode?: (mode: "live" | "historical") => void;
   onReferenceData?: (reference: { spot: number; day?: string }) => void;
@@ -135,7 +139,7 @@ export function LiveOptionChain({
   const [chain, setChain] = useState<Chain | null>(null);
   const [sourceInfo, setSourceInfo] = useState<
     Pick<Chain, "source" | "dataMode" | "observedAt">
-  >({ dataMode: experience === "simulator" ? "historical" : undefined });
+  >({ dataMode: undefined });
   const [offset, setOffset] = useState(-1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -594,6 +598,7 @@ export function LiveOptionChain({
         activeLegs
           .filter(
             (leg) =>
+              (!leg.stockCode || leg.stockCode === item?.symbol) &&
               leg.expiryDate === item?.option?.expiryDate &&
               leg.strikePrice === item?.option?.strikePrice &&
               leg.right === item?.option?.right,

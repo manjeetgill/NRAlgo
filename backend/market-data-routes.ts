@@ -70,31 +70,14 @@ export function registerMarketDataRoutes(
       rows: Awaited<ReturnType<KotakMarketDataClient["getPortfolioRows"]>>;
     }
   >();
-  const workspaceExperienceSchema = z.enum(["simulator", "builder", "chain"]);
-  // Simulator instruments are index derivatives only; builder retains stock support.
-  const simulatorIndexes = new Set([
-    "NIFTY",
-    "BANKNIFTY",
-    "FINNIFTY",
-    "MIDCPNIFTY",
-    "NIFTYNXT50",
-    "SENSEX",
-    "BANKEX",
-  ]);
-
-  /** Select the data plane once at the API boundary. Simulator never reaches a
-   * broker; builder reaches only the owner-selected active provider during NSE
-   * weekday hours and otherwise reads durable snapshots.
-   */
+  const workspaceExperienceSchema = z.enum(["builder", "chain"]);
+  /** Use the active provider during market hours and durable snapshots otherwise. */
   async function resolveWorkspaceDataMode(
     experience: z.infer<typeof workspaceExperienceSchema> | undefined,
     session: { user_id: string; token_hash: string },
   ) {
-    if (!experience) {
-      return "live" as const;
-    }
     if (
-      experience === "simulator" ||
+      experience !== undefined &&
       !(experience === "chain"
         ? optionChainSessionOpen(Date.now())
         : regularMarketSessionOpen(Date.now()))
@@ -243,10 +226,7 @@ export function registerMarketDataRoutes(
         input.query,
         workspaceRequest.asOf,
       );
-      const underlyings =
-        workspaceRequest.experience === "simulator"
-          ? storedUnderlyings.filter((symbol) => simulatorIndexes.has(symbol))
-          : storedUnderlyings;
+      const underlyings = storedUnderlyings;
       res.json({
         items: [],
         underlyings,
@@ -302,12 +282,6 @@ export function registerMarketDataRoutes(
       .strict()
       .parse(req.body);
     const session = res.locals.session;
-    if (
-      input.experience === "simulator" &&
-      !simulatorIndexes.has(input.underlying)
-    ) {
-      fail(422, "Historical simulator supports index options only.");
-    }
     const dataMode = await resolveWorkspaceDataMode(input.experience, session);
     if (dataMode === "historical") {
       const result = await readOptionChainSnapshot(store, {
@@ -455,7 +429,7 @@ export function registerMarketDataRoutes(
         if (!kotak.isConnected(session.user_id, session.token_hash)) {
           fail(409, "Connect Kotak first.");
         }
-        for (const kind of ["limits", "positions"] as const) {
+        for (const kind of ["limits", "positions", "holdings"] as const) {
           await reserveBrokerRequestBudget(store, session.user_id, production);
           try {
             result[kind] = {
@@ -555,11 +529,17 @@ export function registerMarketDataRoutes(
                         },
                       );
                     })()
-                  : await kotak.getAccountReport(
-                      session.user_id,
-                      session.token_hash,
-                      kind,
-                    ),
+                  : kind === "holdings"
+                    ? await kotak.getPortfolioRows(
+                        session.user_id,
+                        session.token_hash,
+                        "holdings",
+                      )
+                    : await kotak.getAccountReport(
+                        session.user_id,
+                        session.token_hash,
+                        kind,
+                      ),
               error: null,
             };
           } catch {
@@ -574,6 +554,7 @@ export function registerMarketDataRoutes(
     res.json(result);
   });
   app.post("/api/market/live-feed", async (req, res) => {
+    await resolveWorkspaceDataMode(undefined, res.locals.session);
     if (!marketData.capabilities.live) {
       fail(422, "Selected data provider does not support live streaming.");
     }
@@ -648,8 +629,9 @@ export function registerMarketDataRoutes(
       connected: marketData.isConnected(session.user_id, session.token_hash),
     });
   });
-  app.get("/api/market/feed", (_req, res) => {
+  app.get("/api/market/feed", async (_req, res) => {
     const session = res.locals.session;
+    await resolveWorkspaceDataMode(undefined, session);
     res.json({
       ...marketData.readPriceFeed(session.user_id, session.token_hash),
       source: marketData.id,

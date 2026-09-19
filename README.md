@@ -15,6 +15,8 @@ Express runs inside Node.js; it is not an additional server. Chart geometry, dis
 
 Historical CSV import scripts still normalize some rows in Node. They are operator-only, not a second strategy engine. Moving that preprocessing to Python remains work to do.
 
+The NSE F&O downloader probes every calendar date, including special weekend sessions. Its checkpoints include the requested symbols and file hashes; changing symbols re-normalizes retained raw archives. Unavailable archives are gaps pending calendar review, not certified holidays. Retain the raw files and manifest, validate normalized files with `scripts/import-fno-eod.mjs`, then explicitly import with `--commit`. Never run an import against the same directory while its downloader is writing the manifest.
+
 ## Local setup
 
 Use Node.js 22.13+, Python 3.13+ and PostgreSQL 17. On macOS:
@@ -57,7 +59,7 @@ Consolidated frontend modules have explicit owners: `features/overview/account-m
 | `backend/database.ts`, `types.ts`, `local-database.ts`                   | Schema migrations, database contracts and development PostgreSQL lifecycle                                                                                              |
 | `backend/backup.ts`, `import-legacy-sqlite.ts`                           | Encrypted backup/restore and explicit legacy migration; not request handlers                                                                                            |
 | `backend/security.ts`, `mfa.ts`                                          | Password/session protections, second factor and credential encryption                                                                                                   |
-| `backend/broker-registry.ts`, `zerodha-connection.ts`                    | Owner-scoped active selection and one-use Zerodha authorization with a private SDK adapter                                                                              |
+| `backend/broker-registry.ts`, `broker-app-credential-store.ts`, `zerodha-connection.ts` | Owner-scoped active selection, encrypted broker-app credentials and one-use Zerodha authorization with a private SDK adapter                                            |
 | `backend/kotak-*`, `market-data-provider.ts`, `instrument-master.ts`     | Kotak adapter, bounded provider contracts, streaming and exact instrument identity                                                                                      |
 | `backend/live/`                                                          | Order intent binding, preview/confirmation, risk reservations, adapter dispatch, reconciliation and halt controls                                                       |
 | `backend/stored-market-data.ts`, `historical-candle-store.ts`            | Stored instrument/candle validation plus bounded PostgreSQL/verified-Parquet reads                                                                                      |
@@ -74,7 +76,7 @@ Consolidated frontend modules have explicit owners: `features/overview/account-m
 | `frontend/src/features/brokers/broker-hooks.ts`, `brokers-screen.tsx`    | Shared connection/selection hooks and grouped broker views; authentication never arms execution                                                                         |
 | `frontend/src/features/live-trading/`, `orders/`                         | Explicit execution controls and read-only order records                                                                                                                 |
 | `frontend/src/features/overview/`                                        | Mode-isolated account snapshots, streamed display marks and automatic read-only NSE intelligence                                                                        |
-| `frontend/src/features/option-chain/`                                    | Live/stored chain selection, exact stored chart reads, chart rendering and standalone-chain Python-derived IV/Greeks; Builder and Simulator do not request chain Greeks |
+| `frontend/src/features/option-chain/`                                    | Live/stored chain selection, exact stored chart reads, chart rendering and standalone-chain Python-derived IV/Greeks; the builder does not request chain Greeks |
 | `frontend/src/features/backtest-studio/`, `spread-builder/`, `research/` | Form inputs and presentation of Python calculation results                                                                                                              |
 | Other `frontend/src/features/` folders                                   | Account, audit, database, learning and saved-strategy screens, each with its own screen entrypoint                                                                      |
 | `frontend/src/components/`, `lib/`                                       | Shared controls, instrument pickers, request validation and presentation utilities                                                                                      |
@@ -86,7 +88,6 @@ Consolidated frontend modules have explicit owners: `features/overview/account-m
 ## Data and calculations
 
 - Backtest studio reads stored daily cash/index candles and queues a Python job. It does not fabricate missing prices or silently use a broker-history fallback.
-- The historical simulator is for indexes using saved data. Available daily candles do not establish historical intraday option-premium coverage.
 - Options builder sends premiums, strikes, quantities, dates and volatility assumptions to Python. Returned results include payoff curves, signed net debit/credit, breakevens, extrema and Greeks. Model output is not a broker margin quote or an execution guarantee.
 - Historical charts identify underlying candles separately from option premiums. KLineChart handles drawing/indicator presentation; attribution is available at `/legal/charting`.
 - Importers validate by default where their CLI offers `--commit`. Review their usage before running; never point an unreviewed import at production. Preserve source/provenance and adjustment status. Missing candles are not invented.
@@ -112,7 +113,9 @@ The regular PostgreSQL backup no longer contains daily cash/index candle values 
 
 Kotak live execution is implemented behind explicit enablement. Zerodha authorization/connection is separate from execution capability; selecting an unsupported execution adapter fails closed. ICICI is not implemented.
 
-The server resolves the active broker when an intent is bound. Changing the selection must not move existing orders or positions to another broker. Live execution requires configured server flags, app MFA, an authenticated broker session, registered static-IP prerequisites, risk limits, fresh reconciliation and explicit time-limited arming.
+The server resolves the active broker when an intent is bound. Changing the selection must not move existing orders or positions to another broker. Broker switches require enabled app MFA and a fresh authenticator or unused recovery code, and clear existing live permissions. Live execution requires configured server flags, app MFA, an authenticated broker session, registered static-IP prerequisites, risk limits, fresh reconciliation and explicit time-limited arming. Each arming requires a new code; a code consumed during broker selection cannot be reused. Initial broker registration can select the first broker but does not authorize trading.
+
+Account & security renders the MFA setup QR locally in the browser, with manual setup-key entry as a fallback. No external QR service receives the secret. Enrollment material stays only in component memory and is cleared after confirmation, navigation away, or the ten-minute setup window. Scan the QR in an authenticator app and enter its six-digit code to enable MFA; save the one-use recovery codes privately.
 
 Preview is not submission. Unknown submission outcomes must be reconciled, never automatically resent. Halt latches permission off; cancellation acknowledgements do not prove exchange cancellation, and halt does not automatically flatten positions. Keep `LIVE_TRADING_ENABLED=false` until these paths have been manually verified with the broker.
 
@@ -134,7 +137,7 @@ Every incoming commit runs the isolated build preflight. Successful pushes to `m
 
 Provision Docker Compose, Node 22+, AWS CLI, iptables/ip6tables, a real domain/TLS, encrypted EBS and a private versioned S3 backup bucket. The EC2 security group should expose only 80/443; use SSM for administration instead of a public database or broad SSH rule. Require IMDSv2. The backup container needs metadata hop limit 2; container forwarding rules restrict metadata access to its dedicated network.
 
-Keep `.env` nonsecret and mode 0600. Put the release artifact at `.env.release`. Use a separate deployment identity to retrieve a Secrets Manager JSON document containing the uppercase names listed in `scripts/host-operations.mjs`. Export into a **new** versioned directory; files are explicitly readable by their mounted container UID while the enclosing directory remains owner-only. No secrets are copied into images or published in Docker environment metadata. Optional registration/Zerodha fields may be empty, but their files must exist. Do not keep permanent AWS access keys in `.env`.
+Keep `.env` nonsecret and mode 0600. Put the release artifact at `.env.release`. Use a separate deployment identity to retrieve a Secrets Manager JSON document containing the uppercase names listed in `scripts/host-operations.mjs`. Export into a **new** versioned directory; files are explicitly readable by their mounted container UID while the enclosing directory remains owner-only. No secrets are copied into images or published in Docker environment metadata. Optional registration/Zerodha fields may be empty, but their files must exist. A workspace owner can alternatively save Zerodha app credentials from Broker connections; these are AES-GCM encrypted in `broker_app_credentials` and never returned to the browser. Environment credentials remain the deployment fallback. Do not keep permanent AWS access keys in `.env`.
 
 ```sh
 # Run export using a deployment identity authorized for this one secret.
@@ -172,6 +175,10 @@ Before live deployment, also restore an actual S3 object into a separate staging
 Implementation references: [Compose secret mounts](https://docs.docker.com/compose/how-tos/use-secrets/), [container resource settings](https://docs.docker.com/reference/compose-file/services/), [GitHub image publishing](https://docs.github.com/en/actions/tutorials/publish-packages/publish-docker-images), [CloudWatch alarm behavior](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch_Alarms.html).
 
 ## Maintenance
+
+### Watchlists
+
+Open **Markets → Watchlists** (`/#/watchlists`). Each account starts with NIFTY and BANKNIFTY, can keep up to 10 lists with 100 scrips each, and can search the imported catalog to add exact instruments. Clicking a row opens that instrument's existing KLine daily chart alongside the list. Lists are stored in PostgreSQL; chart data uses the historical repository without a broker. These are historical charts, not live watchlist quotes. Missing history is not synthesized. `node --import tsx scripts/verify-watchlists.mjs` exercises CRUD, defaults, isolation, duplicate prevention and limits in a disposable local database.
 
 ### Sensitive data
 

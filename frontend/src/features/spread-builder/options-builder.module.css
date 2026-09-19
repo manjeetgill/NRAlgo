@@ -19,62 +19,6 @@
 .builder > .split > .scenarioPanel {
   order: 3;
 }
-/* Replay uses the same hierarchy with denser position and calculation panels. */
-.simulator {
-  gap: 6px;
-}
-.simulator .panel {
-  padding: 10px 12px;
-  border-radius: 4px;
-  gap: 10px;
-}
-.simulator .fields {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-.simulator .contractFields,
-.simulator .positionNotice {
-  display: none;
-}
-.simulator .positionsPanel {
-  max-height: 250px;
-  overflow: hidden;
-}
-.simulator .positionsPanel .tableScroll {
-  max-height: 164px;
-  overflow: auto;
-}
-.simulator .positionsPanel .legs {
-  min-width: 620px;
-}
-.simulator .positionsPanel th,
-.simulator .positionsPanel td {
-  padding: 5px 4px;
-}
-.simulator .positionsPanel input {
-  min-width: 48px;
-  min-height: 30px;
-  padding: 4px 5px;
-}
-.simulator .positionsPanel select {
-  min-width: 54px;
-  min-height: 30px;
-  padding: 4px;
-}
-.simulator .positionFooter {
-  min-height: 24px;
-}
-.simulator .scenarioPanel {
-  display: none;
-}
-.simulator .metrics {
-  gap: 8px;
-}
-.simulator .metric {
-  padding: 8px 10px;
-}
-.simulator .empty {
-  min-height: 220px;
-}
 .builder h2,
 .builder h3,
 .builder p {

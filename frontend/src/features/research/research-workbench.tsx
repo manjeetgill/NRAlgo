@@ -441,7 +441,6 @@ export function ResearchWorkbench({
       <div className="research-tabs" role="group" aria-label="Research views">
         {[
           ["builder", "Definition & results"],
-          ["simulator", "Historical simulator"],
           ["quotes", "Live data preview"],
         ].map(([id, label]) => (
           <Button
@@ -775,7 +774,7 @@ export function ResearchWorkbench({
                   });
                   await reloadLibrary();
                   setNotice(
-                    "Saved. Choose Historical simulator or Live data preview next.",
+                    "Saved. Run a backtest from Definition & results or choose Live data preview.",
                   );
                 });
               }}
@@ -1038,7 +1037,7 @@ export function ResearchWorkbench({
             </form>
           </div>
         )}
-        {(tab === "simulator" || tab === "builder") && (
+        {tab === "builder" && (
           <div className="screen-stack">
             <section className="panel">
               <span className="eyebrow">02 · REPLAY THE SESSION</span>

@@ -968,9 +968,7 @@ body:has(.workspace-dialog[open]) {
   background: #8da6ff;
 }
 .app-shell .dock-submenu {
-  position: absolute;
-  left: var(--dock-position);
-  bottom: calc(100% + 8px);
+  position: fixed;
   z-index: 42;
   display: grid;
   width: max-content;
@@ -982,7 +980,6 @@ body:has(.workspace-dialog[open]) {
   border-radius: 10px;
   background: #18243a;
   box-shadow: 0 16px 38px #0f172a40;
-  transform: translateX(-50%);
 }
 .app-shell .dock-submenu button {
   min-height: 38px;
@@ -1060,14 +1057,5 @@ body:has(.workspace-dialog[open]) {
   .app-shell .sidebar-bottom .profile > button,
   .app-shell .sidebar-bottom .learn-link {
     display: none;
-  }
-  .app-shell .dock-submenu {
-    position: fixed;
-    right: 8px;
-    bottom: 68px;
-    left: 8px;
-    width: auto;
-    max-width: none;
-    transform: none;
   }
 }

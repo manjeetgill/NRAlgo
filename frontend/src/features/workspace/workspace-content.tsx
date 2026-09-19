@@ -33,6 +33,13 @@ const BacktestStudioScreen = dynamic(
 function ScreenLoading() {
   return <p role="status">Loading screen…</p>;
 }
+const WatchlistsScreen = dynamic(
+  () =>
+    import("@/features/watchlists/watchlists-screen").then(
+      (module) => module.WatchlistsScreen,
+    ),
+  { loading: ScreenLoading },
+);
 /** Static imports let Next build independent chunks; named-export callbacks return components, not commands. */
 const StrategiesScreen = dynamic(
   () =>
@@ -61,14 +68,6 @@ const SpreadBuilderScreen = dynamic(
   () =>
     import("@/features/spread-builder/spread-builder-screen").then(
       (module) => module.SpreadBuilderScreen,
-    ),
-  { loading: ScreenLoading },
-);
-/** Historical options replay is a distinct destination and cannot submit broker orders. */
-const SimulatorScreen = dynamic(
-  () =>
-    import("@/features/spread-builder/simulator-screen").then(
-      (module) => module.SimulatorScreen,
     ),
   { loading: ScreenLoading },
 );
@@ -151,6 +150,8 @@ export function WorkspaceContent({
       );
     case "Portfolio":
       return <PortfolioScreen csrf={workspace.csrf} />;
+    case "Watchlists":
+      return <WatchlistsScreen csrf={workspace.csrf} />;
     case "Strategies":
       return (
         <StrategiesScreen
@@ -184,8 +185,6 @@ export function WorkspaceContent({
           onAddLeg={onAddSpreadLeg}
         />
       );
-    case "Simulator":
-      return <SimulatorScreen csrf={workspace.csrf} />;
     case "Option chain":
       return (
         <OptionChainScreen

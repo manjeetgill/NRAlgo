@@ -41,12 +41,12 @@ export type WorkspaceSnapshot = {
   events: { id: number; message: string; created_at: string }[];
 };
 export type WorkspacePage =
+  | "Watchlists"
   | "Portfolio"
   | "Option chain"
   | "Backtest studio"
   | "Strategy library"
   | "Spread builder"
-  | "Simulator"
   | "Strategy lab"
   | "Live trading"
   | "Overview"

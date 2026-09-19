@@ -2158,14 +2158,16 @@ input::placeholder {
 .chain-leg-button.sell {
   color: #dc2626;
 }
-.chain-leg-button.buy.selected {
+.live-option-chain .chain-leg-button.buy[aria-pressed="true"] {
   background: #15803d;
   color: #fff;
+  border-color: #166534;
   box-shadow: 0 0 0 2px #bbf7d0;
 }
-.chain-leg-button.sell.selected {
+.live-option-chain .chain-leg-button.sell[aria-pressed="true"] {
   background: #dc2626;
   color: #fff;
+  border-color: #991b1b;
   box-shadow: 0 0 0 2px #fecaca;
 }
 .chain-leg-button:hover,
