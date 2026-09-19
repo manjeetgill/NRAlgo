@@ -5,6 +5,8 @@ import { brokerConnectionAdapters } from "@/features/brokers/broker-connection-a
 import { useBrokerConnection } from "@/features/brokers/use-broker-connection";
 import { Button } from "@/components/ui/button";
 import dynamic from "next/dynamic";
+import { ZerodhaConnectionCard } from "./zerodha-connection-card";
+import { ActiveBrokerSelector } from "./active-broker-selector";
 /** Broker reports are an explicit, separately loaded read-only tool; connecting never fetches them. */
 const BrokerPortfolioPanel = dynamic(() =>
   import("@/components/broker-portfolio-panel").then(
@@ -39,6 +41,7 @@ export function BrokersScreen({ csrf }: { csrf: string }) {
 
   return (
     <section className="screen-stack" aria-label="Broker connection">
+      <ActiveBrokerSelector csrf={csrf} refreshKey={connection.checkedAt} />
       <div className="screen-two-columns broker-cards">
         <article className="panel screen-card">
           <div className="screen-toolbar">
@@ -127,6 +130,7 @@ export function BrokersScreen({ csrf }: { csrf: string }) {
             {showPortfolio ? "Hide broker portfolio" : "View broker portfolio"}
           </Button>
         </article>
+        <ZerodhaConnectionCard csrf={csrf} />
       </div>
       {showPortfolio && connection.connected && (
         <BrokerPortfolioPanel broker="kotak" csrf={csrf} />
