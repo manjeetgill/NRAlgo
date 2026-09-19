@@ -312,10 +312,10 @@ export function createApiApplication(
           data.username,
           hashed,
         ]);
-        await query("INSERT INTO user_settings VALUES ($1,$2)", [
-          userId,
-          false,
-        ]);
+        await query(
+          "INSERT INTO user_settings(user_id,halted) VALUES ($1,$2)",
+          [userId, false],
+        );
         await audit(
           query,
           "Account created. Private paper workspace initialized.",

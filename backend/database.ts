@@ -250,6 +250,134 @@ export async function runDatabaseMigrations(
       );
       await query("INSERT INTO schema_migrations VALUES(7)");
     }
+    if (
+      !(await query("SELECT version FROM schema_migrations WHERE version=8"))
+        .length
+    ) {
+      await query(
+        "CREATE TABLE eod_instruments (id VARCHAR(120) PRIMARY KEY, symbol VARCHAR(60) NOT NULL, name VARCHAR(160) NOT NULL, kind VARCHAR(10) NOT NULL CHECK(kind IN ('equity','index')), series VARCHAR(10) NOT NULL, exchange VARCHAR(10) NOT NULL CHECK(exchange='NSE'))",
+      );
+      await query("CREATE INDEX eod_symbol_idx ON eod_instruments(symbol)");
+      await query(
+        "CREATE TABLE eod_candles (instrument_id VARCHAR(120) NOT NULL REFERENCES eod_instruments(id), day DATE NOT NULL, open DOUBLE PRECISION NOT NULL CHECK(open>0 AND open<'Infinity'::float8), high DOUBLE PRECISION NOT NULL CHECK(high>0 AND high<'Infinity'::float8), low DOUBLE PRECISION NOT NULL CHECK(low>0 AND low<'Infinity'::float8), close DOUBLE PRECISION NOT NULL CHECK(close>0 AND close<'Infinity'::float8), volume DOUBLE PRECISION CHECK(volume>=0 AND volume<'Infinity'::float8), source VARCHAR(200) NOT NULL, imported_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY(instrument_id,day), CHECK(high>=low AND high>=open AND high>=close AND low<=open AND low<=close))",
+      );
+      await query("INSERT INTO schema_migrations VALUES(8)");
+    }
+    if (
+      !(await query("SELECT version FROM schema_migrations WHERE version=9"))
+        .length
+    ) {
+      await query(
+        "CREATE TABLE user_brokers (id VARCHAR(36) PRIMARY KEY, user_id VARCHAR(36) NOT NULL REFERENCES users(id), provider VARCHAR(40) NOT NULL CHECK(provider IN ('kotak','zerodha')), account_binding VARCHAR(200) NOT NULL, status VARCHAR(20) NOT NULL CHECK(status IN ('connected','disconnected')), connected_at DOUBLE PRECISION NOT NULL, updated_at DOUBLE PRECISION NOT NULL, UNIQUE(user_id,id), UNIQUE(user_id,provider), UNIQUE(provider,account_binding))",
+      );
+      await query(
+        "CREATE INDEX user_brokers_owner_status_idx ON user_brokers(user_id,status)",
+      );
+      await query(
+        "ALTER TABLE user_settings ADD COLUMN active_broker_id VARCHAR(36)",
+      );
+      await query(
+        "ALTER TABLE user_settings ADD CONSTRAINT user_settings_active_broker_owner_fk FOREIGN KEY(user_id,active_broker_id) REFERENCES user_brokers(user_id,id)",
+      );
+      await query("INSERT INTO schema_migrations VALUES(9)");
+    }
+    if (
+      !(await query("SELECT version FROM schema_migrations WHERE version=10"))
+        .length
+    ) {
+      await query("ALTER TABLE live_accounts ADD COLUMN broker_id VARCHAR(36)");
+      await query("ALTER TABLE live_orders ADD COLUMN broker_id VARCHAR(36)");
+      await query("ALTER TABLE live_previews ADD COLUMN broker_id VARCHAR(36)");
+      await query("ALTER TABLE live_spreads ADD COLUMN broker_id VARCHAR(36)");
+      await query(
+        "UPDATE live_accounts a SET broker_id=b.id FROM user_brokers b WHERE a.user_id=b.user_id AND a.broker_binding=b.account_binding",
+      );
+      await query(
+        "UPDATE live_orders o SET broker_id=a.broker_id FROM live_accounts a WHERE o.account_id=a.id AND a.broker_id IS NOT NULL",
+      );
+      await query(
+        "UPDATE live_previews p SET broker_id=a.broker_id FROM live_accounts a WHERE p.account_id=a.id AND a.broker_id IS NOT NULL",
+      );
+      await query(
+        "UPDATE live_spreads s SET broker_id=a.broker_id FROM live_accounts a WHERE s.account_id=a.id AND a.broker_id IS NOT NULL",
+      );
+      await query(
+        "ALTER TABLE live_accounts ADD CONSTRAINT live_accounts_broker_fk FOREIGN KEY(broker_id) REFERENCES user_brokers(id)",
+      );
+      await query(
+        "ALTER TABLE live_orders ADD CONSTRAINT live_orders_broker_fk FOREIGN KEY(broker_id) REFERENCES user_brokers(id)",
+      );
+      await query(
+        "ALTER TABLE live_previews ADD CONSTRAINT live_previews_broker_fk FOREIGN KEY(broker_id) REFERENCES user_brokers(id)",
+      );
+      await query(
+        "ALTER TABLE live_spreads ADD CONSTRAINT live_spreads_broker_fk FOREIGN KEY(broker_id) REFERENCES user_brokers(id)",
+      );
+      await query(
+        "ALTER TABLE live_orders DROP CONSTRAINT live_orders_state_check",
+      );
+      await query(
+        "ALTER TABLE live_orders ADD CONSTRAINT live_orders_state_check CHECK (state IN ('bound','reserved','submitting','unknown','blocked','acknowledged','open','partially_filled','filled','cancelled','rejected'))",
+      );
+      await query(
+        "CREATE INDEX live_orders_broker_idx ON live_orders(broker_id,state)",
+      );
+      await query("INSERT INTO schema_migrations VALUES(10)");
+    }
+    if (
+      !(await query("SELECT version FROM schema_migrations WHERE version=11"))
+        .length
+    ) {
+      await query(
+        "CREATE TABLE calculation_jobs (id VARCHAR(36) PRIMARY KEY, user_id VARCHAR(36) NOT NULL REFERENCES users(id), kind VARCHAR(30) NOT NULL CHECK(kind IN ('daily-backtest')), status VARCHAR(20) NOT NULL CHECK(status IN ('queued','running','completed','failed','cancelled')), progress INTEGER NOT NULL DEFAULT 0 CHECK(progress>=0 AND progress<=100), input TEXT NOT NULL, result TEXT NOT NULL DEFAULT '', error TEXT NOT NULL DEFAULT '', cancel_requested BOOLEAN NOT NULL DEFAULT FALSE, engine_version VARCHAR(80) NOT NULL DEFAULT '', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())",
+      );
+      await query(
+        "CREATE INDEX calculation_jobs_owner_idx ON calculation_jobs(user_id,created_at DESC)",
+      );
+      await query(
+        "CREATE INDEX calculation_jobs_queue_idx ON calculation_jobs(status,created_at)",
+      );
+      await query("INSERT INTO schema_migrations VALUES(11)");
+    }
+    if (
+      !(await query("SELECT version FROM schema_migrations WHERE version=12"))
+        .length
+    ) {
+      await query(
+        "CREATE TABLE option_chain_snapshots (user_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE, provider VARCHAR(40) NOT NULL, underlying VARCHAR(40) NOT NULL, expiry_date DATE NOT NULL, page_offset INTEGER NOT NULL CHECK(page_offset>=0), observed_at DOUBLE PRECISION NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(user_id,provider,underlying,expiry_date,page_offset,observed_at))",
+      );
+      await query(
+        "CREATE INDEX option_chain_snapshots_lookup_idx ON option_chain_snapshots(user_id,underlying,expiry_date,page_offset,observed_at DESC)",
+      );
+      await query("INSERT INTO schema_migrations VALUES(12)");
+    }
+    if (
+      !(await query("SELECT version FROM schema_migrations WHERE version=13"))
+        .length
+    ) {
+      await query(
+        "CREATE TABLE option_eod_instruments (id VARCHAR(180) PRIMARY KEY, underlying VARCHAR(40) NOT NULL, expiry_date DATE NOT NULL, option_right VARCHAR(4) NOT NULL CHECK(option_right IN ('call','put')), strike_price DOUBLE PRECISION NOT NULL CHECK(strike_price>0 AND strike_price<'Infinity'::float8), exchange VARCHAR(10) NOT NULL CHECK(exchange='NSE'))",
+      );
+      await query(
+        "CREATE INDEX option_eod_contract_idx ON option_eod_instruments(underlying,expiry_date,strike_price,option_right)",
+      );
+      await query(
+        "CREATE TABLE option_eod_candles (instrument_id VARCHAR(180) NOT NULL REFERENCES option_eod_instruments(id) ON DELETE CASCADE, day DATE NOT NULL, open DOUBLE PRECISION NOT NULL CHECK(open>=0 AND open<'Infinity'::float8), high DOUBLE PRECISION NOT NULL CHECK(high>=0 AND high<'Infinity'::float8), low DOUBLE PRECISION NOT NULL CHECK(low>=0 AND low<'Infinity'::float8), close DOUBLE PRECISION NOT NULL CHECK(close>=0 AND close<'Infinity'::float8), settlement DOUBLE PRECISION CHECK(settlement>=0 AND settlement<'Infinity'::float8), volume BIGINT CHECK(volume>=0), open_interest BIGINT CHECK(open_interest>=0), change_open_interest BIGINT, lot_size INTEGER CHECK(lot_size>0), source VARCHAR(240) NOT NULL, imported_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY(instrument_id,day), CHECK(close>0 OR settlement>0))",
+      );
+      await query(
+        "CREATE INDEX option_eod_day_idx ON option_eod_candles(day,instrument_id)",
+      );
+      await query("INSERT INTO schema_migrations VALUES(13)");
+    }
+    if (
+      !(await query("SELECT version FROM schema_migrations WHERE version=14"))
+        .length
+    ) {
+      await query(
+        "ALTER TABLE option_eod_candles ADD COLUMN underlying_price DOUBLE PRECISION CHECK(underlying_price>0 AND underlying_price<'Infinity'::float8)",
+      );
+      await query("INSERT INTO schema_migrations VALUES(14)");
+    }
   });
   // The migration container owns DDL; API/worker use a separate non-superuser role.
   if (options.runtimePassword) {
@@ -273,7 +401,10 @@ export async function runDatabaseMigrations(
       await query(`ALTER ROLE nexus_app PASSWORD '${password}'`);
       await query("GRANT USAGE ON SCHEMA public TO nexus_app");
       await query(
-        "GRANT SELECT,INSERT,UPDATE,DELETE ON users,user_settings,user_security,broker_usage,sessions,strategies,jobs,events,broker_credentials,worker_health,settings,live_accounts,live_orders,live_spreads,live_events,live_permissions,live_previews,broker_rpc_windows,research_strategies,research_runs,paper_accounts TO nexus_app",
+        "GRANT SELECT ON eod_instruments,eod_candles,option_eod_instruments,option_eod_candles TO nexus_app",
+      );
+      await query(
+        "GRANT SELECT,INSERT,UPDATE,DELETE ON users,user_settings,user_security,broker_usage,sessions,strategies,jobs,events,broker_credentials,worker_health,settings,live_accounts,live_orders,live_spreads,live_events,live_permissions,live_previews,broker_rpc_windows,research_strategies,research_runs,paper_accounts,user_brokers,calculation_jobs,option_chain_snapshots TO nexus_app",
       );
       await query(
         "GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO nexus_app",
