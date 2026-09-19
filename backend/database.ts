@@ -404,6 +404,31 @@ export async function runDatabaseMigrations(
       await query("DROP TABLE IF EXISTS paper_accounts");
       await query("INSERT INTO schema_migrations VALUES(17)");
     }
+    if (
+      !(await query("SELECT version FROM schema_migrations WHERE version=18"))
+        .length
+    ) {
+      await query(
+        "CREATE TABLE broker_app_credentials (user_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE, provider VARCHAR(40) NOT NULL, ciphertext TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY(user_id,provider))",
+      );
+      await query("INSERT INTO schema_migrations VALUES(18)");
+    }
+  });
+  await store.transaction(async (query) => {
+    await query("SELECT pg_advisory_xact_lock(684201)");
+    if (
+      !(await query("SELECT version FROM schema_migrations WHERE version=19"))
+        .length
+    ) {
+      await query(
+        "CREATE TABLE watchlists (id VARCHAR(36) PRIMARY KEY, user_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE, name VARCHAR(40) NOT NULL, is_default BOOLEAN NOT NULL DEFAULT false, items JSONB NOT NULL DEFAULT '[]'::jsonb, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())",
+      );
+      await query(
+        "CREATE UNIQUE INDEX watchlists_default_owner_idx ON watchlists(user_id) WHERE is_default",
+      );
+      await query("CREATE INDEX watchlists_owner_idx ON watchlists(user_id)");
+      await query("INSERT INTO schema_migrations VALUES(19)");
+    }
   });
   // The migration container owns DDL; API/worker use a separate non-superuser role.
   if (options.runtimePassword) {
@@ -427,7 +452,10 @@ export async function runDatabaseMigrations(
       await query(`ALTER ROLE nexus_app PASSWORD '${password}'`);
       await query("GRANT USAGE ON SCHEMA public TO nexus_app");
       await query(
-        "GRANT SELECT,INSERT,UPDATE,DELETE ON broker_sessions TO nexus_app",
+        "GRANT SELECT,INSERT,UPDATE,DELETE ON watchlists TO nexus_app",
+      );
+      await query(
+        "GRANT SELECT,INSERT,UPDATE,DELETE ON broker_sessions,broker_app_credentials TO nexus_app",
       );
       await query(
         "GRANT SELECT ON eod_instruments,eod_candles,option_eod_instruments,option_eod_candles TO nexus_app",

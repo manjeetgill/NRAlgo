@@ -9,6 +9,10 @@ export interface PortfolioRow {
   exchange: string;
   product: string;
   quantity: number;
+  /** Broker-reported units pledged as collateral. Null means the field was not supplied. */
+  pledgedQuantity: number | null;
+  /** Broker-reported unsettled/T1 units. Null means the field was not supplied. */
+  t1Quantity: number | null;
   averagePrice: number | null;
   markPrice: number | null;
   pnl: number | null;
@@ -31,6 +35,14 @@ function parseOptionalPortfolioNumber(value: unknown) {
     throw new Error("Invalid portfolio number");
   }
   return Number(value);
+}
+/** Select the first broker alias that is actually present without turning omission into zero. */
+function firstOptionalPortfolioNumber(...values: unknown[]) {
+  const value = values.find(
+    (candidate) =>
+      candidate !== null && candidate !== undefined && candidate !== "",
+  );
+  return parseOptionalPortfolioNumber(value);
 }
 /** Keep display text short and return an empty label when the broker omitted it. */
 function readPortfolioDisplayText(value: unknown) {
@@ -72,6 +84,26 @@ export function normalizePortfolioRows(
     if (!symbol || quantity === null || !Number.isSafeInteger(quantity)) {
       throw new Error("Missing portfolio identity/quantity");
     }
+    const pledgedQuantity = holding
+      ? firstOptionalPortfolioNumber(
+          row.pledgedQuantity,
+          row.pledgedQty,
+          row.pledged_quantity,
+          row.collateralQuantity,
+          row.collateralQty,
+        )
+      : null;
+    const t1Quantity = holding
+      ? firstOptionalPortfolioNumber(row.t1Quantity, row.t1Qty, row.t1_quantity)
+      : null;
+    if (
+      (pledgedQuantity !== null &&
+        (!Number.isSafeInteger(pledgedQuantity) || pledgedQuantity < 0)) ||
+      (t1Quantity !== null &&
+        (!Number.isSafeInteger(t1Quantity) || t1Quantity < 0))
+    ) {
+      throw new Error("Invalid holding quantity breakdown");
+    }
     const multiplier = holding
       ? null
       : (parseOptionalPortfolioNumber(row.multiplier) ?? 1);
@@ -103,8 +135,17 @@ export function normalizePortfolioRows(
     }
     return {
       symbol,
-      instrumentToken: holding ? "" : readPortfolioDisplayText(row.tok),
+      instrumentToken: holding
+        ? readPortfolioDisplayText(
+            row.instrumentToken ??
+              row.token ??
+              row.tok ??
+              row.exchangeIdentifier,
+          )
+        : readPortfolioDisplayText(row.tok),
       quantity,
+      pledgedQuantity,
+      t1Quantity,
       exchange: readPortfolioDisplayText(
         holding ? row.exchangeSegment : row.exSeg,
       ),
@@ -138,7 +179,16 @@ export function normalizePortfolioRows(
       ),
       pnl: parseOptionalPortfolioNumber(
         holding
-          ? row.unrealisedGainLoss
+          ? (row.unrealisedGainLoss ??
+              (() => {
+                const marketValue = parseOptionalPortfolioNumber(row.mktValue);
+                const holdingCost = parseOptionalPortfolioNumber(
+                  row.holdingCost,
+                );
+                return marketValue !== null && holdingCost !== null
+                  ? marketValue - holdingCost
+                  : null;
+              })())
           : (row.unrealisedGainLoss ?? row.unrealizedPnl ?? row.unrealizedPnL),
       ),
       pnlBase: holding || !hasAmounts ? null : sellAmount! - buyAmount!,
@@ -174,8 +224,39 @@ export function normalizeZerodhaPortfolioRows(
         MCX: "mcx_fo",
         CDS: "cde_fo",
       }[rawExchange] ?? rawExchange.toLowerCase();
-    const quantity = parseOptionalPortfolioNumber(row.quantity);
+    const reportedQuantity = parseOptionalPortfolioNumber(row.quantity);
     const instrumentToken = parseOptionalPortfolioNumber(row.instrument_token);
+    const holding = kind === "holdings";
+    const pledgedQuantity = holding
+      ? firstOptionalPortfolioNumber(
+          row.collateral_quantity,
+          row.pledged_quantity,
+        )
+      : null;
+    const t1Quantity = holding
+      ? firstOptionalPortfolioNumber(row.t1_quantity)
+      : null;
+    const mtf =
+      holding &&
+      row.mtf &&
+      typeof row.mtf === "object" &&
+      !Array.isArray(row.mtf)
+        ? (row.mtf as Record<string, unknown>)
+        : null;
+    const mtfQuantity = mtf
+      ? (firstOptionalPortfolioNumber(mtf.quantity) ?? 0)
+      : 0;
+    /** Kite reports settled, collateral, T1 and MTF buckets separately. The shared
+     * quantity is their complete total so collateral-only scripts are never filtered out. */
+    const quantity =
+      reportedQuantity === null
+        ? null
+        : holding
+          ? reportedQuantity +
+            (pledgedQuantity ?? 0) +
+            (t1Quantity ?? 0) +
+            mtfQuantity
+          : reportedQuantity;
     if (
       !symbol ||
       !exchange ||
@@ -187,12 +268,24 @@ export function normalizeZerodhaPortfolioRows(
     ) {
       throw new Error("Missing portfolio identity/quantity");
     }
+    if (
+      (pledgedQuantity !== null &&
+        (!Number.isSafeInteger(pledgedQuantity) || pledgedQuantity < 0)) ||
+      (t1Quantity !== null &&
+        (!Number.isSafeInteger(t1Quantity) || t1Quantity < 0)) ||
+      !Number.isSafeInteger(mtfQuantity) ||
+      mtfQuantity < 0
+    ) {
+      throw new Error("Invalid holding quantity breakdown");
+    }
     return {
       symbol,
       instrumentToken: String(instrumentToken),
       exchange,
       product: readPortfolioDisplayText(row.product),
       quantity,
+      pledgedQuantity,
+      t1Quantity,
       averagePrice: parseOptionalPortfolioNumber(row.average_price),
       markPrice: parseOptionalPortfolioNumber(row.last_price),
       pnl: parseOptionalPortfolioNumber(row.pnl),
@@ -203,4 +296,30 @@ export function normalizeZerodhaPortfolioRows(
       strike: "",
     };
   });
+}
+
+/** Read Zerodha's NSE/NFO buying power without exposing the raw margin payload. */
+export function normalizeZerodhaAvailableFunds(raw: unknown): number | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return null;
+  }
+  const equity = (raw as Record<string, unknown>).equity;
+  if (!equity || typeof equity !== "object" || Array.isArray(equity)) {
+    return null;
+  }
+  const record = equity as Record<string, unknown>;
+  const available = record.available;
+  const candidates = [
+    record.net,
+    available && typeof available === "object" && !Array.isArray(available)
+      ? (available as Record<string, unknown>).live_balance
+      : null,
+  ];
+  for (const value of candidates) {
+    const parsed = parseOptionalPortfolioNumber(value);
+    if (parsed !== null) {
+      return parsed;
+    }
+  }
+  return null;
 }
