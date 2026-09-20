@@ -46,6 +46,8 @@ export function WorkspaceShell({
 }) {
   const [requestedPage, setPage] = useState<WorkspacePage>("Overview");
   const currentPage = useRef<WorkspacePage>("Overview");
+  const leaveDialog = useRef<HTMLDialogElement>(null);
+  const pendingNavigation = useRef<(() => void) | null>(null);
   const [openSection, setOpenSection] = useState("");
   const [tourStep, setTourStep] = useState<number | null>(null);
   const [helpRequest, setHelpRequest] = useState(0);
@@ -130,32 +132,36 @@ export function WorkspaceShell({
     };
   }, [openSection]);
   /** Stable navigation callback lets independent screens own their effects. */
-  const onNavigate = useCallback((destination: WorkspacePage) => {
-    if (
-      destination !== currentPage.current &&
-      !window.dispatchEvent(
-        new Event("workspace-before-navigate", { cancelable: true }),
-      )
-    ) {
-      return false;
-    }
-    currentPage.current = destination;
-    setPage(destination);
-    setOpenSection("");
-    window.location.hash = getWorkspacePageHash(destination);
-    return true;
-  }, []);
-  /** Restore deep links and browser history; unknown or hidden destinations fail back to Overview. */
-  useEffect(() => {
-    function restoreLocation() {
-      const destination =
-        resolveWorkspacePage(window.location.hash) ?? "Overview";
+  const onNavigate = useCallback(
+    (destination: WorkspacePage, afterNavigate?: () => void) => {
+      const complete = () => {
+        currentPage.current = destination;
+        setPage(destination);
+        setOpenSection("");
+        window.location.hash = getWorkspacePageHash(destination);
+        afterNavigate?.();
+      };
       if (
         destination !== currentPage.current &&
         !window.dispatchEvent(
           new Event("workspace-before-navigate", { cancelable: true }),
         )
       ) {
+        pendingNavigation.current = complete;
+        leaveDialog.current?.showModal();
+        return false;
+      }
+      complete();
+      return true;
+    },
+    [],
+  );
+  /** Restore deep links and browser history; unknown or hidden destinations fail back to Overview. */
+  useEffect(() => {
+    function restoreLocation() {
+      const destination =
+        resolveWorkspacePage(window.location.hash) ?? "Overview";
+      if (!onNavigate(destination)) {
         window.history.replaceState(
           null,
           "",
@@ -163,9 +169,6 @@ export function WorkspaceShell({
         );
         return;
       }
-      currentPage.current = destination;
-      setPage(destination);
-      setOpenSection("");
     }
     function closeOnEscape(event: KeyboardEvent) {
       if (event.key === "Escape") {
@@ -179,7 +182,7 @@ export function WorkspaceShell({
       window.removeEventListener("hashchange", restoreLocation);
       window.removeEventListener("keydown", closeOnEscape);
     };
-  }, []);
+  }, [onNavigate]);
   /** This shortcut changes presentation only, never account/execution permissions. */
   const onExploreOptionChain = useCallback(() => {
     onNavigate("Option chain");
@@ -187,16 +190,16 @@ export function WorkspaceShell({
   /** Pass a saved identity in memory; research data remains owner-checked by the API. */
   const onOpenStrategy = useCallback(
     (id: string, market: "cash" | "options") => {
-      if (
-        !onNavigate(market === "options" ? "Spread builder" : "Strategy lab")
-      ) {
-        return;
-      }
-      setResearchStrategyId(id);
-      if (market === "options") {
-        setSpreadDraft(undefined);
-        setSpreadContext(undefined);
-      }
+      onNavigate(
+        market === "options" ? "Spread builder" : "Strategy lab",
+        () => {
+          setResearchStrategyId(id);
+          if (market === "options") {
+            setSpreadDraft(undefined);
+            setSpreadContext(undefined);
+          }
+        },
+      );
     },
     [onNavigate],
   );
@@ -279,21 +282,50 @@ export function WorkspaceShell({
   /** Template selection changes research parameters only, not broker execution state. */
   const onConfigureTemplate = useCallback(
     (id: TemplateId) => {
-      if (!onNavigate("Backtest studio")) {
-        return;
-      }
-      setTemplateId(id);
+      onNavigate("Backtest studio", () => setTemplateId(id));
     },
     [onNavigate],
   );
   function visitTourStep(index: number) {
-    if (!onNavigate(tour[index].page)) {
-      return;
-    }
-    setTourStep(index);
+    onNavigate(tour[index].page, () => setTourStep(index));
   }
   return (
     <div className="app-shell">
+      <dialog
+        ref={leaveDialog}
+        className="workspace-dialog"
+        aria-labelledby="leave-research-title"
+        onClose={() => {
+          pendingNavigation.current = null;
+        }}
+      >
+        <h2 id="leave-research-title">Leave unsaved research?</h2>
+        <p>
+          Inputs and displayed results on this screen are not automatically
+          saved. Stay to keep editing, or leave and discard this local work. No
+          trading order will be placed.
+        </p>
+        <div className="screen-toolbar">
+          <Button
+            variant="secondary"
+            autoFocus
+            onClick={() => leaveDialog.current?.close()}
+          >
+            Keep editing
+          </Button>
+          <Button
+            variant="danger"
+            onClick={() => {
+              const proceed = pendingNavigation.current;
+              pendingNavigation.current = null;
+              leaveDialog.current?.close();
+              proceed?.();
+            }}
+          >
+            Discard and leave
+          </Button>
+        </div>
+      </dialog>
       <a
         className="workspace-skip"
         href="#workspace-main"
@@ -547,7 +579,7 @@ export function WorkspaceShell({
           {page !== "Overview" && (
             <footer>
               <span>
-                <LockKeyhole size={12} /> Personal workspace · Live trading
+                <LockKeyhole size={12} /> Personal trading workspace
               </span>
               <span>Account-scoped data · Explicit execution approval</span>
             </footer>

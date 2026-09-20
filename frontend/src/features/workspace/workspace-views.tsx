@@ -18,13 +18,8 @@ export function useUnsavedResearchWarning(dirty: boolean) {
       return;
     }
     const beforeNavigate = (event: Event) => {
-      if (
-        !window.confirm(
-          "Leave this research screen? Unsaved inputs and displayed results will be discarded. Cancel to keep editing.",
-        )
-      ) {
-        event.preventDefault();
-      }
+      // The shell owns an accessible in-page confirmation; embedded browsers may suppress confirm().
+      event.preventDefault();
     };
     const beforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
@@ -209,7 +204,9 @@ export function WorkspaceHelp({
           <p>Explore your workspace, build strategies and review activity.</p>
           <dl>
             <dt>Research</dt>
-            <dd>Start in Strategy library, Algo lab or Spread builder.</dd>
+            <dd>
+              Start in Strategy library, Basket research or Spread builder.
+            </dd>
             <dt>Trading</dt>
             <dd>
               Live trading requires explicit authorization, risk checks and a
