@@ -150,7 +150,6 @@ export function registerMarketDataRoutes(
     await requestCoordinator.runExclusiveForUser(session.user_id, async () => {
       try {
         openPositionCache.delete(res.locals.session.user_id);
-        await savedSessions?.remove(session.user_id, "kotak");
         await kotak.connect(
           session.user_id,
           session.token_hash,

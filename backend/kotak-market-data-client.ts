@@ -420,7 +420,9 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
     private transport: KotakHttpRequest = sendKotakHttpRequest,
     private socketFactory?: FeedSocketFactory,
   ) {}
-  /** Authenticate once, reserving connection capacity before asynchronous network work begins. */
+  /** Authenticate a replacement in isolation and publish it only after both login stages pass.
+   * A bad TOTP/MPIN must not destroy a still-usable execution session or its cancellation path.
+   */
   public async connect(
     userId: string,
     sessionHash: string,
@@ -441,13 +443,18 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
         "Wait for the existing login attempt to finish.",
       );
     }
-    this.disconnect(userId);
     for (const [id, value] of this.sessions) {
       if (value.expires < Date.now()) {
         this.disconnect(id);
       }
     }
-    if (this.sessions.size + this.pending.size >= 3) {
+    const replacingExistingSession = this.sessions.has(userId);
+    if (
+      this.sessions.size -
+        (replacingExistingSession ? 1 : 0) +
+        this.pending.size >=
+      3
+    ) {
       throw new KotakConnectionError(
         "SESSION",
         "CAPACITY",
@@ -520,7 +527,7 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
       ) {
         throw new Error("Login revoked during authentication.");
       }
-      this.sessions.set(userId, {
+      const replacement = {
         sessionHash,
         expires: Math.min(expires, Date.now() + 8 * 3600000),
         accessToken: input.accessToken,
@@ -529,7 +536,14 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
         sid: second.data.sid,
         ucc: input.ucc,
         feedUrl: second.data.feedUrl,
-      });
+      };
+      // Publishing is synchronous: captured execution sessions become stale only after
+      // complete replacement authentication. Close the old feed without deleting the
+      // in-progress marker used to fence this login attempt.
+      this.feedRetries.delete(userId);
+      this.feeds.get(userId)?.closeConnection();
+      this.feeds.delete(userId);
+      this.sessions.set(userId, replacement);
     } catch (error) {
       const reason = getLoginFailureReason(error, stage);
       const guidance = getLoginRecoveryGuidance(stage, reason);

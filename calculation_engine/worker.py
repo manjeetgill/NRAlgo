@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import ctypes
 import fcntl
+import hashlib
 import hmac
 import json
 import multiprocessing
@@ -25,6 +26,9 @@ from . import ENGINE_VERSION
 
 MAX_INPUT = 8 * 1024 * 1024
 MAX_OUTPUT = 12 * 1024 * 1024
+MARKET_INSIGHT_CACHE_SECONDS = 120
+MAX_MARKET_INSIGHT_CACHE_ENTRIES = 32
+MAX_MARKET_INSIGHT_CACHE_BYTES = 128 * 1024
 WALL_SECONDS = int(os.environ.get("CALCULATION_WALL_SECONDS", "90"))
 if not 1 <= WALL_SECONDS <= 90:
     raise RuntimeError("Calculation wall time must be between 1 and 90 seconds")
@@ -105,6 +109,42 @@ class CalculationSupervisor:
 
     def __init__(self):
         self.busy = False
+        # Market insights are public, read-only reference data. Keep this bounded cache
+        # in the long-lived supervisor because each calculation child is disposable.
+        self.market_insight_cache: dict[bytes, tuple[float, bytes]] = {}
+
+    @staticmethod
+    def market_cache_key(scope, body: bytes) -> bytes | None:
+        if scope.get("method") != "POST" or scope.get("path") != "/v1/market/insights":
+            return None
+        return hashlib.sha256(body).digest()
+
+    def cached_market_insight(self, key: bytes, now: float | None = None) -> bytes | None:
+        observed = time.monotonic() if now is None else now
+        cached = self.market_insight_cache.get(key)
+        if not cached:
+            return None
+        if observed - cached[0] >= MARKET_INSIGHT_CACHE_SECONDS:
+            self.market_insight_cache.pop(key, None)
+            return None
+        return cached[1]
+
+    def remember_market_insight(
+        self, key: bytes | None, status: int, body: bytes, now: float | None = None
+    ) -> None:
+        if key is None or status != 200 or len(body) > MAX_MARKET_INSIGHT_CACHE_BYTES:
+            return
+        observed = time.monotonic() if now is None else now
+        for stale_key, (created, _) in list(self.market_insight_cache.items()):
+            if observed - created >= MARKET_INSIGHT_CACHE_SECONDS:
+                self.market_insight_cache.pop(stale_key, None)
+        if (
+            key not in self.market_insight_cache
+            and len(self.market_insight_cache) >= MAX_MARKET_INSIGHT_CACHE_ENTRIES
+        ):
+            oldest = min(self.market_insight_cache, key=lambda item: self.market_insight_cache[item][0])
+            self.market_insight_cache.pop(oldest, None)
+        self.market_insight_cache[key] = (observed, body)
 
     async def __call__(self, scope, receive, send):
         if scope["type"] == "lifespan":
@@ -153,6 +193,11 @@ class CalculationSupervisor:
                     return
                 if not message.get("more_body", False):
                     break
+            cache_key = self.market_cache_key(scope, bytes(body))
+            cached = self.cached_market_insight(cache_key) if cache_key is not None else None
+            if cached is not None:
+                await reply(send, 200, cached)
+                return
             context = multiprocessing.get_context("spawn")
             parent, child = context.Pipe(duplex=False)
             # Copy serializable request fields only; do not pass Uvicorn state or server objects.
@@ -179,7 +224,10 @@ class CalculationSupervisor:
             packet = result.result()
             if len(packet) < 2:
                 raise ValueError("Missing calculation result")
-            await reply(send, int.from_bytes(packet[:2], "big"), packet[2:])
+            response_status = int.from_bytes(packet[:2], "big")
+            response_body = packet[2:]
+            self.remember_market_insight(cache_key, response_status, response_body)
+            await reply(send, response_status, response_body)
         except asyncio.TimeoutError:
             await reply(send, 408, {"detail": "Calculation request timed out"})
         except (EOFError, OSError, ValueError):

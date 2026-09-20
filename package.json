@@ -6,7 +6,7 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "test": "node --import tsx --test tests/*.test.mjs",
+    "test": "node --import tsx --test tests/*.test.mjs && python3 -m unittest calculation_engine.test_worker",
     "test:coverage": "node --import tsx --test --experimental-test-coverage tests/*.test.mjs",
     "check:production": "node --env-file=.env --env-file=.env.release scripts/check-production-environment.mjs",
     "preflight:commit": "node scripts/preflight-commit.mjs",
