@@ -25,6 +25,10 @@ const config = (phase: string): NextConfig => ({
   async rewrites() {
     return [
       {
+        source: "/hooks/tradingview/:key",
+        destination: `${process.env.API_URL || "http://127.0.0.1:8000"}/hooks/tradingview/:key`,
+      },
+      {
         source: "/api/:path*",
         destination: `${process.env.API_URL || "http://127.0.0.1:8000"}/api/:path*`,
       },

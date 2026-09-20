@@ -47,7 +47,7 @@ USER node
 EXPOSE 3000
 CMD ["node", "server.js"]
 
-# Dedicated backup image: database/AWS tools are not installed in the API image.
+# Dedicated backup image: database and S3-compatible tools are not installed in the API image.
 FROM node:22-alpine AS backup
 WORKDIR /app
 RUN apk add --no-cache postgresql17-client aws-cli && mkdir /backups && chown node:node /backups

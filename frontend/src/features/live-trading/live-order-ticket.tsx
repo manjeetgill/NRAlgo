@@ -65,9 +65,19 @@ const ORDER_STATE_TONE: Record<string, BadgeTone> = {
 export function LiveOrderTicket({
   csrf,
   initialOrder,
+  initialDraft,
 }: {
   csrf: string;
   initialOrder?: { contract: BrokerInstrument; side: "buy" | "sell" };
+  initialDraft?: {
+    id: string;
+    symbol: string;
+    market: "cash" | "options";
+    side: "buy" | "sell";
+    orderType: "market" | "limit";
+    quantity: number;
+    limitPaise: number | null;
+  };
 }) {
   const statusGate = useRef(createLatestRequest());
   const actionPending = useRef(false);
@@ -87,16 +97,28 @@ export function LiveOrderTicket({
   const [token, setToken] = useState(""),
     [armProof, setArmProof] = useState("");
   const [market, setMarket] = useState<"cash" | "options">(
-      initialOrder ? "options" : "cash",
+      initialDraft?.market ?? (initialOrder ? "options" : "cash"),
     ),
-    [query, setQuery] = useState(initialOrder?.contract.symbol ?? "");
+    [query, setQuery] = useState(
+      initialDraft?.symbol.split(":").at(-1) ??
+        initialOrder?.contract.symbol ??
+        "",
+    );
   const [items, setItems] = useState<BrokerInstrument[]>([]),
     [selected, setSelected] = useState<BrokerInstrument | null>(null);
-  const [side, setSide] = useState<"buy" | "sell">(initialOrder?.side ?? "buy"),
-    [quantity, setQuantity] = useState(
-      initialOrder ? String(initialOrder.contract.lotSize) : "",
+  const [side, setSide] = useState<"buy" | "sell">(
+      initialDraft?.side ?? initialOrder?.side ?? "buy",
     ),
-    [price, setPrice] = useState("");
+    [quantity, setQuantity] = useState(
+      initialDraft
+        ? String(initialDraft.quantity)
+        : initialOrder
+          ? String(initialOrder.contract.lotSize)
+          : "",
+    ),
+    [price, setPrice] = useState(
+      initialDraft?.limitPaise ? String(initialDraft.limitPaise / 100) : "",
+    );
   const [preview, setPreview] = useState<Preview | null>(null),
     [proof, setProof] = useState("");
   const [uncertain, setUncertain] = useState(false);
@@ -221,6 +243,15 @@ export function LiveOrderTicket({
               select the exact contract from the active broker before reviewing.
               Chain tokens and prices are never used as execution authorization.
               Selling only reduces a tracked long position.
+            </p>
+          )}
+          {initialDraft && (
+            <p className={styles.chainNote}>
+              TradingView draft loaded: {initialDraft.symbol}. Select the exact
+              active-broker contract, review every field, and create a fresh
+              preview. Nothing is submitted automatically.
+              {initialDraft.orderType === "market" &&
+                " This execution flow supports limit orders, so enter a limit price manually."}
             </p>
           )}
         </div>
@@ -470,7 +501,13 @@ export function LiveOrderTicket({
                           items.find((i) => i.masterToken === e.target.value) ??
                           null;
                         setSelected(row);
-                        setQuantity(row ? String(row.lotSize) : "");
+                        setQuantity(
+                          initialDraft
+                            ? String(initialDraft.quantity)
+                            : row
+                              ? String(row.lotSize)
+                              : "",
+                        );
                         invalidate();
                       }}
                     >

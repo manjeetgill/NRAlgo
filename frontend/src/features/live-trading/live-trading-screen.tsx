@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { Info } from "lucide-react";
 import { clsx } from "clsx";
 import { LiveOrderTicket } from "./live-order-ticket";
+import { TradingViewDrafts, type TradingViewDraft } from "./tradingview-drafts";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -46,6 +47,7 @@ export function LiveTradingScreen({ csrf }: { csrf: string }) {
   const account = useOverviewAccount(broker, csrf);
   const toast = useToast();
   const [selected, setSelected] = useState<AccountPosition | null>(null);
+  const [ticketDraft, setTicketDraft] = useState<TradingViewDraft | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
   const controls = useRef<HTMLDivElement>(null);
   /** Inspect exposure only; no close order, broker reconciliation or account arming happens here. */
@@ -121,6 +123,18 @@ export function LiveTradingScreen({ csrf }: { csrf: string }) {
   ];
   return (
     <section className="screen-stack" aria-label="Live position monitoring">
+      <TradingViewDrafts
+        csrf={csrf}
+        onAccept={(draft) => {
+          setTicketDraft(draft);
+          window.requestAnimationFrame(() =>
+            controls.current?.scrollIntoView({
+              behavior: "smooth",
+              block: "start",
+            }),
+          );
+        }}
+      />
       <Card className={styles.intro}>
         <p className={styles.introLead}>
           <strong>Monitor exposure independently of execution</strong>
@@ -196,8 +210,9 @@ export function LiveTradingScreen({ csrf }: { csrf: string }) {
       </div>
       <div ref={controls} className="screen-card">
         <LiveOrderTicket
-          key={`${registry.activeBrokerId}:${activeBroker?.status}`}
+          key={`${registry.activeBrokerId}:${activeBroker?.status}:${ticketDraft?.id ?? "manual"}`}
           csrf={csrf}
+          initialDraft={ticketDraft ?? undefined}
         />
       </div>
       <Card>

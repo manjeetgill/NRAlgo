@@ -1,6 +1,6 @@
 /** Read explicitly mounted secrets before the entrypoint imports application code.
  * Used with node --import; Docker metadata holds file paths, never secret values.
- * Secrets are scoped by each service's mounts. Nothing is fetched from AWS here.
+ * Secrets are scoped by each service's mounts and provisioned on the DigitalOcean host.
  */
 import { readFileSync } from "node:fs";
 
@@ -16,6 +16,8 @@ for (const name of [
   "ZERODHA_API_KEY",
   "ZERODHA_API_SECRET",
   "ALERT_WEBHOOK_URL",
+  "SPACES_ACCESS_KEY_ID",
+  "SPACES_SECRET_ACCESS_KEY",
 ]) {
   const path = process.env[`${name}_FILE`];
   if (!path) {

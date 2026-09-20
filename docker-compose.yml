@@ -197,7 +197,7 @@ services:
   caddy:
     <<: *service
     image: ${CADDY_IMAGE:?Use the digest-pinned release manifest}
-    networks: [edge, frontend]
+    networks: [edge, frontend, gateway]
     mem_limit: 128m
     memswap_limit: 128m
     cpus: 0.25
@@ -211,6 +211,8 @@ services:
       - caddy_config:/config
     depends_on:
       web:
+        condition: service_healthy
+      api:
         condition: service_healthy
   backup:
     <<: *app
@@ -227,9 +229,18 @@ services:
       DB_PASSWORD_FILE: /run/secrets/backup_database_password
       BACKUP_ENCRYPTION_KEY_FILE: /run/secrets/backup_encryption_key
       BACKUP_S3_URI: ${BACKUP_S3_URI:-}
+      BACKUP_S3_ENDPOINT: ${BACKUP_S3_ENDPOINT:?Set the DigitalOcean Spaces endpoint}
+      BACKUP_S3_REGION: ${BACKUP_S3_REGION:-blr1}
+      SPACES_ACCESS_KEY_ID_FILE: /run/secrets/spaces_access_key_id
+      SPACES_SECRET_ACCESS_KEY_FILE: /run/secrets/spaces_secret_access_key
       BACKUP_DATABASE_TIMEOUT_SECONDS: ${BACKUP_DATABASE_TIMEOUT_SECONDS:-1800}
-      AWS_REGION: ${AWS_REGION:-ap-south-1}
-    secrets: [backup_database_password, backup_encryption_key]
+    secrets:
+      [
+        backup_database_password,
+        backup_encryption_key,
+        spaces_access_key_id,
+        spaces_secret_access_key,
+      ]
     networks: [data, backup_egress]
     volumes:
       - backups:/backups
@@ -270,6 +281,10 @@ secrets:
     file: ${SECRETS_DIR:?Set the private secret directory}/zerodha_api_key
   zerodha_api_secret:
     file: ${SECRETS_DIR:?Set the private secret directory}/zerodha_api_secret
+  spaces_access_key_id:
+    file: ${SECRETS_DIR:?Set the private secret directory}/spaces_access_key_id
+  spaces_secret_access_key:
+    file: ${SECRETS_DIR:?Set the private secret directory}/spaces_secret_access_key
 
 networks:
   edge: {}

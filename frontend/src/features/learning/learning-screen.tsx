@@ -24,7 +24,7 @@ export function LearningScreen() {
           Database,
           "03 / STORAGE",
           "SQL + PostgreSQL",
-          "PostgreSQL stores your workspace locally and on AWS. Owner-scoped parameterized queries isolate accounts; numbered migrations preserve existing data.",
+          "PostgreSQL stores your workspace locally and on DigitalOcean. Owner-scoped parameterized queries isolate accounts; numbered migrations preserve existing data.",
           "backend/database.ts",
         ],
         [

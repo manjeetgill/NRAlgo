@@ -1,5 +1,5 @@
 /** Database adapter and forward-only schema migrations shared by API and workers.
- * PostgreSQL is the sole runtime database locally, in tests and on AWS.
+ * PostgreSQL is the sole runtime database locally, in tests and on DigitalOcean.
  * Migrations transfer the legacy owner and data without resetting passwords or strategies.
  */
 import { resolve } from "node:path";
@@ -481,6 +481,21 @@ export async function runDatabaseMigrations(
         "CREATE INDEX portfolio_cash_flows_account_idx ON portfolio_cash_flows(account_id,occurred_at)",
       );
       await query("INSERT INTO schema_migrations VALUES(21)");
+    }
+    if (
+      !(await query("SELECT version FROM schema_migrations WHERE version=22"))
+        .length
+    ) {
+      await query(
+        "CREATE TABLE tradingview_webhooks (user_id VARCHAR(36) PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, secret_hash VARCHAR(64) NOT NULL UNIQUE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())",
+      );
+      await query(
+        "CREATE TABLE tradingview_order_drafts (id VARCHAR(36) PRIMARY KEY, user_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE, external_alert_id VARCHAR(160) NOT NULL, symbol VARCHAR(120) NOT NULL, market VARCHAR(7) NOT NULL CHECK(market IN ('cash','options')), side VARCHAR(4) NOT NULL CHECK(side IN ('buy','sell')), order_type VARCHAR(10) NOT NULL CHECK(order_type IN ('market','limit')), quantity INTEGER NOT NULL CHECK(quantity>0 AND quantity<=1000000), limit_paise INTEGER CHECK(limit_paise>0), strategy VARCHAR(120) NOT NULL DEFAULT '', triggered_at TIMESTAMPTZ NOT NULL, received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), status VARCHAR(12) NOT NULL CHECK(status IN ('pending','accepted','dismissed','expired')), UNIQUE(user_id,external_alert_id), CHECK((order_type='market' AND limit_paise IS NULL) OR (order_type='limit' AND limit_paise IS NOT NULL)))",
+      );
+      await query(
+        "CREATE INDEX tradingview_order_drafts_user_received_idx ON tradingview_order_drafts(user_id,received_at DESC)",
+      );
+      await query("INSERT INTO schema_migrations VALUES(22)");
     }
   });
   // The migration container owns DDL; API/worker use a separate non-superuser role.

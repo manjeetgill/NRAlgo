@@ -4,8 +4,17 @@
     request_body {
         max_size 1MB
     }
-    reverse_proxy web:3000 {
-        # Overwrite, never trust, a client-supplied address used for API throttling.
-        header_up X-Client-IP {remote_host}
+    # TradingView calls this unauthenticated, secret-keyed receiver; it must not transit
+    # the browser frontend and it has no broker execution route.
+    handle /hooks/tradingview/* {
+        reverse_proxy api:8000 {
+            header_up X-Client-IP {remote_host}
+        }
+    }
+    handle {
+        reverse_proxy web:3000 {
+            # Overwrite, never trust, a client-supplied address used for API throttling.
+            header_up X-Client-IP {remote_host}
+        }
     }
 }

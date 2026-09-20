@@ -240,6 +240,8 @@ Some broker-card text still says Zerodha market-data screens are not integrated.
 
 This section describes consequential real-money controls. Use only after the operator has validated deployment and recovery, and only for an order you independently intend to submit. The implemented execution adapter is Kotak; unsupported providers fail closed. Current scope is LIMIT/DAY, NSE cash CNC and long options NRML. Selling reduces an app-tracked long position; opening a short option position is not supported by this workflow.
 
+TradingView alerts are a separate draft-only input. Generate the owner-specific HTTPS webhook URL in **TradingView order drafts**, copy the displayed JSON template into TradingView and keep the URL private. A valid alert creates a durable draft; duplicate alert IDs are ignored. **Accept draft** acknowledges the alert and prefills the guarded live-order ticket, but it never previews, reserves or submits a broker order. The user must still select the exact active-broker contract, review the terms, create a preview and explicitly submit; an alert symbol never bypasses those controls.
+
 1. Open **Trading → Live positions** and use **Check live status**.
 2. Distinguish **Server capability** from temporary **Live trading** permission. If the server is locked, broker login cannot unlock it. The operator must satisfy configuration/static-IP requirements first.
 3. When offered, configure maximum reserved capital, gross exposure, position units, daily loss and orders per minute, then save the risk limits. Choose your own reviewed limits, not arbitrary values to bypass validation.
@@ -543,17 +545,18 @@ The supported topology is one Linux host, one API and **one calculator container
 
 ### CI release and first deployment
 
-Every incoming commit runs the isolated build preflight. Successful pushes to `main` additionally build four runtime images, run the disposable recovery drill, and only then publish images to GHCR. The `release-<commit>` artifact contains `release.env`, including digests for app, PostgreSQL and Caddy images. It currently targets Linux amd64; use an amd64 EC2 instance. Images are not automatically deployed to AWS.
+Every incoming commit runs the isolated build preflight. Successful pushes to `main` additionally build four Linux-amd64 runtime images, run the disposable recovery drill, and only then publish images to GHCR. The `release-<commit>` artifact contains `release.env`, including digests for app, PostgreSQL and Caddy images. Images are not automatically deployed.
 
-Provision Docker Compose, Node 22+, AWS CLI, iptables/ip6tables, a real domain/TLS, encrypted EBS and a private versioned S3 backup bucket. The EC2 security group should expose only 80/443; use SSM for administration instead of a public database or broad SSH rule. Require IMDSv2. The backup container needs metadata hop limit 2; container forwarding rules restrict metadata access to its dedicated network.
+Provision one amd64 Ubuntu Droplet in DigitalOcean Bangalore (`blr1`) with at least 4 vCPU and 8 GiB RAM, Docker Compose, Node 22+, iptables, a Reserved IPv4, a real domain and a private DigitalOcean Space. The Cloud Firewall should expose only 80/443 publicly and restrict SSH to operator addresses. Configure the Reserved IPv4 as the outbound source before registering it with a broker, and verify that routing after every network change.
 
-Keep `.env` nonsecret and mode 0600. Put the release artifact at `.env.release`. Use a separate deployment identity to retrieve a Secrets Manager JSON document containing the uppercase names listed in `scripts/host-operations.mjs`. Export into a **new** versioned directory; files are explicitly readable by their mounted container UID while the enclosing directory remains owner-only. No secrets are copied into images or published in Docker environment metadata. Optional registration/Zerodha fields may be empty, but their files must exist. A workspace owner can alternatively save Zerodha app credentials from Broker connections; these are AES-GCM encrypted in `broker_app_credentials` and never returned to the browser. Environment credentials remain the deployment fallback. Do not keep permanent AWS access keys in `.env`.
+Keep `.env` nonsecret and mode 0600. Put the verified CI release artifact at `.env.release`. Prepare one private JSON secrets document offline, then export it into a **new** versioned owner-only directory. Files are explicitly readable by their mounted container UID while the enclosing directory remains owner-only. No secrets are copied into images or published in Docker environment metadata. Optional registration/Zerodha fields may be empty, but their files must exist. The Spaces key must be restricted to the private backup Space. A workspace owner can alternatively save Zerodha app credentials from Broker connections; these are AES-GCM encrypted in `broker_app_credentials` and never returned to the browser.
 
 ```sh
-# Run export using a deployment identity authorized for this one secret.
-SECRETS_DIR=/etc/nraialgo/secrets-v1 SECRETS_MANAGER_ID=your-secret-id \
-  node scripts/host-operations.mjs export-secrets
-# Set SECRETS_DIR, APP_DOMAIN, BACKUP_S3_URI, AWS_REGION and flags in .env.
+# Copy an offline-prepared document to a temporary protected path, export it once,
+# then securely remove or archive the source outside the Droplet.
+SECRETS_DIR=/etc/nraialgo/secrets-v1 \
+  node scripts/host-operations.mjs export-secrets --from-file /root/nraialgo-secrets.json
+# Set SECRETS_DIR, APP_DOMAIN, Spaces settings, alert webhook and flags in .env.
 # Copy release.env from the verified CI artifact to .env.release.
 chmod 600 .env
 make preflight
@@ -561,28 +564,28 @@ make deploy
 make status
 ```
 
-`make deploy` pulls immutable images, creates service networks, requires a privileged metadata-protection command, then starts the stack without building. Run from a stable Linux path such as `/opt/nraialgo`; `/usr/bin/node` and sudo are required for the firewall command. Never skip this step to work around a host configuration failure. Only Caddy publishes ports. Frontend, gateway, database and analytics use separate internal networks; only the API, public-reference calculator and backup have scoped egress networks. Migrations alone receive database-admin credentials. Reapply metadata protection after Docker/network recreation; the installed host unit reapplies it on boot. Validate firewall behavior and IMDSv2 from the actual EC2 host before enabling live execution.
+`make deploy` pulls immutable images, creates service networks, blocks all containers from DigitalOcean metadata, then starts the stack without building. Run from a stable Linux path such as `/opt/nraialgo`; `/usr/bin/node` and sudo are required for the firewall command. Never skip this step to work around a host configuration failure. Only Caddy publishes ports. Frontend, gateway, database and analytics use separate internal networks; only the API, public-reference calculator and backup have scoped egress networks. Migrations alone receive database-admin credentials. The installed host unit reapplies metadata protection on boot.
 
 ### Backups, alerts and recovery
 
-Backups run daily under a read-only database role, retain at most 14 local encrypted archives, upload with authenticated application encryption plus S3 encryption/checksum, and verify remote object length before updating the success marker. Failures retry after 15 minutes; a marker older than 26 hours is unhealthy. S3 bucket versioning/lifecycle/Object Lock policy and encryption-key custody are operator responsibilities. Local retention is recoverable only from a retained S3 copy after local archives are pruned.
+Backups run daily under a read-only database role, retain at most 14 local encrypted archives, upload application-encrypted data to a private DigitalOcean Space and verify remote object length before updating the success marker. Failures retry after 15 minutes; a marker older than 26 hours is unhealthy. Space versioning/lifecycle policy and encryption-key custody are operator responsibilities. Local retention is recoverable only from a retained off-host copy after local archives are pruned.
 
-The EC2 role needs only backup-prefix `s3:PutObject`, `s3:GetObject` (remote HEAD/restore verification), multipart-upload permissions as required, and `cloudwatch:PutMetricData` restricted to `NRAlgo/Host`. It must not read Secrets Manager, administer IAM or submit broker orders. Use a separate deployment identity for Secrets Manager export and `cloudwatch:PutMetricAlarm`. Confirm an SNS subscription before configuring alerts.
+Use a dedicated Spaces key with access only to the backup Space. It must not administer Droplets, networking, accounts or broker operations. Configure one private HTTPS alert receiver and verify delivery before relying on it.
 
 ```sh
-# .env includes ALERT_SNS_TOPIC_ARN and optional DEPLOYMENT_NAME.
+# .env includes ALERT_WEBHOOK_URL and optional DEPLOYMENT_NAME.
 node --env-file=.env scripts/host-operations.mjs configure-alerts
 # Run once as root after Docker networks exist; installs a one-minute systemd timer.
 sudo /usr/bin/node --env-file=.env scripts/host-operations.mjs install-monitor
 ```
 
-The monitor sends only operational counters to CloudWatch: public HTTPS readiness, service health, backup age, host memory/disk usage and its own heartbeat. Alarms fire after three one-minute periods; missing metrics are treated as failure so host/monitor loss does not go silent. Alerts never restart services or trade automatically. Verify notification delivery with a staging outage; configuration alone is not evidence of delivery. Docker logs are size/rotation bounded locally; off-host application log shipping and broker-feed-specific alerts still need deployment-specific setup.
+The monitor checks public HTTPS readiness, service health, backup age and host memory/disk usage, and posts only threshold breaches to the configured HTTPS webhook. Alerts never restart services or trade automatically. Verify notification delivery with a staging outage; configuration alone is not evidence of delivery. Docker logs are size/rotation bounded locally; off-host application log shipping and broker-feed-specific alerts still need deployment-specific setup.
 
-Run `make recovery-images` then `make recovery-check` on a development/CI machine. The drill derives an isolated configuration from production Compose, uses fresh secrets and synthetic rows, disables live trading and public ports, and checks process cancellation/crash/timeouts, resource caps, concurrent claims, stale-result fencing, lease recovery, cross-worker cancellation, encrypted backup restoration, tamper rejection and database/service restart. It deletes only its randomly named disposable containers/volumes and writes `.runtime/staging-recovery.json`. It does **not** prove S3 download recovery, SNS delivery, AWS security-group policy, live broker reconciliation or real-world trading latency.
+Run `make recovery-images` then `make recovery-check` on a development/CI machine. The drill derives an isolated configuration from production Compose, uses fresh secrets and synthetic rows, disables live trading and public ports, and checks process cancellation/crash/timeouts, resource caps, concurrent claims, stale-result fencing, lease recovery, cross-worker cancellation, encrypted backup restoration, tamper rejection and database/service restart. It deletes only its randomly named disposable containers/volumes and writes `.runtime/staging-recovery.json`. It does **not** prove a Spaces download recovery, alert delivery, DigitalOcean firewall policy, live broker reconciliation or real-world trading latency.
 
-Before live deployment, also restore an actual S3 object into a separate staging database, verify the retained key decrypts it, and test SNS delivery, EC2 reboot/firewall persistence, image vulnerability scans and broker reconnect/reconciliation. Keep live execution disabled through those drills. An API restart never preserves an armed trading session. Roll back by selecting a prior digest manifest only when its code is compatible with the forward-only schema; never roll a production database backward automatically. Preserve broker/backup encryption keys separately and rotate them only with a migration/recovery plan.
+Before live deployment, restore an actual Spaces object into a separate staging database, verify the retained key decrypts it, and test alert delivery, Droplet reboot/firewall persistence, Reserved-IP egress, image vulnerability scans and broker reconnect/reconciliation. Keep live execution disabled through those drills. An API restart never preserves an armed trading session. Roll back by selecting a prior digest manifest only when its code is compatible with the forward-only schema; never roll a production database backward automatically. Preserve broker/backup encryption keys separately and rotate them only with a migration/recovery plan.
 
-Implementation references: [Compose secret mounts](https://docs.docker.com/compose/how-tos/use-secrets/), [container resource settings](https://docs.docker.com/reference/compose-file/services/), [GitHub image publishing](https://docs.github.com/en/actions/tutorials/publish-packages/publish-docker-images), [CloudWatch alarm behavior](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch_Alarms.html).
+Implementation references: [Compose secret mounts](https://docs.docker.com/compose/how-tos/use-secrets/), [container resource settings](https://docs.docker.com/reference/compose-file/services/), [GitHub image publishing](https://docs.github.com/en/actions/tutorials/publish-packages/publish-docker-images), [DigitalOcean Reserved IP outbound routing](https://docs.digitalocean.com/products/networking/reserved-ips/how-to/outbound-traffic/).
 
 ## Maintenance
 
@@ -600,7 +603,7 @@ Never commit credentials, private keys, database exports or logs. The commit pre
 
 Passwords use salted scrypt, session/recovery tokens use one-way hashes, and broker sessions/MFA secrets use account-bound AES-256-GCM encryption. Broker MPIN, password and TOTP inputs are not persisted. Do not add browser localStorage or logging for credentials. Local PostgreSQL bootstrap credentials are now AES-256-GCM encrypted in `.runtime/postgres-access.json`; reading a legacy plaintext file migrates it atomically without changing database passwords. Its separate `.runtime/postgres.key` is mode 0600 inside a mode-0700 directory. Keep that key out of exports; losing it loses access to the encrypted configuration. Replacing a plaintext file does not securely erase old filesystem snapshots or backups.
 
-Encryption needs a protected bootstrap key: encrypting that key beside another key is not extra protection. Local key files and AWS mounted secrets remain readable to the owning process/OS administrator. Enable FileVault locally and encrypted EBS in AWS; production credentials originate in Secrets Manager and must not be copied into `.env`. Trade records, account usernames and operational metadata remain database records rather than individually encrypted fields; protect their disks, access and encrypted backups. Do not describe the complete database or a compromised host as protected by field encryption alone.
+Encryption needs a protected bootstrap key: encrypting that key beside another key is not extra protection. Local key files and mounted production secrets remain readable to the owning process/OS administrator. Enable FileVault locally; keep production credentials in owner-only mounted files and never in `.env`. Trade records, account usernames and operational metadata remain database records rather than individually encrypted fields; protect their disks, access and encrypted backups. Do not describe the complete database or a compromised host as protected by field encryption alone.
 
 ### Broker session recovery
 

@@ -47,6 +47,10 @@ import { BrokerSessionStore } from "./broker-session-store.js";
 import { BrokerAppCredentialStore } from "./broker-app-credential-store.js";
 import { registerEodRoutes } from "./stored-market-data.js";
 import { registerWatchlistRoutes } from "./watchlist-routes.js";
+import {
+  registerTradingViewRoutes,
+  registerTradingViewWebhookReceiver,
+} from "./tradingview-routes.js";
 import { HistoricalCandleStore } from "./historical-candle-store.js";
 import {
   recordBrokerConnected,
@@ -385,6 +389,7 @@ export function createApiApplication(
     next();
   });
   app.use(express.json({ limit: "16kb" }));
+  registerTradingViewWebhookReceiver(app, store);
   // Caddy overwrites this header; use it only with the private, unexposed production API.
   const source = (req: express.Request) =>
     production && env.TRUST_EDGE_IP === "true"
@@ -991,6 +996,7 @@ export function createApiApplication(
     production,
   );
   registerLiveTradingRoutes(app, liveManager);
+  registerTradingViewRoutes(app, store, origin);
   registerBrokerRegistryRoutes(
     app,
     store,

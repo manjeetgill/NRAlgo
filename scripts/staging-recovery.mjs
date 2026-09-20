@@ -1,5 +1,5 @@
 /** Destructive drills ONLY in a newly generated, isolated Compose project.
- * No production .env, ports, credentials, broker account or AWS access is used.
+ * No production .env, ports, credentials, broker account or Spaces access is used.
  * Runtime image tags are supplied by CI; local defaults use explicitly built recovery images.
  * Always removes only this run's containers/volumes and writes a sanitized JSON report.
  */
@@ -43,8 +43,9 @@ const env = {
   ALLOW_PUBLIC_REGISTRATION: "false",
   MARKET_DATA_PROVIDER: "kotak",
   BACKUP_S3_URI: "s3://recovery-validation-only/backups",
-  AWS_REGION: "ap-south-1",
-  ALERT_SNS_TOPIC_ARN: "arn:aws:sns:ap-south-1:123456789012:validation-only",
+  BACKUP_S3_ENDPOINT: "https://blr1.digitaloceanspaces.com",
+  BACKUP_S3_REGION: "blr1",
+  ALERT_WEBHOOK_URL: "https://alerts.invalid/nraialgo",
 };
 for (const name of [
   "BACKEND",
@@ -178,8 +179,8 @@ try {
     ).some((error) => error.includes("file-mounted")),
   );
   assert.ok(
-    productionEnvironmentErrors({ ...env, ALERT_SNS_TOPIC_ARN: "" }, null).some(
-      (error) => error.includes("ALERT_SNS_TOPIC_ARN"),
+    productionEnvironmentErrors({ ...env, ALERT_WEBHOOK_URL: "" }, null).some(
+      (error) => error.includes("ALERT_WEBHOOK_URL"),
     ),
   );
   chmodSync(temporary, 0o755);
@@ -196,7 +197,6 @@ try {
     service.restart = "no";
     delete service.ports;
     service.environment ||= {};
-    service.environment.AWS_EC2_METADATA_DISABLED = "true";
     service.environment.LIVE_TRADING_ENABLED = "false";
     if (["api", "migrate"].includes(name)) {
       service.image = `${prefix}-backend:${tag}`;

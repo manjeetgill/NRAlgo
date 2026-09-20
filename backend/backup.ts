@@ -21,6 +21,28 @@ import { setTimeout as delay } from "node:timers/promises";
 
 const backupDirectory = "/backups";
 const healthFile = resolve(backupDirectory, "last-success");
+/** DigitalOcean Spaces uses its regional S3-compatible endpoint and scoped access keys. */
+function s3EndpointArgs(): string[] {
+  const endpoint = process.env.BACKUP_S3_ENDPOINT;
+  if (!endpoint) {
+    throw new Error("BACKUP_S3_ENDPOINT is required.");
+  }
+  if (new URL(endpoint).protocol !== "https:") {
+    throw new Error("BACKUP_S3_ENDPOINT must be an https:// URL.");
+  }
+  return ["--endpoint-url", endpoint];
+}
+function s3ChildEnv(): NodeJS.ProcessEnv {
+  return {
+    PATH: process.env.PATH,
+    HOME: process.env.HOME,
+    // These names are the credential interface required by the S3-compatible CLI.
+    AWS_ACCESS_KEY_ID: process.env.SPACES_ACCESS_KEY_ID,
+    AWS_SECRET_ACCESS_KEY: process.env.SPACES_SECRET_ACCESS_KEY,
+    AWS_REGION: process.env.BACKUP_S3_REGION,
+    AWS_DEFAULT_REGION: process.env.BACKUP_S3_REGION,
+  };
+}
 /** Obtain a fixed-size encryption key without exposing it through logs or command arguments. */
 function encryptionKey(): Buffer {
   const value = process.env.BACKUP_ENCRYPTION_KEY || "";
@@ -117,20 +139,13 @@ async function createBackup() {
             "cp",
             destination,
             `${s3.replace(/\/$/, "")}/${name}`,
-            "--sse",
-            "AES256",
-            "--checksum-algorithm",
-            "SHA256",
             "--only-show-errors",
+            ...s3EndpointArgs(),
           ],
           {
             stdio: "ignore",
             timeout: 300000,
-            env: {
-              PATH: process.env.PATH,
-              HOME: process.env.HOME,
-              AWS_REGION: process.env.AWS_REGION,
-            },
+            env: s3ChildEnv(),
           },
         );
         upload.on("error", () =>
@@ -158,15 +173,12 @@ async function createBackup() {
             "ContentLength",
             "--output",
             "text",
+            ...s3EndpointArgs(),
           ],
           {
             stdio: ["ignore", "pipe", "ignore"],
             timeout: 30000,
-            env: {
-              PATH: process.env.PATH,
-              HOME: process.env.HOME,
-              AWS_REGION: process.env.AWS_REGION,
-            },
+            env: s3ChildEnv(),
           },
         );
         let output = "";

@@ -30,6 +30,8 @@ export function productionEnvironmentErrors(env, envPath = ".env") {
     "CALCULATION_SERVICE_TOKEN",
     "ZERODHA_API_KEY",
     "ZERODHA_API_SECRET",
+    "SPACES_ACCESS_KEY_ID",
+    "SPACES_SECRET_ACCESS_KEY",
   ];
   try {
     const directory = env.SECRETS_DIR || "";
@@ -172,17 +174,22 @@ export function productionEnvironmentErrors(env, envPath = ".env") {
   }
 
   const backupUri = required("BACKUP_S3_URI");
+  const s3Endpoint = required("BACKUP_S3_ENDPOINT");
+  const spacesRegion = required("BACKUP_S3_REGION");
   if (
-    !/^arn:aws:sns:[a-z0-9-]+:\d{12}:[A-Za-z0-9_-]+$/.test(
-      required("ALERT_SNS_TOPIC_ARN"),
-    )
+    s3Endpoint &&
+    s3Endpoint !== `https://${spacesRegion}.digitaloceanspaces.com`
   ) {
     errors.push(
-      "ALERT_SNS_TOPIC_ARN must identify a topic with a confirmed notification subscription.",
+      "BACKUP_S3_ENDPOINT must match the selected DigitalOcean Spaces region.",
     );
   }
-  if (!/^[a-z]{2}(?:-[a-z]+)+-\d$/.test(required("AWS_REGION"))) {
-    errors.push("AWS_REGION must be a valid AWS region name.");
+  if (spacesRegion !== "blr1") {
+    errors.push("BACKUP_S3_REGION must be blr1 for the India deployment.");
+  }
+  const webhookUrl = required("ALERT_WEBHOOK_URL");
+  if (new URL(webhookUrl || "invalid:").protocol !== "https:") {
+    errors.push("ALERT_WEBHOOK_URL must be an https:// URL.");
   }
   if (backupUri) {
     try {
@@ -199,14 +206,11 @@ export function productionEnvironmentErrors(env, envPath = ".env") {
       errors.push("BACKUP_S3_URI must be a private s3:// bucket destination.");
     }
   }
-  if (
-    env.AWS_ACCESS_KEY_ID ||
-    env.AWS_SECRET_ACCESS_KEY ||
-    env.AWS_SESSION_TOKEN
-  ) {
-    errors.push(
-      "Use a restricted EC2 backup role, not AWS access keys in .env.",
-    );
+  if (!/^[A-Za-z0-9]{10,128}$/.test(required("SPACES_ACCESS_KEY_ID"))) {
+    errors.push("SPACES_ACCESS_KEY_ID is malformed.");
+  }
+  if (!/^\S{20,256}$/.test(required("SPACES_SECRET_ACCESS_KEY"))) {
+    errors.push("SPACES_SECRET_ACCESS_KEY is malformed.");
   }
 
   try {

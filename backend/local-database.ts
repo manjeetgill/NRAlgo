@@ -32,8 +32,8 @@ interface LocalPostgresConfiguration {
 }
 
 /** Local bootstrap key is separate from the encrypted connection file. This prevents accidental
- * disclosure of that file, not compromise of this OS user. Use FileVault/EBS encryption as well.
- * Production does not use this bootstrap: its credentials come from mounted Secrets Manager files.
+ * disclosure of that file, not compromise of this OS user. Use full-disk encryption as well.
+ * Production does not use this bootstrap: its credentials come from mounted host secret files.
  */
 function localConfigurationKey(create: boolean): Buffer {
   mkdirSync(runtimeDirectory, { recursive: true, mode: 0o700 });
