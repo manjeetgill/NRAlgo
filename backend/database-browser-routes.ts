@@ -62,7 +62,7 @@ export function registerDatabaseBrowserRoutes(app: Express, store: Store) {
           // These tables have a direct user_id column. The allowlist above keeps table names
           // constant, so no user-controlled identifier reaches SQL.
           return query(
-            `SELECT * FROM ${table} WHERE user_id=$1 ORDER BY 1 DESC LIMIT 100`,
+            `SELECT * FROM ${table} WHERE user_id=$1 ORDER BY created_at DESC,id DESC LIMIT 100`,
             [userId],
           );
       }

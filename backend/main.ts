@@ -34,7 +34,11 @@ import {
 } from "./market-data-provider.js";
 import { InstrumentCatalog } from "./instrument-master.js";
 import { KotakMarketDataClient } from "./kotak-market-data-client.js";
-import { registerMfaRoutes, verifySecondFactor } from "./mfa.js";
+import {
+  registerMfaRoutes,
+  verifySecondFactor,
+  withMfaAttempt,
+} from "./mfa.js";
 import { KotakLiveManager } from "./live/kotak-live-manager.js";
 import { registerLiveTradingRoutes } from "./live/live-trading-routes.js";
 import { registerDatabaseBrowserRoutes } from "./database-browser-routes.js";
@@ -226,20 +230,29 @@ export function createApiApplication(
       : req.socket.remoteAddress || "unknown";
   app.use("/api/auth", rateLimit(40, 60000, source));
   let activeAuth = 0;
+  const authBySource = new Map<string, number>();
   app.use("/api/auth", (req, res, next) => {
     if (req.method !== "POST") {
       return next();
     }
-    if (activeAuth >= 4) {
+    const sourceId = source(req);
+    if (activeAuth >= 32 || (authBySource.get(sourceId) ?? 0) >= 4) {
       return res
         .status(429)
         .json({ detail: "Authentication busy. Try again shortly." });
     }
     activeAuth++;
+    authBySource.set(sourceId, (authBySource.get(sourceId) ?? 0) + 1);
     let released = false;
     const release = () => {
       if (!released) {
         activeAuth--;
+        const remaining = (authBySource.get(sourceId) ?? 1) - 1;
+        if (remaining) {
+          authBySource.set(sourceId, remaining);
+        } else {
+          authBySource.delete(sourceId);
+        }
         released = true;
       }
     };
@@ -402,7 +415,8 @@ export function createApiApplication(
         query<User>("SELECT * FROM users WHERE username=$1", [data.username]),
       );
       const expected =
-        user?.password_hash || "00000000000000000000000000000000:invalid";
+        user?.password_hash ||
+        "scrypt-v2$00000000000000000000000000000000:invalid";
       const valid = equal(
         await passwordHash(data.password, expected.split(":")[0]),
         expected,
@@ -410,8 +424,12 @@ export function createApiApplication(
       if (!user || !valid) {
         fail(401, "Incorrect username or password.");
       }
+      // Upgrade a legacy hash only after both password and MFA are accepted below.
+      const upgradedHash = expected.startsWith("scrypt-v2$")
+        ? null
+        : await passwordHash(data.password);
       res.json(
-        await store.transaction(async (query) => {
+        await withMfaAttempt(store, user.id, async (query) => {
           await lockWorkspaceSettings(query, store, user.id);
           // Avoid accepting a password concurrently revoked by a password change.
           const [current] = await query<User>(
@@ -422,6 +440,12 @@ export function createApiApplication(
             fail(401, "Please sign in again.");
           }
           await verifySecondFactor(query, vault, user.id, data.token);
+          if (upgradedHash) {
+            await query("UPDATE users SET password_hash=$1 WHERE id=$2", [
+              upgradedHash,
+              user.id,
+            ]);
+          }
           await audit(query, "Signed in.", user.id);
           return issueSession(query, res, user.id);
         }),
@@ -639,7 +663,7 @@ export function createApiApplication(
       fail(403, "Current password is incorrect.");
     }
     const hashed = await passwordHash(data.new_password);
-    const result = await store.transaction(async (query) => {
+    const result = await withMfaAttempt(store, userId, async (query) => {
       await lockWorkspaceSettings(query, store, userId);
       const [current] = await query<User>(
         "SELECT password_hash FROM users WHERE id=$1",
@@ -839,7 +863,35 @@ export function createApiApplication(
     };
     const status = err instanceof z.ZodError ? 422 : error.status || 500;
     if (status >= 500) {
-      console.error("API request failed:", error.code || error.name);
+      const requestId = randomUUID();
+      res.setHeader("X-Request-Id", requestId);
+      // Stack locations diagnose failures without logging messages, SQL parameters,
+      // query strings, headers, request bodies or provider payloads containing secrets.
+      console.error("API request failed", {
+        requestId,
+        method: req.method,
+        route: req.route?.path ?? "unmatched",
+        type: /^[A-Za-z0-9_]{1,60}$/.test(error.name ?? "")
+          ? error.name
+          : "Error",
+        code: /^[A-Za-z0-9_]{1,40}$/.test(error.code ?? "")
+          ? error.code
+          : undefined,
+        frames:
+          err instanceof Error
+            ? err.stack
+                ?.split("\n")
+                .filter((line) => /^\s+at /.test(line))
+                .map(
+                  (line) =>
+                    line.match(
+                      /((?:file:\/\/\/|\/|node:)[^()\s]+:\d+:\d+)\)?$/,
+                    )?.[1],
+                )
+                .filter(Boolean)
+                .slice(0, 12)
+            : [],
+      });
     }
     res.status(status).json({
       ...(error.publicCode ? { code: error.publicCode } : {}),

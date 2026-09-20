@@ -22,6 +22,57 @@ import {
 } from "./security.js";
 
 type Vault = ReturnType<typeof credentialVault>;
+/** Only proof failures affect lockout; outages and downstream business errors do not. */
+class MfaProofError extends Error {}
+
+/** Persist failed guesses even when the protected action rolls back. The settings
+ * lock serializes all proof paths, and the savepoint prevents partial action writes.
+ * Five failures lock MFA actions for 15 minutes, across sessions and API restarts.
+ */
+export async function withMfaAttempt<T>(
+  store: Store,
+  userId: string,
+  action: (query: Query) => Promise<T>,
+): Promise<T> {
+  const outcome = await store.transaction(async (query) => {
+    await lockWorkspaceSettings(query, store, userId);
+    const [guard] = await query<{
+      mfa_failures: number;
+      mfa_locked_until: number;
+    }>(
+      "SELECT mfa_failures,mfa_locked_until FROM user_settings WHERE user_id=$1",
+      [userId],
+    );
+    if (Number(guard.mfa_locked_until) > Date.now()) {
+      fail(429, "Too many incorrect MFA codes. Try again after 15 minutes.");
+    }
+    await query("SAVEPOINT mfa_action");
+    try {
+      const value = await action(query);
+      await query(
+        "UPDATE user_settings SET mfa_failures=0,mfa_locked_until=0 WHERE user_id=$1",
+        [userId],
+      );
+      return { ok: true as const, value };
+    } catch (error) {
+      if (!(error instanceof MfaProofError)) {
+        throw error;
+      }
+      await query("ROLLBACK TO SAVEPOINT mfa_action");
+      const failures =
+        (Number(guard.mfa_locked_until) > 0 ? 0 : guard.mfa_failures) + 1;
+      await query(
+        "UPDATE user_settings SET mfa_failures=$2,mfa_locked_until=$3 WHERE user_id=$1",
+        [userId, failures, failures >= 5 ? Date.now() + 15 * 60000 : 0],
+      );
+      return { ok: false as const };
+    }
+  });
+  if (outcome.ok) {
+    return outcome.value;
+  }
+  return fail(401, "Enter a fresh authenticator code or unused recovery code.");
+}
 interface SecurityRecord {
   encrypted_secret: string;
   enabled: boolean | number;
@@ -79,7 +130,7 @@ export async function verifySecondFactor(
     });
   const counter = Math.floor(verificationTime / 30000) + (delta || 0);
   if (delta === null || counter <= Number(record.last_counter)) {
-    fail(401, "Enter a fresh authenticator code or unused recovery code.");
+    throw new MfaProofError("Invalid or reused MFA proof");
   }
   await query("UPDATE user_security SET last_counter=$1 WHERE user_id=$2", [
     counter,
@@ -182,7 +233,7 @@ export function registerMfaRoutes(
     const recoveryCodes = Array.from({ length: 8 }, () =>
       randomBytes(12).toString("hex"),
     );
-    await store.transaction(async (query) => {
+    await withMfaAttempt(store, userId, async (query) => {
       await lockWorkspaceSettings(query, store, userId);
       const [record] = await query<SecurityRecord>(
         "SELECT * FROM user_security WHERE user_id=$1",
@@ -201,7 +252,7 @@ export function registerMfaRoutes(
         timestamp: verificationTime,
       });
       if (delta === null) {
-        fail(401, "Authenticator code is incorrect.");
+        throw new MfaProofError("Invalid enrollment proof");
       }
       await query(
         "UPDATE user_security SET enabled=$1,last_counter=$2,recovery_hashes=$3,pending_expires=0 WHERE user_id=$4",
@@ -229,7 +280,7 @@ export function registerMfaRoutes(
     const userId = res.locals.session.user_id,
       data = proof.parse(req.body);
     const user = await requireCurrentPassword(userId, data.password);
-    await store.transaction(async (query) => {
+    await withMfaAttempt(store, userId, async (query) => {
       await lockWorkspaceSettings(query, store, userId);
       const [currentUser] = await query<{ password_hash: string }>(
         "SELECT password_hash FROM users WHERE id=$1",

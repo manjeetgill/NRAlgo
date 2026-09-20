@@ -33,6 +33,18 @@ function encryptionKey(): Buffer {
 }
 /** Launch a database utility with standard PG* environment variables and bounded execution time. */
 function databaseProcess(command: string, args: string[]) {
+  const timeoutSeconds = Number(
+    process.env.BACKUP_DATABASE_TIMEOUT_SECONDS || 1800,
+  );
+  if (
+    !Number.isInteger(timeoutSeconds) ||
+    timeoutSeconds < 60 ||
+    timeoutSeconds > 21600
+  ) {
+    throw new Error(
+      "BACKUP_DATABASE_TIMEOUT_SECONDS must be between 60 and 21600.",
+    );
+  }
   const url = new URL(process.env.DATABASE_URL || "");
   const child = spawn(command, args, {
     env: {
@@ -45,7 +57,7 @@ function databaseProcess(command: string, args: string[]) {
       PGCONNECT_TIMEOUT: "10",
     },
     stdio: ["ignore", "pipe", "ignore"],
-    timeout: 300000,
+    timeout: timeoutSeconds * 1000,
   });
   const completed = new Promise<void>((resolve, reject) => {
     child.on("error", () => reject(new Error("Backup utility failed.")));

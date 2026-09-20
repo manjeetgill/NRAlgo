@@ -47,9 +47,11 @@ export function openDatabaseStore(
     max: 5,
     connectionTimeoutMillis: 5000,
     idleTimeoutMillis: 30000,
-    statement_timeout: 10000,
-    query_timeout: 12000,
-    idle_in_transaction_session_timeout: 15000,
+    // Dispatch can hold the account gate for a 10s snapshot plus a 3s order call.
+    // A kill waiting behind that bounded work must not time out before it finishes.
+    statement_timeout: 20000,
+    query_timeout: 25000,
+    idle_in_transaction_session_timeout: 20000,
   });
   pool.on("error", () =>
     console.error("Database idle connection failed; pool will replace it."),
@@ -60,7 +62,7 @@ export function openDatabaseStore(
      */
     async transaction(fn) {
       let client: pg.PoolClient | null = null;
-      let broken = false;
+      let broken = true;
       try {
         client = await pool.connect();
         const query: Query = async <T>(
@@ -70,6 +72,7 @@ export function openDatabaseStore(
           return (await client!.query(sql, params)).rows as T[];
         };
         await query("BEGIN");
+        broken = false;
         try {
           const value = await fn(query);
           await query("COMMIT");
@@ -82,9 +85,6 @@ export function openDatabaseStore(
           }
           throw error;
         }
-      } catch (error) {
-        broken = true;
-        throw error;
       } finally {
         client?.release(broken);
       }
@@ -429,6 +429,15 @@ export async function runDatabaseMigrations(
       await query("CREATE INDEX watchlists_owner_idx ON watchlists(user_id)");
       await query("INSERT INTO schema_migrations VALUES(19)");
     }
+    if (
+      !(await query("SELECT version FROM schema_migrations WHERE version=20"))
+        .length
+    ) {
+      await query(
+        "ALTER TABLE user_settings ADD COLUMN mfa_failures INTEGER NOT NULL DEFAULT 0, ADD COLUMN mfa_locked_until DOUBLE PRECISION NOT NULL DEFAULT 0",
+      );
+      await query("INSERT INTO schema_migrations VALUES(20)");
+    }
   });
   // The migration container owns DDL; API/worker use a separate non-superuser role.
   if (options.runtimePassword) {
@@ -463,6 +472,11 @@ export async function runDatabaseMigrations(
       await query(
         "GRANT SELECT,INSERT,UPDATE,DELETE ON users,user_settings,user_security,broker_usage,sessions,strategies,jobs,events,broker_credentials,worker_health,settings,live_accounts,live_orders,live_spreads,live_events,live_permissions,live_previews,broker_rpc_windows,research_strategies,research_runs,user_brokers,calculation_jobs,option_chain_snapshots TO nexus_app",
       );
+      // Apply on upgrades too: a previous broad grant must not leave audit rows mutable.
+      await query(
+        "REVOKE UPDATE,DELETE,TRUNCATE ON live_events FROM nexus_app",
+      );
+      await query("GRANT SELECT,INSERT ON live_events TO nexus_app");
       await query(
         "GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO nexus_app",
       );

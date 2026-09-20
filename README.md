@@ -119,6 +119,8 @@ Account & security renders the MFA setup QR locally in the browser, with manual 
 
 Preview is not submission. Unknown submission outcomes must be reconciled, never automatically resent. Halt latches permission off; cancellation acknowledgements do not prove exchange cancellation, and halt does not automatically flatten positions. Keep `LIVE_TRADING_ENABLED=false` until these paths have been manually verified with the broker.
 
+Reconciliation advances positions and cash from the last clean snapshot using incremental fills, including overnight carry. Older terminal DAY orders need not remain in today's order book; older unresolved orders still block trading. Untracked carry, expiry settlement, corporate actions and external broker activity are not silently adopted. A disconnected kill revokes stored permissions and latches all of the owner's live accounts; unavailable cancellation remains explicitly unresolved. An individual order's business-limit rejection blocks that order, while stale state, loss limits and uncertain dispatch still halt the account. The runtime role can only read/append `live_events`; apply migrations using the deployment migration identity to revoke older grants.
+
 ## Single-host deployment
 
 The supported topology is one Linux host, one API and **one calculator container**. A 4 GiB host is a starting configuration, not a live-trading performance guarantee. Steady-state container memory caps total 2,816 MiB; migrations add at most 384 MiB temporarily. Leave the remaining memory for Linux and Docker. Builds and recovery drills belong on development/CI machines, never on the trading host.
@@ -181,6 +183,10 @@ Implementation references: [Compose secret mounts](https://docs.docker.com/compo
 Open **Markets → Watchlists** (`/#/watchlists`). Each account starts with NIFTY and BANKNIFTY, can keep up to 10 lists with 100 scrips each, and can search the imported catalog to add exact instruments. Clicking a row opens that instrument's existing KLine daily chart alongside the list. Lists are stored in PostgreSQL; chart data uses the historical repository without a broker. These are historical charts, not live watchlist quotes. Missing history is not synthesized. `node --import tsx scripts/verify-watchlists.mjs` exercises CRUD, defaults, isolation, duplicate prevention and limits in a disposable local database.
 
 ### Sensitive data
+
+New passwords use versioned scrypt (N=131072, r=8, p=1). Legacy hashes remain readable and upgrade after successful password/MFA login. One concurrent hash and a bounded queue cap native memory; the API heap is limited to 256 MiB to leave room for scrypt inside its 512-MiB container. Per-source and global admission limits remain necessary against overload. Five invalid/reused MFA proofs lock protected actions for 15 minutes; counters are persisted under the account lock even when an action rolls back. Migration 20 adds these counters and must run before starting this version. API 5xx logs include a request ID and stack locations, not request bodies, credentials or provider exception messages.
+
+`BACKUP_DATABASE_TIMEOUT_SECONDS` bounds database dump/restore commands (default 1800 seconds, allowed 60–21600). Increase it explicitly for larger databases and test restore duration; no backup command runs indefinitely.
 
 Never commit credentials, private keys, database exports or logs. The commit preflight scans the exact candidate snapshot before running builds; `node scripts/check-secrets.mjs` checks tracked/unignored working files and `node scripts/check-secrets.mjs --history` audits reachable history. Findings show identifiers/categories only. This heuristic is not proof that arbitrary secrets or personal data are absent; review findings and use GitHub secret scanning where available. Removing a leaked secret from HEAD does not revoke it or erase history: rotate/revoke it first, then coordinate any history rewrite with collaborators.
 

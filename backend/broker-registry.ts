@@ -11,7 +11,7 @@ import type { Express } from "express";
 import { z } from "zod";
 import { audit, type Store } from "./database.js";
 import { credentialVault, fail, rateLimit } from "./security.js";
-import { verifySecondFactor } from "./mfa.js";
+import { verifySecondFactor, withMfaAttempt } from "./mfa.js";
 
 export const brokerProviderSchema = z.enum(["kotak", "zerodha"]);
 export type BrokerProvider = z.infer<typeof brokerProviderSchema>;
@@ -167,7 +167,7 @@ async function selectActiveBroker(
   sessionHash: string,
   isConnected?: BrokerConnectivityResolver,
 ) {
-  return store.transaction(async (query) => {
+  return withMfaAttempt(store, userId, async (query) => {
     const [settings] = await query<{ active_broker_id: string | null }>(
       "SELECT active_broker_id FROM user_settings WHERE user_id=$1 FOR UPDATE",
       [userId],
@@ -192,19 +192,19 @@ async function selectActiveBroker(
       );
     }
     const changed = settings.active_broker_id !== target.id;
-    if (changed) {
-      // Consume proof under the settings lock, before changing any routing state.
-      const [security] = await query<{ enabled: boolean }>(
-        "SELECT enabled FROM user_security WHERE user_id=$1",
-        [userId],
+    // Consume proof under the settings lock, before changing any routing state.
+    const [security] = await query<{ enabled: boolean }>(
+      "SELECT enabled FROM user_security WHERE user_id=$1",
+      [userId],
+    );
+    if (!security?.enabled) {
+      fail(
+        409,
+        "Enable authenticator MFA in Account & security before changing your live broker.",
       );
-      if (!security?.enabled) {
-        fail(
-          409,
-          "Enable authenticator MFA in Account & security before changing your live broker.",
-        );
-      }
-      await verifySecondFactor(query, vault, userId, token);
+    }
+    await verifySecondFactor(query, vault, userId, token);
+    if (changed) {
       // Switching away and back must not resurrect a previous live authorization.
       await query(
         "DELETE FROM live_permissions WHERE account_id IN (SELECT id FROM live_accounts WHERE user_id=$1)",

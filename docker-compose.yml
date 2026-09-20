@@ -94,7 +94,8 @@ services:
     image: ${BACKEND_IMAGE:?Use the digest-pinned release manifest}
     environment:
       <<: *database
-      NODE_OPTIONS: --max-old-space-size=320
+      # Leave room for one 128-MiB scrypt job and native/socket buffers within 512 MiB.
+      NODE_OPTIONS: --max-old-space-size=256
       APP_ORIGIN: https://${APP_DOMAIN:?Set APP_DOMAIN to your hostname}
       MARKET_DATA_PROVIDER: ${MARKET_DATA_PROVIDER:-kotak}
       ZERODHA_API_KEY_FILE: /run/secrets/zerodha_api_key
@@ -226,6 +227,7 @@ services:
       DB_PASSWORD_FILE: /run/secrets/backup_database_password
       BACKUP_ENCRYPTION_KEY_FILE: /run/secrets/backup_encryption_key
       BACKUP_S3_URI: ${BACKUP_S3_URI:-}
+      BACKUP_DATABASE_TIMEOUT_SECONDS: ${BACKUP_DATABASE_TIMEOUT_SECONDS:-1800}
       AWS_REGION: ${AWS_REGION:-ap-south-1}
     secrets: [backup_database_password, backup_encryption_key]
     networks: [data, backup_egress]

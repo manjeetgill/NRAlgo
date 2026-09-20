@@ -39,28 +39,46 @@ export const fail = (
 };
 // Bound native crypto work even when an HTTP client disconnects before hashing finishes.
 let activePasswordHashes = 0;
-/** Preserve the legacy scrypt format while moving expensive password work off the event loop. */
+const passwordQueue: Array<() => void> = [];
+/** Version new hashes at OWASP's scrypt minimum; legacy salts remain verifiable.
+ * One native job bounds memory (~128 MiB); short bursts queue instead of
+ * making an unrelated user's login fail merely because four hashes are active.
+ */
 export async function passwordHash(
   password: string,
-  salt = randomBytes(16).toString("hex"),
+  salt = `scrypt-v2$${randomBytes(16).toString("hex")}`,
 ): Promise<string> {
-  if (activePasswordHashes >= 4) {
-    fail(429, "Authentication busy. Try again shortly.");
+  if (activePasswordHashes >= 1) {
+    if (passwordQueue.length >= 16) {
+      fail(429, "Authentication busy. Try again shortly.");
+    }
+    await new Promise<void>((resolve) => passwordQueue.push(resolve));
+  } else {
+    activePasswordHashes++;
   }
-  activePasswordHashes++;
   try {
+    const modern = salt.startsWith("scrypt-v2$");
+    const rawSalt = modern ? salt.slice(10) : salt;
+    if (!/^[a-f0-9]{32}$/i.test(rawSalt)) {
+      throw new Error("Unsupported password hash format");
+    }
     const key = await new Promise<Buffer>((resolve, reject) =>
       scrypt(
         password,
-        Buffer.from(salt, "hex"),
+        Buffer.from(rawSalt, "hex"),
         64,
-        { N: 16384, r: 8, p: 1 },
+        { N: modern ? 131072 : 16384, r: 8, p: 1, maxmem: 256 * 1024 * 1024 },
         (err, key) => (err ? reject(err) : resolve(key)),
       ),
     );
     return `${salt}:${key.toString("hex")}`;
   } finally {
-    activePasswordHashes--;
+    const next = passwordQueue.shift();
+    if (next) {
+      next();
+    } else {
+      activePasswordHashes--;
+    }
   }
 }
 

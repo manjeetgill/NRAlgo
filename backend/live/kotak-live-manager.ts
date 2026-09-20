@@ -4,7 +4,7 @@
 import { randomUUID } from "node:crypto";
 import { lockWorkspaceSettings, type Store, type Query } from "../database.js";
 import { credentialVault, digest, fail } from "../security.js";
-import { verifySecondFactor } from "../mfa.js";
+import { verifySecondFactor, withMfaAttempt } from "../mfa.js";
 import type { LoginSession } from "../types.js";
 import type {
   InstrumentCatalog,
@@ -488,7 +488,7 @@ export class KotakLiveManager {
     const entry = await this.entry(session);
     return this.serial(entry, async () => {
       // Validate MFA before any broker work, then grant short-lived, boot/session-bound permission.
-      await this.store.transaction(async (query) => {
+      await withMfaAttempt(this.store, session.user_id, async (query) => {
         await lockWorkspaceSettings(query, this.store, session.user_id);
         const [security] = await query<{ enabled: boolean }>(
           "SELECT enabled FROM user_security WHERE user_id=$1",
@@ -695,16 +695,67 @@ export class KotakLiveManager {
   }
   /** Revoke permission before cancellation work; never auto-flatten positions or queue the kill behind previews. */
   public async halt(session: LoginSession) {
-    const entry = await this.entry(session);
-    entry.revoked = true;
-    clearTimeout(entry.timer);
+    // A kill is account-owned, not connectivity-dependent. Never initialize an
+    // adapter (or require a valid broker session) merely to revoke permission.
+    const entries = [...this.entries.values()].filter(
+      (entry) => entry.session.user_id === session.user_id,
+    );
+    for (const entry of entries) {
+      entry.revoked = true;
+      clearTimeout(entry.timer);
+    }
     // Durable account gate competes with dispatch; do not queue a kill behind preview work.
     await this.store.transaction((q) =>
-      q("DELETE FROM live_permissions WHERE account_id=$1", [entry.id]),
+      q(
+        "DELETE FROM live_permissions WHERE account_id IN (SELECT id FROM live_accounts WHERE user_id=$1)",
+        [session.user_id],
+      ),
     );
-    return entry.service.haltAndCancel(
-      "User halted live execution; cancellation requested, positions are not flattened",
-    );
+    const accounts = await this.store.transaction(async (q) => {
+      const accounts = await q<{ id: string }>(
+        "UPDATE live_accounts SET halted=TRUE,halt_reason=$2,generation=generation+1,reconciled_at=0 WHERE user_id=$1 RETURNING id",
+        [
+          session.user_id,
+          "User halted live execution; verify remaining exposure at the broker",
+        ],
+      );
+      for (const account of accounts) {
+        await q(
+          "UPDATE live_orders SET state='blocked' WHERE account_id=$1 AND state IN ('bound','reserved')",
+          [account.id],
+        );
+        await q(
+          "INSERT INTO live_events(account_id,kind,detail,created_at) VALUES($1,'halt',$2,$3)",
+          [
+            account.id,
+            "Operator kill; permission revoked regardless of broker connectivity",
+            Date.now(),
+          ],
+        );
+      }
+      return accounts;
+    });
+    const unresolved: string[] = [];
+    for (const account of accounts) {
+      const entry = entries.find((candidate) => candidate.id === account.id);
+      if (!entry) {
+        unresolved.push("broker-state-unavailable");
+        continue;
+      }
+      try {
+        const result = await entry.service.haltAndCancel(
+          "User halted live execution; positions are not flattened",
+        );
+        unresolved.push(...result.unresolved);
+      } catch {
+        unresolved.push("broker-state-unavailable");
+      }
+    }
+    return {
+      halted: true,
+      cancellationConfirmed: false,
+      unresolved: [...new Set(unresolved)],
+    };
   }
   /** Block dispatch immediately and persist revocation best effort; outstanding broker exposure may remain. */
   public revoke(userId: string) {

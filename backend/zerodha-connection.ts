@@ -392,10 +392,20 @@ export function createZerodhaConnection(
             client.saved(),
           );
           res.json(await status(owner));
-        } catch {
+        } catch (error) {
           if (pending.get(owner.token_hash) === marker) {
             connections.delete(owner.token_hash);
             await savedSessions?.remove(owner.user_id, "zerodha");
+          }
+          // Preserve our deliberate public cancellation/capacity errors; SDK errors
+          // remain sanitized and must never expose provider credentials or payloads.
+          if (
+            error instanceof Error &&
+            "detail" in error &&
+            "status" in error &&
+            (error.status === 409 || error.status === 503)
+          ) {
+            throw error;
           }
           return fail(
             502,
