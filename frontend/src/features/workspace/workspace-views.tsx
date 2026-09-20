@@ -204,9 +204,7 @@ export function WorkspaceHelp({
           <p>Explore your workspace, build strategies and review activity.</p>
           <dl>
             <dt>Research</dt>
-            <dd>
-              Start in Strategy library, Basket research or Spread builder.
-            </dd>
+            <dd>Start in Strategy library, Algo lab or Spread builder.</dd>
             <dt>Trading</dt>
             <dd>
               Live trading requires explicit authorization, risk checks and a

@@ -63,7 +63,7 @@ export const workspaceSections: ReadonlyArray<{
 
 /** Human-facing screen names stay independent from the stable internal navigation keys. */
 export const workspacePageLabels: Partial<Record<WorkspacePage, string>> = {
-  "Strategy lab": "Basket research",
+  "Strategy lab": "Algo lab",
   Brokers: "Broker connections",
   "Live trading": "Live positions",
   "Activity log": "Audit log",
