@@ -186,7 +186,10 @@ export function NseMarketIntelligence() {
       {result && (
         <div className={styles.results} aria-busy={loading}>
           <div className={styles.resultHeading}>
-            <strong>{result.label}</strong>
+            <strong>
+              {result.label}
+              {result.dataset === "fii-dii" ? " · ₹ crore" : ""}
+            </strong>
             <time dateTime={new Date(result.observedAt).toISOString()}>
               Fetched{" "}
               {new Date(result.observedAt).toLocaleString("en-IN", {

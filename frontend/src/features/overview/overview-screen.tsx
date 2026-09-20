@@ -625,7 +625,7 @@ export function OverviewScreen({
         </div>
       </div>
       <footer className={styles.footer}>
-        <span>NRIAlgo / Overview · Live workspace</span>
+        <span>NRIAlgo / Overview · Personal workspace</span>
         <span>
           <Wallet size={13} /> {broker?.name ?? "No connected broker"}
         </span>
