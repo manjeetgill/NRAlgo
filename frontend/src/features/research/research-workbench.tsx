@@ -9,6 +9,7 @@ import { requestApiJson } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { OptionChainPicker } from "@/components/option-chain-picker";
 import { StoredInstrumentPicker } from "@/components/stored-instrument-picker";
+import { storedInstrumentSearchSchema } from "@/lib/stored-market-data";
 import { useUnsavedResearchWarning } from "@/features/workspace/workspace-views";
 import {
   usePayoffCalculation,
@@ -151,12 +152,16 @@ export function ResearchWorkbench({
     };
     skipped: { day: string; reason: string }[];
   } | null>(null);
-  const [day, setDay] = useState(
-      new Date(Date.now() - 86400000).toISOString().slice(0, 10),
-    ),
+  const [day, setDay] = useState(""),
     [tab, setTab] = useState("builder");
   const interval = "day";
-  const [batchDays, setBatchDays] = useState("");
+  const [batchDays, setBatchDays] = useState<string[]>([]);
+  const [coverage, setCoverage] = useState<{
+    first: string;
+    last: string;
+  } | null>(null);
+  const storedId = definition.legs[0]?.dataInstrumentId;
+  const storedSymbol = definition.legs[0]?.stockCode;
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
@@ -166,6 +171,41 @@ export function ResearchWorkbench({
   const [kotakPolling, setKotakPolling] = useState(false);
   const actionPending = useRef(false);
   useUnsavedResearchWarning(edited && !strategyId);
+  /** Default replay to actual stored coverage, never yesterday or an invented trading session. */
+  useEffect(() => {
+    const controller = new AbortController();
+    setCoverage(null);
+    setDay("");
+    setBatchDays([]);
+    if (!storedId || !storedSymbol) {
+      return;
+    }
+    void requestApiJson(
+      `/eod/instruments?q=${encodeURIComponent(storedSymbol)}&offset=0`,
+      "GET",
+      undefined,
+      undefined,
+      15000,
+      controller.signal,
+    )
+      .then((value) => {
+        const item = storedInstrumentSearchSchema
+          .parse(value)
+          .items.find((item) => item.id === storedId);
+        if (!controller.signal.aborted && item) {
+          setCoverage({ first: item.first_day, last: item.last_day });
+          setDay(item.last_day);
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setError(
+            "Stored coverage could not be loaded. Select the instrument again before replaying.",
+          );
+        }
+      });
+    return () => controller.abort();
+  }, [csrf, storedId, storedSymbol]);
   const tradeLogDialog = useRef<HTMLDialogElement>(null);
   /** Kotak live preview is explicit, bounded REST polling, not a claimed socket stream.
    * Stop on hidden tab, navigation, editing or failure; never start an order worker.
@@ -684,7 +724,7 @@ export function ResearchWorkbench({
                 <h2>
                   {definition.market === "options"
                     ? "Selected legs & rules"
-                    : "Define a scheduled basket"}
+                    : "Define a daily basket"}
                 </h2>
               </div>
             </div>
@@ -1064,6 +1104,9 @@ export function ResearchWorkbench({
                   <input
                     type="date"
                     value={day}
+                    min={coverage?.first}
+                    max={coverage?.last}
+                    disabled={busy || !coverage}
                     onChange={(event) => setDay(event.target.value)}
                   />
                 </label>
@@ -1073,7 +1116,15 @@ export function ResearchWorkbench({
                 </label>
               </div>
               <Button
-                disabled={busy || !strategyId || definition.market !== "cash"}
+                disabled={
+                  busy ||
+                  !strategyId ||
+                  !day ||
+                  !coverage ||
+                  day < coverage.first ||
+                  day > coverage.last ||
+                  definition.market !== "cash"
+                }
                 onClick={() =>
                   void act(async () => {
                     const result = await researchRequest(
@@ -1097,14 +1148,50 @@ export function ResearchWorkbench({
                   ? "Loading stored history…"
                   : "Run stored daily simulation"}
               </Button>
-              <label>
-                Batch session dates (YYYY-MM-DD, comma separated)
-                <input
-                  value={batchDays}
-                  onChange={(event) => setBatchDays(event.target.value)}
-                  placeholder="2020-01-02, 2020-01-03"
-                />
-              </label>
+              <p role="status">
+                {coverage
+                  ? `Stored coverage: ${coverage.first} to ${coverage.last}. Holidays and missing sessions may have no candles.`
+                  : "Choose an exact stored instrument to load available dates."}{" "}
+                {!strategyId &&
+                  "Save the definition before running a backtest."}
+              </p>
+              <h3>Batch sessions · {batchDays.length}/20</h3>
+              <Button
+                variant="secondary"
+                disabled={
+                  busy ||
+                  !coverage ||
+                  !day ||
+                  day < (coverage?.first ?? "") ||
+                  day > (coverage?.last ?? "") ||
+                  batchDays.includes(day) ||
+                  batchDays.length >= 20
+                }
+                onClick={() => setBatchDays((days) => [...days, day].sort())}
+              >
+                Add selected date to batch
+              </Button>
+              <div
+                className="screen-toolbar"
+                role="group"
+                aria-label="Selected batch sessions"
+              >
+                {batchDays.map((value) => (
+                  <Button
+                    key={value}
+                    variant="secondary"
+                    disabled={busy}
+                    aria-label={`Remove ${value} from batch`}
+                    onClick={() =>
+                      setBatchDays((days) =>
+                        days.filter((item) => item !== value),
+                      )
+                    }
+                  >
+                    {value} ×
+                  </Button>
+                ))}
+              </div>
               <p>
                 Up to 20 completed dates. Each day starts with the same capital;
                 no compounding or overnight exposure. Missing history is
@@ -1115,7 +1202,7 @@ export function ResearchWorkbench({
                 disabled={
                   busy ||
                   !strategyId ||
-                  !batchDays.trim() ||
+                  !batchDays.length ||
                   definition.market !== "cash"
                 }
                 onClick={() =>
@@ -1127,7 +1214,7 @@ export function ResearchWorkbench({
                       {
                         strategyId,
                         interval,
-                        days: batchDays.split(",").map((value) => value.trim()),
+                        days: batchDays,
                       },
                     );
                     setBatch(result);

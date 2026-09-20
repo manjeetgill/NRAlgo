@@ -63,7 +63,7 @@ export const workspaceSections: ReadonlyArray<{
 
 /** Human-facing screen names stay independent from the stable internal navigation keys. */
 export const workspacePageLabels: Partial<Record<WorkspacePage, string>> = {
-  "Strategy lab": "Algo lab",
+  "Strategy lab": "Basket research",
   Brokers: "Broker connections",
   "Live trading": "Live positions",
   "Activity log": "Audit log",
@@ -78,7 +78,7 @@ export const workspacePageDescriptions: Partial<Record<WorkspacePage, string>> =
     "Backtest studio":
       "Validate signal strategies against stored historical daily OHLC data.",
     "Strategy lab":
-      "Build and replay cash strategies using stored historical daily candles.",
+      "Test a scheduled daily cash basket. For EMA, RSI or breakout signals, use Backtest Studio.",
     "Spread builder":
       "Build option baskets from current and open-expiry market data.",
     "Option chain":
