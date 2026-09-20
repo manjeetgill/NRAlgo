@@ -49,6 +49,39 @@ export function BrokersScreen({ csrf }: { csrf: string }) {
   return (
     <section className="screen-stack" aria-label="Broker connection">
       <ActiveBrokerSelector csrf={csrf} refreshKey={connection.checkedAt} />
+      <section className="panel screen-card" aria-label="Broker capabilities">
+        <h2>What each connection supports</h2>
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Broker</th>
+                <th>Account reports</th>
+                <th>Live market data</th>
+                <th>Order execution</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">Kotak Neo</th>
+                <td>Holdings, positions and funds</td>
+                <td>Requires a valid connection</td>
+                <td>Separate live authorization and risk checks</td>
+              </tr>
+              <tr>
+                <th scope="row">Zerodha Kite</th>
+                <td>Read-only portfolio</td>
+                <td>Not integrated</td>
+                <td>Not available in this app</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          Connect authorizes access. Verify session only checks the connection.
+          Neither action starts trading.
+        </p>
+      </section>
       <div className="screen-two-columns broker-cards">
         <article className="panel screen-card">
           <div className="screen-toolbar">
@@ -286,7 +319,8 @@ function ActiveBrokerSelector({
         <div>
           <h2>Active live broker</h2>
           <p>
-            New live order intents will use this broker after authorization.
+            Select the account for supported live activity. Only Kotak Neo
+            currently supports order execution in this app.
           </p>
         </div>
         <span className="badge" role="status">
