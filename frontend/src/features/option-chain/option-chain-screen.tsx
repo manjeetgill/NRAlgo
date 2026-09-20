@@ -99,7 +99,12 @@ export function OptionChainScreen({
         </label>
         <Button
           variant="secondary"
-          disabled={!underlying}
+          disabled={!underlying || !reference}
+          title={
+            !reference
+              ? "Wait for a valid chain reference before opening the payoff builder"
+              : undefined
+          }
           onClick={() => onOpenBuilder({ underlying, ...reference })}
         >
           Build payoff ({legCount})
@@ -159,6 +164,7 @@ export function OptionChainScreen({
           experience="chain"
           onDataMode={setDataMode}
           onReferenceData={setReference}
+          onExpiryChange={() => setReference(null)}
           csrf={csrf}
           ticks={dataMode === "live" ? feed.ticks : []}
           onAddLeg={onAddLeg}

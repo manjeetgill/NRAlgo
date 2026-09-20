@@ -99,6 +99,7 @@ export function LiveOptionChain({
   asOf,
   onDataMode,
   onReferenceData,
+  onExpiryChange,
   onTrade,
   analytics = false,
   essentialColumns = false,
@@ -120,6 +121,8 @@ export function LiveOptionChain({
   experience?: "builder" | "chain";
   asOf?: string;
   onDataMode?: (mode: "live" | "historical") => void;
+  /** Invalidate parent research context immediately when the user selects another expiry. */
+  onExpiryChange?: () => void;
   onReferenceData?: (reference: {
     spot: number;
     day?: string;
@@ -725,6 +728,7 @@ export function LiveOptionChain({
       value={expiry}
       disabled={!expiries.length}
       onChange={(event) => {
+        onExpiryChange?.();
         setExpiry(event.target.value);
         setOffset(-1);
       }}
