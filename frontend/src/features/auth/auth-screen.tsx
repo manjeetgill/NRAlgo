@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from "react";
 import { Activity, ArrowRight, ShieldCheck, LockKeyhole } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Field, Input } from "@/components/ui/field";
 import type { AuthStatus } from "@/features/workspace/workspace-types";
 /** Render account policy; the session hook owns transport, cancellation and error handling. */
 export function AuthScreen({
@@ -90,9 +91,9 @@ export function AuthScreen({
           )}
           {auth ? (
             <form onSubmit={onSubmit}>
-              <label>
-                Username
-                <input
+              <Field label="Username" htmlFor="auth-username">
+                <Input
+                  id="auth-username"
                   name="username"
                   autoComplete="username"
                   required
@@ -101,10 +102,9 @@ export function AuthScreen({
                   pattern="[a-zA-Z0-9_.@\-]+"
                   placeholder="Your username"
                 />
-              </label>
-              <label>
-                Password
-                <input
+              </Field>
+              <Field label="Password" htmlFor="sign-in-password">
+                <Input
                   name="password"
                   id="sign-in-password"
                   type={showPassword ? "text" : "password"}
@@ -124,7 +124,7 @@ export function AuthScreen({
                       : "Enter your password"
                   }
                 />
-              </label>
+              </Field>
               <Button
                 type="button"
                 variant="secondary"
@@ -135,31 +135,38 @@ export function AuthScreen({
                 {showPassword ? "Hide password" : "Show password"}
               </Button>
               {auth.setup_required && auth.setup_token_required && (
-                <label>
-                  Setup token
-                  <input name="setup_token" type="password" required />
-                </label>
+                <Field label="Setup token" htmlFor="auth-setup-token">
+                  <Input
+                    id="auth-setup-token"
+                    name="setup_token"
+                    type="password"
+                    required
+                  />
+                </Field>
               )}
               {!auth.setup_required && !registering && (
-                <label>
-                  Authenticator or recovery code (if enabled)
-                  <input
+                <Field
+                  label="Authenticator or recovery code (if enabled)"
+                  htmlFor="auth-mfa-token"
+                >
+                  <Input
+                    id="auth-mfa-token"
                     name="token"
                     autoComplete="one-time-code"
                     maxLength={32}
                   />
-                </label>
+                </Field>
               )}
               {registering && !auth.setup_required && auth.invite_required && (
-                <label>
-                  Invitation token
-                  <input
+                <Field label="Invitation token" htmlFor="auth-invite-token">
+                  <Input
+                    id="auth-invite-token"
                     name="invite_token"
                     type="password"
                     required
                     autoComplete="off"
                   />
-                </label>
+                </Field>
               )}
               <Button disabled={busy} className="w-full">
                 {busy

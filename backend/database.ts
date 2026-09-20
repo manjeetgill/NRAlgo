@@ -438,6 +438,50 @@ export async function runDatabaseMigrations(
       );
       await query("INSERT INTO schema_migrations VALUES(20)");
     }
+    if (
+      !(await query("SELECT version FROM schema_migrations WHERE version=21"))
+        .length
+    ) {
+      // A provider can expose more than one verified account over time. The
+      // irreversible broker binding, rather than provider name, is the identity.
+      await query(
+        "ALTER TABLE user_brokers DROP CONSTRAINT IF EXISTS user_brokers_user_id_provider_key",
+      );
+      await query(
+        "CREATE UNIQUE INDEX IF NOT EXISTS user_brokers_owner_provider_binding_idx ON user_brokers(user_id,provider,account_binding)",
+      );
+      await query(
+        "CREATE TABLE portfolio_accounts (id VARCHAR(36) PRIMARY KEY, user_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE, broker_id VARCHAR(36) NOT NULL UNIQUE REFERENCES user_brokers(id) ON DELETE CASCADE, provider VARCHAR(40) NOT NULL CHECK(provider IN ('kotak','zerodha')), account_binding VARCHAR(200) NOT NULL, display_label VARCHAR(80) NOT NULL, currency VARCHAR(3) NOT NULL DEFAULT 'INR' CHECK(currency='INR'), created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE(provider,account_binding))",
+      );
+      await query(
+        "CREATE INDEX portfolio_accounts_owner_idx ON portfolio_accounts(user_id,created_at)",
+      );
+      await query(
+        "CREATE TABLE portfolio_sync_runs (id VARCHAR(36) PRIMARY KEY, account_id VARCHAR(36) NOT NULL REFERENCES portfolio_accounts(id) ON DELETE CASCADE, source VARCHAR(20) NOT NULL CHECK(source IN ('connection','manual','daily')), status VARCHAR(20) NOT NULL CHECK(status IN ('running','completed','partial','failed')), started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), completed_at TIMESTAMPTZ, error TEXT NOT NULL DEFAULT '')",
+      );
+      await query(
+        "CREATE INDEX portfolio_sync_runs_account_idx ON portfolio_sync_runs(account_id,started_at DESC)",
+      );
+      await query(
+        "CREATE TABLE portfolio_snapshots (id VARCHAR(36) PRIMARY KEY, account_id VARCHAR(36) NOT NULL REFERENCES portfolio_accounts(id) ON DELETE CASCADE, sync_run_id VARCHAR(36) NOT NULL REFERENCES portfolio_sync_runs(id) ON DELETE RESTRICT, trading_day DATE NOT NULL, observed_at DOUBLE PRECISION NOT NULL CHECK(observed_at >= 0), holdings_value DOUBLE PRECISION, invested_value DOUBLE PRECISION, pledged_value DOUBLE PRECISION, positions_pnl DOUBLE PRECISION, available_margin DOUBLE PRECISION, cash_balance DOUBLE PRECISION, used_margin DOUBLE PRECISION, collateral_value DOUBLE PRECISION, total_equity DOUBLE PRECISION, complete BOOLEAN NOT NULL, warnings JSONB NOT NULL DEFAULT '[]'::jsonb, UNIQUE(account_id,trading_day))",
+      );
+      await query(
+        "CREATE INDEX portfolio_snapshots_history_idx ON portfolio_snapshots(account_id,trading_day,observed_at DESC)",
+      );
+      await query(
+        "CREATE TABLE portfolio_snapshot_items (id VARCHAR(36) PRIMARY KEY, snapshot_id VARCHAR(36) NOT NULL REFERENCES portfolio_snapshots(id) ON DELETE CASCADE, kind VARCHAR(20) NOT NULL CHECK(kind IN ('holding','position')), canonical_key VARCHAR(500) NOT NULL, isin VARCHAR(32) NOT NULL DEFAULT '', instrument_token VARCHAR(120) NOT NULL DEFAULT '', symbol VARCHAR(120) NOT NULL, underlying VARCHAR(120) NOT NULL DEFAULT '', exchange VARCHAR(40) NOT NULL DEFAULT '', product VARCHAR(40) NOT NULL DEFAULT '', quantity BIGINT NOT NULL, pledged_quantity BIGINT, t1_quantity BIGINT, mtf_quantity BIGINT, average_price DOUBLE PRECISION, mark_price DOUBLE PRECISION, pnl DOUBLE PRECISION, expiry VARCHAR(40) NOT NULL DEFAULT '', option_right VARCHAR(20) NOT NULL DEFAULT '', strike VARCHAR(40) NOT NULL DEFAULT '')",
+      );
+      await query(
+        "CREATE INDEX portfolio_snapshot_items_snapshot_idx ON portfolio_snapshot_items(snapshot_id,kind,canonical_key)",
+      );
+      await query(
+        "CREATE TABLE portfolio_cash_flows (id VARCHAR(36) PRIMARY KEY, account_id VARCHAR(36) NOT NULL REFERENCES portfolio_accounts(id) ON DELETE CASCADE, external_ref_hash VARCHAR(128) NOT NULL, occurred_at TIMESTAMPTZ NOT NULL, kind VARCHAR(20) NOT NULL CHECK(kind IN ('deposit','withdrawal','dividend','charge','transfer')), amount DOUBLE PRECISION NOT NULL, currency VARCHAR(3) NOT NULL DEFAULT 'INR' CHECK(currency='INR'), source VARCHAR(40) NOT NULL, UNIQUE(account_id,external_ref_hash))",
+      );
+      await query(
+        "CREATE INDEX portfolio_cash_flows_account_idx ON portfolio_cash_flows(account_id,occurred_at)",
+      );
+      await query("INSERT INTO schema_migrations VALUES(21)");
+    }
   });
   // The migration container owns DDL; API/worker use a separate non-superuser role.
   if (options.runtimePassword) {
@@ -471,6 +515,9 @@ export async function runDatabaseMigrations(
       );
       await query(
         "GRANT SELECT,INSERT,UPDATE,DELETE ON users,user_settings,user_security,broker_usage,sessions,strategies,jobs,events,broker_credentials,worker_health,settings,live_accounts,live_orders,live_spreads,live_events,live_permissions,live_previews,broker_rpc_windows,research_strategies,research_runs,user_brokers,calculation_jobs,option_chain_snapshots TO nexus_app",
+      );
+      await query(
+        "GRANT SELECT,INSERT,UPDATE,DELETE ON portfolio_accounts,portfolio_sync_runs,portfolio_snapshots,portfolio_snapshot_items,portfolio_cash_flows TO nexus_app",
       );
       // Apply on upgrades too: a previous broad grant must not leave audit rows mutable.
       await query(

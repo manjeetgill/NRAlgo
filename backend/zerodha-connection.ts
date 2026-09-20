@@ -10,10 +10,13 @@ import { KiteConnect, type Connect } from "kiteconnect";
 import { fail, rateLimit } from "./security.js";
 import {
   normalizeZerodhaAvailableFunds,
+  normalizeZerodhaFunds,
   normalizeZerodhaPortfolioRows,
 } from "./broker-portfolio-normalizer.js";
 import type { BrokerSessionStore } from "./broker-session-store.js";
 import type { BrokerAppCredentialStore } from "./broker-app-credential-store.js";
+import type { PortfolioBrokerReader } from "./portfolio-service.js";
+import { tradingDay } from "./market-contracts.js";
 
 type Client = Pick<
   Connect,
@@ -24,6 +27,8 @@ type Client = Pick<
   | "getMargins"
   | "getHoldings"
   | "getPositions"
+  | "getInstruments"
+  | "getQuote"
   | "invalidateAccessToken"
 >;
 const credential = z.string().trim().min(1).max(256);
@@ -56,7 +61,122 @@ export function createZerodhaSdk(
       .parse(value);
     const client = factory(key);
     client.setAccessToken(saved.accessToken);
+    // Session-local master cache: no credentials or quotes are shared across owners.
+    let optionMaster: Awaited<ReturnType<Client["getInstruments"]>> = [];
+    let masterDay = "";
     return {
+      async optionSnapshot(
+        input: {
+          query: string;
+          underlying?: string;
+          expiryDate?: string;
+          offset: number;
+        },
+        reserve: () => Promise<void>,
+      ) {
+        const today = tradingDay(Date.now());
+        if (masterDay !== today) {
+          await reserve();
+          optionMaster = await client.getInstruments("NFO");
+          masterDay = today;
+        }
+        const expiryOf = (value: unknown) =>
+          value instanceof Date
+            ? tradingDay(value.getTime())
+            : String(value).slice(0, 10);
+        const available = optionMaster.filter(
+          (row) =>
+            (row.instrument_type === "CE" || row.instrument_type === "PE") &&
+            expiryOf(row.expiry) >= today,
+        );
+        const underlyings = [...new Set(available.map((row) => row.name))]
+          .filter((name) => name.includes(input.query))
+          .sort();
+        const contracts = available.filter(
+          (row) => row.name === input.underlying,
+        );
+        const expiries = [
+          ...new Set(contracts.map((row) => expiryOf(row.expiry))),
+        ]
+          .sort()
+          .slice(0, 2);
+        if (input.expiryDate && !expiries.includes(input.expiryDate)) {
+          fail(422, "Choose the current or next available expiry.");
+        }
+        const rows = contracts
+          .filter((row) => expiryOf(row.expiry) === input.expiryDate)
+          .sort(
+            (a, b) =>
+              a.strike - b.strike ||
+              a.instrument_type.localeCompare(b.instrument_type),
+          );
+        const page = rows.slice(input.offset, input.offset + 50);
+        const spotSymbols: Record<string, string> = {
+          NIFTY: "NIFTY 50",
+          BANKNIFTY: "NIFTY BANK",
+          FINNIFTY: "NIFTY FIN SERVICE",
+        };
+        const spotKey = `NSE:${spotSymbols[input.underlying ?? ""] ?? input.underlying}`;
+        const keys = page.map((row) => `NFO:${row.tradingsymbol}`);
+        const observedAt = Date.now();
+        let quotes: Awaited<ReturnType<Client["getQuote"]>> = {};
+        let quoteWarning = "";
+        if (page.length) {
+          await reserve();
+          try {
+            quotes = await client.getQuote([...keys, spotKey]);
+          } catch (error) {
+            // A denied quote entitlement is not an empty instrument directory.
+            // Preserve exact contracts, redact SDK payloads, and never invent premiums.
+            const kind = (error as { error_type?: string })?.error_type;
+            quoteWarning =
+              kind === "PermissionException"
+                ? "Zerodha denied quote access. Check this Kite API app's market-data permissions/subscription. Contracts are available; premiums and spot are unavailable."
+                : kind === "TokenException"
+                  ? "Zerodha rejected the broker session. Reconnect Zerodha, then refresh quotes."
+                  : "Zerodha quotes are unavailable. Listed contracts are shown without prices; refresh quotes to retry.";
+          }
+        }
+        const positive = (value: unknown) =>
+          typeof value === "number" && Number.isFinite(value) && value > 0
+            ? value
+            : null;
+        return {
+          underlyings,
+          expiries,
+          total: rows.length,
+          nextOffset:
+            input.offset + 50 < rows.length ? input.offset + 50 : null,
+          items: page.map((row, index) => ({
+            instrument: String(row.instrument_token),
+            masterToken: String(row.instrument_token),
+            symbol: row.name,
+            name: row.tradingsymbol,
+            market: "options",
+            lotSize: row.lot_size,
+            option: {
+              expiryDate: expiryOf(row.expiry),
+              right: row.instrument_type === "CE" ? "call" : "put",
+              strikePrice: row.strike,
+              lotSize: row.lot_size,
+            },
+            price: positive(quotes[keys[index]!]?.last_price),
+            bid: null,
+            ask: null,
+            openInterest: quotes[keys[index]!]?.oi ?? null,
+            stale: true,
+          })),
+          underlyingPrice: positive(quotes[spotKey]?.last_price),
+          source: "zerodha",
+          dataMode: "historical" as const,
+          receivedAt: observedAt,
+          observedAt,
+          warning:
+            quoteWarning ||
+            "Broker quote snapshot, not a live stream. Exchange trade freshness is unverified; refresh to request latest available quotes.",
+          quotesUnavailable: Boolean(quoteWarning),
+        };
+      },
       account: saved.account,
       saved: () => saved,
       async revoke() {
@@ -95,6 +215,14 @@ export function createZerodhaSdk(
       async availableFunds() {
         try {
           return normalizeZerodhaAvailableFunds(await client.getMargins());
+        } catch {
+          throw new Error("Zerodha margin is unavailable.");
+        }
+      },
+      /** Preserve the full normalized margin breakdown for durable portfolio snapshots. */
+      async funds() {
+        try {
+          return normalizeZerodhaFunds(await client.getMargins());
         } catch {
           throw new Error("Zerodha margin is unavailable.");
         }
@@ -146,7 +274,12 @@ type Connection = {
   owner: Owner;
 };
 export type ZerodhaConnectionEvents = {
-  connected: (userId: string, accountBinding: string) => Promise<void>;
+  connected: (
+    userId: string,
+    sessionHash: string,
+    accountBinding: string,
+    reader: PortfolioBrokerReader,
+  ) => Promise<void>;
   disconnected: (userId: string) => Promise<void>;
 };
 
@@ -232,6 +365,44 @@ export function createZerodhaConnection(
     const connection = connections.get(sessionHash);
     return Boolean(connection && connection.owner.user_id === userId);
   }
+  /** Expose only normalized account reads to the broker-neutral portfolio service. */
+  function portfolioReader(
+    userId: string,
+    sessionHash: string,
+  ): PortfolioBrokerReader | null {
+    prune();
+    const connection = connections.get(sessionHash);
+    if (!connection || connection.owner.user_id !== userId) {
+      return null;
+    }
+    const accountBinding = `zerodha:${createHash("sha256").update(connection.client.account.user_id.trim().toUpperCase()).digest("hex")}`;
+    return {
+      provider: "zerodha",
+      accountBinding,
+      loadFunds: () => connection.client.funds(),
+      loadHoldings: () => connection.client.portfolio("holdings"),
+      loadPositions: () => connection.client.portfolio("positions"),
+    };
+  }
+  /** Return normalized readers for currently valid sessions without exposing SDK clients. */
+  function activePortfolioReaders() {
+    prune();
+    return [...connections.values()].flatMap((connection) => {
+      const reader = portfolioReader(
+        connection.owner.user_id,
+        connection.owner.token_hash,
+      );
+      return reader
+        ? [
+            {
+              userId: connection.owner.user_id,
+              sessionHash: connection.owner.token_hash,
+              reader,
+            },
+          ]
+        : [];
+    });
+  }
   return {
     async restore(owner: Owner) {
       const sdk = await sdkFor(owner.user_id);
@@ -274,6 +445,36 @@ export function createZerodhaConnection(
     },
     disconnect,
     isConnected,
+    async optionSnapshot(
+      userId: string,
+      sessionHash: string,
+      input: {
+        query: string;
+        underlying?: string;
+        expiryDate?: string;
+        offset: number;
+      },
+      reserve: () => Promise<void>,
+    ) {
+      prune();
+      const connection = connections.get(sessionHash);
+      if (!connection || connection.owner.user_id !== userId) {
+        return fail(
+          409,
+          "Connect the active Zerodha session to request option quotes.",
+        );
+      }
+      const result = await connection.client.optionSnapshot(input, reserve);
+      if (
+        !isConnected(userId, sessionHash) ||
+        connections.get(sessionHash) !== connection
+      ) {
+        return fail(409, "Broker session changed during quote loading.");
+      }
+      return result;
+    },
+    portfolioReader,
+    activePortfolioReaders,
     close() {
       clearInterval(timer);
       pending.clear();
@@ -372,9 +573,15 @@ export function createZerodhaConnection(
             client,
             deadline: Math.min(nextExpiry.getTime(), owner.expires * 1000),
           });
+          const reader = portfolioReader(owner.user_id, owner.token_hash);
+          if (!reader) {
+            throw new Error("Zerodha portfolio session is unavailable.");
+          }
           await events?.connected(
             owner.user_id,
-            `zerodha:${createHash("sha256").update(client.account.user_id.trim().toUpperCase()).digest("hex")}`,
+            owner.token_hash,
+            reader.accountBinding,
+            reader,
           );
           if (
             pending.get(owner.token_hash) !== marker ||

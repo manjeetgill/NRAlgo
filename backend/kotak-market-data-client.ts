@@ -564,6 +564,15 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
       session.sessionHash === sessionHash,
     );
   }
+  /** Enumerate safe runtime identities for end-of-day portfolio capture only. */
+  public activePortfolioConnections() {
+    return [...this.sessions.entries()]
+      .filter(([, session]) => session.expires > Date.now())
+      .map(([userId, session]) => ({
+        userId,
+        sessionHash: session.sessionHash,
+      }));
+  }
   /** Server-only persistence payload: never contains MPIN, TOTP or a password. */
   public savedSession(userId: string, sessionHash: string) {
     return this.isConnected(userId, sessionHash)

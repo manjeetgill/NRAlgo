@@ -1,9 +1,12 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
+import { Field, Input } from "@/components/ui/field";
+import { Dialog } from "@/components/ui/dialog";
 import { requestApiJson } from "@/lib/api";
+import styles from "./independent-chart.module.css";
 const Chart = dynamic(() => import("./contract-price-chart"), {
   ssr: false,
   loading: () => <p role="status">Loading chart…</p>,
@@ -23,7 +26,6 @@ const resultSchema = z.object({
 type Item = z.infer<typeof resultSchema>["items"][number];
 /** Search the imported catalog, not broker credentials or execution tokens. */
 export function IndependentChart() {
-  const dialog = useRef<HTMLDialogElement>(null);
   const [query, setQuery] = useState("");
   const [offset, setOffset] = useState(0);
   const [result, setResult] = useState<z.infer<typeof resultSchema> | null>(
@@ -71,15 +73,12 @@ export function IndependentChart() {
   }, [query, offset]);
   return (
     <>
-      <section
-        className="panel screen-card"
-        aria-label="Charts without a broker"
-      >
+      <section className={styles.panel} aria-label="Charts without a broker">
         <h2>Daily charts · no broker required</h2>
         <p>Search a scrip and select a match to open its chart.</p>
-        <label>
-          Search stored scrips
-          <input
+        <Field label="Search stored scrips" htmlFor="independent-chart-search">
+          <Input
+            id="independent-chart-search"
             value={query}
             maxLength={60}
             placeholder="Type REL or NIFTY…"
@@ -92,35 +91,28 @@ export function IndependentChart() {
               setBusy(false);
             }}
           />
-        </label>
-        {busy && <p role="status">Searching stored instruments…</p>}
-        {error && <p role="alert">{error}</p>}
+        </Field>
+        {busy && (
+          <p className={styles.status} role="status">
+            Searching stored instruments…
+          </p>
+        )}
+        {error && (
+          <p className={styles.error} role="alert">
+            {error}
+          </p>
+        )}
         {result && !busy && (
           <>
             {result.items.length ? (
-              <ul
-                aria-label="Matching instruments"
-                style={{
-                  listStyle: "none",
-                  margin: 0,
-                  padding: 0,
-                  maxHeight: 280,
-                  overflowY: "auto",
-                }}
-              >
+              <ul className={styles.results} aria-label="Matching instruments">
                 {result.items.map((item) => (
                   <li key={item.id}>
                     <Button
                       variant="secondary"
-                      style={{
-                        width: "100%",
-                        justifyContent: "flex-start",
-                        textAlign: "left",
-                      }}
                       onClick={() => {
                         setSelected(item);
                         setOpened(true);
-                        dialog.current?.showModal();
                       }}
                     >
                       {item.symbol} · {item.kind} {item.series} · {item.name}
@@ -129,11 +121,11 @@ export function IndependentChart() {
                 ))}
               </ul>
             ) : (
-              <p role="status">
+              <p className={styles.status} role="status">
                 No matching scrips. Try another name or symbol.
               </p>
             )}
-            <div className="screen-toolbar">
+            <div className={styles.pager}>
               {offset > 0 && (
                 <Button
                   variant="secondary"
@@ -162,20 +154,15 @@ export function IndependentChart() {
           </>
         )}
       </section>
-      <dialog
-        ref={dialog}
-        className="workspace-dialog contract-drawer contract-drawer-chart"
-        aria-labelledby="independent-chart-title"
+      <Dialog
+        open={opened}
         onClose={() => setOpened(false)}
+        title="Daily price chart"
+        labelledBy="independent-chart-title"
+        className={styles.wideDialog}
       >
-        <div className="screen-toolbar">
-          <h2 id="independent-chart-title">Daily price chart</h2>
-          <Button variant="secondary" onClick={() => dialog.current?.close()}>
-            Close daily chart
-          </Button>
-        </div>
         {opened && selected && <Chart key={selected.id} eodId={selected.id} />}
-      </dialog>
+      </Dialog>
     </>
   );
 }

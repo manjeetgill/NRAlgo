@@ -9,6 +9,12 @@ import {
 } from "react";
 import { Activity, CircleHelp, LockKeyhole, LogOut, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ThemeToggle } from "@/components/ui/theme-toggle";
+import {
+  Dialog,
+  DialogActions,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import {
   getWorkspacePageHash,
   getWorkspacePageLabel,
@@ -24,12 +30,7 @@ import {
 } from "./workspace-views";
 import type { WorkspacePage, WorkspaceSnapshot } from "./workspace-types";
 import "./workspace.css";
-import type { TemplateId } from "@/features/strategy-library/strategy-templates";
-import {
-  createResearchDefinition,
-  type ResearchDraft,
-} from "@/features/research/research-draft";
-import type { ChainContract } from "@/components/live-option-chain";
+import { useWorkspaceDrafts } from "./use-workspace-drafts";
 /** Preserve navigation after a screen failure and remount private state after account/mode changes. */
 export function WorkspaceShell({
   workspace,
@@ -46,7 +47,7 @@ export function WorkspaceShell({
 }) {
   const [requestedPage, setPage] = useState<WorkspacePage>("Overview");
   const currentPage = useRef<WorkspacePage>("Overview");
-  const leaveDialog = useRef<HTMLDialogElement>(null);
+  const [leaveDialogOpen, setLeaveDialogOpen] = useState(false);
   const pendingNavigation = useRef<(() => void) | null>(null);
   const [openSection, setOpenSection] = useState("");
   const [tourStep, setTourStep] = useState<number | null>(null);
@@ -58,15 +59,9 @@ export function WorkspaceShell({
     left: 8,
     bottom: 74,
   });
-  const [researchStrategyId, setResearchStrategyId] = useState("");
-  const [templateId, setTemplateId] = useState<TemplateId>("ema");
-  const [spreadDraft, setSpreadDraft] = useState<ResearchDraft>();
-  const [spreadContext, setSpreadContext] = useState<{
-    underlying: string;
-    expiry?: string;
-    day?: string;
-    spot?: number;
-  }>();
+  const draftsOnNavigatedRef = useRef<
+    (from: WorkspacePage, to: WorkspacePage) => void
+  >(() => {});
   const tour = workspaceTour;
   const page = requestedPage;
   const sections = workspaceSections;
@@ -135,6 +130,7 @@ export function WorkspaceShell({
   const onNavigate = useCallback(
     (destination: WorkspacePage, afterNavigate?: () => void) => {
       const complete = () => {
+        draftsOnNavigatedRef.current(currentPage.current, destination);
         currentPage.current = destination;
         setPage(destination);
         setOpenSection("");
@@ -148,7 +144,7 @@ export function WorkspaceShell({
         )
       ) {
         pendingNavigation.current = complete;
-        leaveDialog.current?.showModal();
+        setLeaveDialogOpen(true);
         return false;
       }
       complete();
@@ -187,129 +183,32 @@ export function WorkspaceShell({
   const onExploreOptionChain = useCallback(() => {
     onNavigate("Option chain");
   }, [onNavigate]);
-  /** Pass a saved identity in memory; research data remains owner-checked by the API. */
-  const onOpenStrategy = useCallback(
-    (id: string, market: "cash" | "options") => {
-      onNavigate(
-        market === "options" ? "Spread builder" : "Strategy lab",
-        () => {
-          setResearchStrategyId(id);
-          if (market === "options") {
-            setSpreadDraft(undefined);
-            setSpreadContext(undefined);
-          }
-        },
-      );
-    },
-    [onNavigate],
-  );
-  /** Add exact master metadata to an account-scoped, in-memory draft; never create orders. */
-  const onAddSpreadLeg = useCallback(
-    (contract: ChainContract, side: "buy" | "sell") => {
-      const spreadLegs = spreadDraft?.definition.legs ?? [];
-      if (!contract.option) {
-        return "Select a listed option contract.";
-      }
-      if (!Number.isSafeInteger(contract.lotSize) || contract.lotSize < 1) {
-        return "This legacy archive does not include a verified lot size. Add the leg in the builder and enter units manually.";
-      }
-      if (spreadLegs.length >= 4) {
-        return "A spread supports at most four legs. Remove one in the builder first.";
-      }
-      const option = contract.option;
-      if (
-        spreadLegs.some(
-          (leg) =>
-            leg.stockCode !== contract.symbol ||
-            leg.expiryDate !== option.expiryDate,
-        )
-      ) {
-        return "Start a new spread before adding a different underlying or expiry.";
-      }
-      if (
-        spreadLegs.some(
-          (leg) =>
-            leg.stockCode === contract.symbol &&
-            leg.expiryDate === option.expiryDate &&
-            leg.right === option.right &&
-            leg.strikePrice === option.strikePrice,
-        )
-      ) {
-        return "This contract is already in your draft. Edit its units in the builder.";
-      }
-      setSpreadDraft({
-        savedId: "",
-        definition: {
-          ...(spreadDraft?.definition ?? createResearchDefinition("options")),
-          legs: [
-            ...spreadLegs,
-            {
-              stockCode: contract.symbol,
-              expiryDate: option.expiryDate,
-              right: option.right,
-              strikePrice: option.strikePrice,
-              side,
-              quantity: contract.lotSize,
-            },
-          ],
-        },
-        marketReferences: [
-          ...(spreadDraft?.marketReferences ?? []),
-          ...(typeof contract.price === "number" && contract.price >= 0
-            ? [
-                {
-                  stockCode: contract.symbol,
-                  expiryDate: option.expiryDate,
-                  right: option.right,
-                  strikePrice: option.strikePrice,
-                  price: contract.price,
-                  observedAt: contract.tickAt,
-                },
-              ]
-            : []),
-        ],
-      });
-      setSpreadContext({
-        underlying: contract.symbol,
-        expiry: option.expiryDate,
-      });
-      setResearchStrategyId("");
-      onNavigate("Spread builder");
-      return "";
-    },
-    [spreadDraft, onNavigate],
-  );
-  /** Template selection changes research parameters only, not broker execution state. */
-  const onConfigureTemplate = useCallback(
-    (id: TemplateId) => {
-      onNavigate("Backtest studio", () => setTemplateId(id));
-    },
-    [onNavigate],
-  );
+  const drafts = useWorkspaceDrafts(onNavigate);
+  draftsOnNavigatedRef.current = drafts.onNavigated;
   function visitTourStep(index: number) {
     onNavigate(tour[index].page, () => setTourStep(index));
   }
   return (
     <div className="app-shell">
-      <dialog
-        ref={leaveDialog}
-        className="workspace-dialog"
-        aria-labelledby="leave-research-title"
+      <Dialog
+        open={leaveDialogOpen}
         onClose={() => {
+          setLeaveDialogOpen(false);
           pendingNavigation.current = null;
         }}
+        title="Leave unsaved research?"
+        labelledBy="leave-research-title"
       >
-        <h2 id="leave-research-title">Leave unsaved research?</h2>
-        <p>
+        <DialogDescription>
           Inputs and displayed results on this screen are not automatically
           saved. Stay to keep editing, or leave and discard this local work. No
           trading order will be placed.
-        </p>
-        <div className="screen-toolbar">
+        </DialogDescription>
+        <DialogActions>
           <Button
             variant="secondary"
             autoFocus
-            onClick={() => leaveDialog.current?.close()}
+            onClick={() => setLeaveDialogOpen(false)}
           >
             Keep editing
           </Button>
@@ -318,14 +217,14 @@ export function WorkspaceShell({
             onClick={() => {
               const proceed = pendingNavigation.current;
               pendingNavigation.current = null;
-              leaveDialog.current?.close();
+              setLeaveDialogOpen(false);
               proceed?.();
             }}
           >
             Discard and leave
           </Button>
-        </div>
-      </dialog>
+        </DialogActions>
+      </Dialog>
       <a
         className="workspace-skip"
         href="#workspace-main"
@@ -471,14 +370,17 @@ export function WorkspaceShell({
             <span className="breadcrumb-root">Workspace /</span>
             <strong>{getWorkspacePageLabel(page)}</strong>
           </div>
-          <WorkspaceHelp
-            username={workspace.username}
-            helpRequest={helpRequest}
-            busy={busy}
-            onRefresh={onRefresh}
-            onNavigate={onNavigate}
-            onStartTour={() => visitTourStep(0)}
-          />
+          <div className="topbar-actions">
+            <ThemeToggle />
+            <WorkspaceHelp
+              username={workspace.username}
+              helpRequest={helpRequest}
+              busy={busy}
+              onRefresh={onRefresh}
+              onNavigate={onNavigate}
+              onStartTour={() => visitTourStep(0)}
+            />
+          </div>
         </header>
         {tourStep !== null && (
           <div
@@ -547,33 +449,14 @@ export function WorkspaceShell({
               onNavigate={onNavigate}
               onRefresh={onRefresh}
               onExploreOptionChain={onExploreOptionChain}
-              researchStrategyId={researchStrategyId}
-              onOpenStrategy={onOpenStrategy}
-              templateId={templateId}
-              onConfigureTemplate={onConfigureTemplate}
-              spreadDraft={spreadDraft}
-              spreadContext={spreadContext}
-              onOpenBuilder={(selection) => {
-                if (
-                  spreadDraft?.definition.legs.some(
-                    (leg) =>
-                      leg.stockCode !== selection.underlying ||
-                      (selection.expiry && leg.expiryDate !== selection.expiry),
-                  )
-                ) {
-                  if (
-                    !window.confirm(
-                      "Start a new spread with this underlying and expiry? The existing chain-selected draft will be cleared.",
-                    )
-                  ) {
-                    return;
-                  }
-                  setSpreadDraft(undefined);
-                }
-                setSpreadContext(selection);
-                onNavigate("Spread builder");
-              }}
-              onAddSpreadLeg={onAddSpreadLeg}
+              researchStrategyId={drafts.researchStrategyId}
+              onOpenStrategy={drafts.onOpenStrategy}
+              templateId={drafts.templateId}
+              onConfigureTemplate={drafts.onConfigureTemplate}
+              spreadDraft={drafts.spreadDraft}
+              spreadContext={drafts.spreadContext}
+              onOpenBuilder={drafts.onOpenBuilder}
+              onAddSpreadLeg={drafts.onAddSpreadLeg}
             />
           </ScreenErrorBoundary>
           {page !== "Overview" && (

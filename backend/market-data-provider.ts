@@ -45,6 +45,30 @@ export type PriceFeedSnapshot = {
   notifications: unknown[];
 };
 
+/** Broker-neutral current option-chain contract. Provider wire fields must be
+ * normalized before they cross this boundary; null means the broker did not
+ * supply a value and must never be replaced with zero.
+ */
+export type OptionChainContractSnapshot = CatalogInstrument & {
+  price: number | null;
+  bid: number | null;
+  ask: number | null;
+  openInterest: number | null;
+  volume: number | null;
+  change: number | null;
+  stale: boolean;
+};
+
+/** A native option-chain snapshot contains active contracts only. Historical
+ * replay remains owned by the durable snapshot store, not broker adapters.
+ */
+export type ProviderOptionChainSnapshot = {
+  items: OptionChainContractSnapshot[];
+  total: number;
+  observedAt: number;
+  warning?: string;
+};
+
 export interface MarketDataProvider {
   readonly id: string;
   readonly capabilities: {
@@ -65,6 +89,22 @@ export interface MarketDataProvider {
     instruments: string[],
     segment?: MarketSegment,
   ): Promise<MarketSnapshot[]>;
+  /** Native expiry discovery is optional because some brokers require a daily
+   * instrument master (for example Zerodha) instead of exposing this endpoint.
+   */
+  getOptionExpiries?(
+    userId: string,
+    sessionHash: string,
+    underlying: string,
+  ): Promise<string[]>;
+  /** Native full-chain reads are optional. Routes fall back to exact master
+   * contracts plus bounded quote batches when a provider has no such API.
+   */
+  getOptionChain?(
+    userId: string,
+    sessionHash: string,
+    input: { underlying: string; expiryDate: string; count: number },
+  ): Promise<ProviderOptionChainSnapshot>;
   getHistoricalCandlesForDay(
     userId: string,
     sessionHash: string,

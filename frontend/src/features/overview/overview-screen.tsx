@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import {
   Activity,
   ArrowRight,
@@ -11,13 +11,14 @@ import {
   RefreshCw,
   ShieldCheck,
   Wallet,
-  X,
 } from "lucide-react";
 import { brokerAccountAdapters } from "@/features/overview/providers/broker-account-adapters";
 import { useBrokerRegistry } from "@/features/brokers/broker-hooks";
 import {
   formatAccountMoney,
   formatActivityTime,
+  type AccountHolding,
+  type AccountPosition,
   type OverviewDestination,
   type OverviewWorkspace,
 } from "@/features/overview/account-model";
@@ -26,6 +27,27 @@ import { NseMarketIntelligence } from "@/features/overview/nse-market-intelligen
 import { orderAuditEvents } from "@/features/activity/audit-model";
 import styles from "@/features/overview/overview-screen.module.css";
 import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
+import { Dialog, DialogDescription } from "@/components/ui/dialog";
+import { EmptyState } from "@/components/ui/empty-state";
+import { SkeletonRows } from "@/components/ui/skeleton";
+import { useToast } from "@/components/ui/toast";
+
+/** Unknown valuations receive no profit/loss color. Module-scope: pure, no component state. */
+function getPnlClassName(value: number | null | undefined) {
+  return value === null || value === undefined || !Number.isFinite(value)
+    ? ""
+    : value < 0
+      ? styles.negative
+      : styles.positive;
+}
 
 /** Overview is a read-only orientation screen. Every action either loads account data
  * or navigates to a dedicated workflow; no broker execution permissions are changed here. */
@@ -38,6 +60,7 @@ export function OverviewScreen({
   onNavigate: (destination: OverviewDestination) => void;
   onExploreOptionChain: () => void;
 }) {
+  const toast = useToast();
   const registry = useBrokerRegistry(workspace.csrf);
   const connectedBrokers = useMemo(() => {
     const connectedProviders = new Set(
@@ -55,7 +78,7 @@ export function OverviewScreen({
   const [selectedEvent, setSelectedEvent] = useState<
     OverviewWorkspace["events"][number] | null
   >(null);
-  const activityDialog = useRef<HTMLDialogElement>(null);
+  const [activityDialogOpen, setActivityDialogOpen] = useState(false);
   /** Default to the saved broker; never substitute another account after expiry. */
   useEffect(() => {
     const activeProvider = registry.brokers.find(
@@ -85,18 +108,168 @@ export function OverviewScreen({
     );
   }, [snapshot?.holdings]);
   const recentEvents = orderAuditEvents(workspace.events).slice(0, 5);
+  const positionColumns = useMemo<DataTableColumn<AccountPosition>[]>(
+    () => [
+      {
+        key: "symbol",
+        header: "Instrument",
+        render: (position) => position.symbol,
+        sortValue: (position) => position.symbol,
+      },
+      {
+        key: "quantity",
+        header: "Units",
+        align: "right",
+        render: (position) => (
+          <span className={styles.numeric}>{position.quantity}</span>
+        ),
+        sortValue: (position) => position.quantity,
+      },
+      {
+        key: "average",
+        header: "Average",
+        align: "right",
+        render: (position) => (
+          <span className={styles.numeric}>
+            {formatAccountMoney(position.averagePrice)}
+          </span>
+        ),
+        sortValue: (position) => position.averagePrice ?? -Infinity,
+      },
+      {
+        key: "mark",
+        header: "Mark",
+        align: "right",
+        render: (position) => (
+          <span className={styles.numeric}>
+            {formatAccountMoney(position.markPrice)}
+          </span>
+        ),
+        sortValue: (position) => position.markPrice ?? -Infinity,
+      },
+      {
+        key: "pnl",
+        header: "Position P&L",
+        align: "right",
+        render: (position) => (
+          <span
+            className={`${styles.numeric} ${getPnlClassName(position.pnl)}`}
+          >
+            {formatAccountMoney(position.pnl)}
+          </span>
+        ),
+        sortValue: (position) => position.pnl ?? -Infinity,
+      },
+    ],
+    [],
+  );
+  const holdingColumns = useMemo<DataTableColumn<AccountHolding>[]>(
+    () => [
+      {
+        key: "symbol",
+        header: "Instrument",
+        render: (holding) => (
+          <>
+            {holding.symbol}
+            <small className={styles.instrumentMeta}>
+              {holding.exchange} {holding.product}
+            </small>
+          </>
+        ),
+        sortValue: (holding) => holding.symbol,
+      },
+      {
+        key: "quantity",
+        header: "Total units",
+        align: "right",
+        render: (holding) => (
+          <span className={styles.numeric}>
+            {holding.quantity.toLocaleString("en-IN")}
+          </span>
+        ),
+        sortValue: (holding) => holding.quantity,
+      },
+      {
+        key: "pledged",
+        header: "Pledged",
+        align: "right",
+        render: (holding) => (
+          <span className={styles.numeric}>
+            {holding.pledgedQuantity?.toLocaleString("en-IN") ?? "—"}
+          </span>
+        ),
+        sortValue: (holding) => holding.pledgedQuantity ?? -Infinity,
+      },
+      {
+        key: "t1",
+        header: "T1 / unsettled",
+        align: "right",
+        render: (holding) => (
+          <span className={styles.numeric}>
+            {holding.t1Quantity?.toLocaleString("en-IN") ?? "—"}
+          </span>
+        ),
+        sortValue: (holding) => holding.t1Quantity ?? -Infinity,
+      },
+      {
+        key: "average",
+        header: "Average",
+        align: "right",
+        render: (holding) => (
+          <span className={styles.numeric}>
+            {formatAccountMoney(holding.averagePrice)}
+          </span>
+        ),
+        sortValue: (holding) => holding.averagePrice ?? -Infinity,
+      },
+      {
+        key: "ltp",
+        header: "LTP",
+        align: "right",
+        render: (holding) => (
+          <span className={styles.numeric}>
+            {formatAccountMoney(holding.markPrice)}
+          </span>
+        ),
+        sortValue: (holding) => holding.markPrice ?? -Infinity,
+      },
+      {
+        key: "currentValue",
+        header: "Current value",
+        align: "right",
+        render: (holding) => (
+          <span className={styles.numeric}>
+            {formatAccountMoney(
+              holding.markPrice === null
+                ? null
+                : holding.quantity * holding.markPrice,
+            )}
+          </span>
+        ),
+        sortValue: (holding) =>
+          holding.markPrice === null
+            ? -Infinity
+            : holding.quantity * holding.markPrice,
+      },
+      {
+        key: "pnl",
+        header: "Holding P&L",
+        align: "right",
+        render: (holding) => (
+          <span className={`${styles.numeric} ${getPnlClassName(holding.pnl)}`}>
+            {formatAccountMoney(holding.pnl)}
+          </span>
+        ),
+        sortValue: (holding) => holding.pnl ?? -Infinity,
+      },
+    ],
+    [],
+  );
   /** Bind a navigation destination without granting any trading permissions. */
   const onNavigateTo = (destination: OverviewDestination) => {
     /** Forward the user's click to the workspace shell. */
     return () => onNavigate(destination);
   };
-  /** Unknown valuations receive no profit/loss color. */
-  const getPnlClassName = (value: number | null | undefined) =>
-    value === null || value === undefined || !Number.isFinite(value)
-      ? ""
-      : value < 0
-        ? styles.negative
-        : styles.positive;
 
   /** Switch adapters; the account hook invalidates pending responses and reloads the baseline. */
   function onBrokerChange(event: ChangeEvent<HTMLSelectElement>) {
@@ -104,9 +277,21 @@ export function OverviewScreen({
     setShowPositions(false);
     setShowHoldings(false);
   }
-  /** Explicitly request one snapshot; the hook owns promise rejection and loading state. */
-  function onRefreshSnapshot() {
-    void account.loadAccountSnapshot();
+  /** Explicitly request one snapshot; the hook owns promise rejection and loading state.
+   * Surfaces the outcome as a toast — the hook's own request/error handling is unchanged. */
+  async function onRefreshSnapshot() {
+    const result = await account.loadAccountSnapshot();
+    if (result === true) {
+      toast({
+        tone: "success",
+        title: "Snapshot refreshed",
+        description: broker
+          ? `${broker.name} funds and positions are up to date.`
+          : undefined,
+      });
+    } else if (typeof result === "string") {
+      toast({ tone: "error", title: "Refresh failed", description: result });
+    }
   }
   /** Expand/collapse the selected account's table without refetching reports. */
   function onTogglePositions() {
@@ -116,21 +301,18 @@ export function OverviewScreen({
   function onToggleHoldings() {
     setShowHoldings(!showHoldings);
   }
-  /** Bind the chosen audit event to the native, keyboard-accessible details dialog. */
+  /** Bind the chosen audit event to the controlled details dialog. */
   function onOpenActivity(event: OverviewWorkspace["events"][number]) {
-    /** Open the dialog on user intent, leaving focus trapping and Escape handling to the browser. */
+    /** Open the dialog on user intent. */
     return () => {
       setSelectedEvent(event);
-      activityDialog.current?.showModal();
+      setActivityDialogOpen(true);
     };
   }
-  /** Clear details after either Escape or the close button dismisses the dialog. */
+  /** Clear details after the dialog is dismissed, by any path. */
   function onActivityClosed() {
+    setActivityDialogOpen(false);
     setSelectedEvent(null);
-  }
-  /** Close the native dialog and restore focus to its triggering activity button. */
-  function onCloseActivity() {
-    activityDialog.current?.close();
   }
 
   return (
@@ -282,7 +464,7 @@ export function OverviewScreen({
       </div>
 
       {/* Explicit snapshot controls and a single selected-book view prevent cross-mode mixing. */}
-      <section
+      <Card
         className={styles.accountStrip}
         aria-label="Selected account summary"
       >
@@ -303,23 +485,27 @@ export function OverviewScreen({
             {account.loading ? "Loading snapshot…" : "Refresh snapshot"}
           </button>
         </div>
-        <div className={styles.accountMetrics}>
-          <div>
-            <span>Account snapshot captured</span>
-            <strong className={styles.timestamp}>
-              {snapshot
-                ? new Date(snapshot.capturedAt).toLocaleString("en-IN", {
-                    timeZone: "Asia/Kolkata",
-                  }) + " IST"
-                : "Not loaded"}
-            </strong>
-            <small>
-              {snapshot?.positions?.length
-                ? account.feedMessage
-                : "Refresh explicitly to reload account data"}
-            </small>
+        {account.loading && !snapshot ? (
+          <SkeletonRows rows={1} columns={1} />
+        ) : (
+          <div className={styles.accountMetrics}>
+            <div>
+              <span>Account snapshot captured</span>
+              <strong className={styles.timestamp}>
+                {snapshot
+                  ? new Date(snapshot.capturedAt).toLocaleString("en-IN", {
+                      timeZone: "Asia/Kolkata",
+                    }) + " IST"
+                  : "Not loaded"}
+              </strong>
+              <small>
+                {snapshot?.positions?.length
+                  ? account.feedMessage
+                  : "Refresh explicitly to reload account data"}
+              </small>
+            </div>
           </div>
-        </div>
+        )}
         {!registry.loading && !broker && (
           <p className={styles.notice}>
             <a href="#/brokers">Connect a broker</a> to load funds and
@@ -348,130 +534,75 @@ export function OverviewScreen({
         )}
         {showPositions && (
           <div id="overview-positions" className={styles.positionTable}>
-            {!snapshot?.positions ? (
-              <p>
-                Position data is unavailable. It is not assumed to be an empty
-                account.
-              </p>
-            ) : !snapshot.positions.length ? (
-              <p>No open positions in this live account.</p>
+            {account.loading && !snapshot?.positions ? (
+              <SkeletonRows rows={3} columns={5} />
+            ) : !snapshot?.positions ? (
+              <EmptyState
+                title="Position data is unavailable"
+                description="It is not assumed to be an empty account."
+              />
             ) : (
-              <table>
-                <caption>
+              <>
+                <p className={styles.tableCaption}>
                   Live open positions · {broker?.name ?? "No connected broker"}
-                </caption>
-                <thead>
-                  <tr>
-                    <th>Instrument</th>
-                    <th>Units</th>
-                    <th>Average</th>
-                    <th>Mark</th>
-                    <th>Position P&amp;L</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {snapshot.positions.map(
-                    /** Render the same marked position objects used by the headline P&L. */ (
-                      position,
-                    ) => (
-                      <tr key={position.id}>
-                        <td>{position.symbol}</td>
-                        <td>{position.quantity}</td>
-                        <td>{formatAccountMoney(position.averagePrice)}</td>
-                        <td>{formatAccountMoney(position.markPrice)}</td>
-                        <td className={getPnlClassName(position.pnl)}>
-                          {formatAccountMoney(position.pnl)}
-                        </td>
-                      </tr>
-                    ),
-                  )}
-                </tbody>
-              </table>
+                </p>
+                <DataTable
+                  columns={positionColumns}
+                  rows={snapshot.positions}
+                  rowKey={(position) => position.id}
+                  emptyTitle="No open positions"
+                  emptyDescription="No open positions in this live account."
+                />
+              </>
             )}
           </div>
         )}
         {showHoldings && (
           <div id="overview-holdings" className={styles.positionTable}>
-            {!snapshot?.holdings ? (
-              <p>
-                Holdings data is unavailable. It is not assumed to be an empty
-                demat account.
-              </p>
-            ) : !snapshot.holdings.length ? (
-              <p>No holdings in this live account.</p>
+            {account.loading && !snapshot?.holdings ? (
+              <SkeletonRows rows={3} columns={8} />
+            ) : !snapshot?.holdings ? (
+              <EmptyState
+                title="Holdings data is unavailable"
+                description="It is not assumed to be an empty demat account."
+              />
             ) : (
-              <table>
-                <caption>
+              <>
+                <p className={styles.tableCaption}>
                   Live holdings · {broker?.name ?? "No connected broker"}
-                </caption>
-                <thead>
-                  <tr>
-                    <th>Instrument</th>
-                    <th>Total units</th>
-                    <th>Pledged</th>
-                    <th>T1 / unsettled</th>
-                    <th>Average</th>
-                    <th>LTP</th>
-                    <th>Current value</th>
-                    <th>Holding P&amp;L</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {snapshot.holdings.map(
-                    /** Show every normalized holding field; unavailable broker fields remain dashes. */ (
-                      holding,
-                    ) => (
-                      <tr key={holding.id}>
-                        <td>
-                          {holding.symbol}
-                          <small className={styles.instrumentMeta}>
-                            {holding.exchange} {holding.product}
-                          </small>
-                        </td>
-                        <td>{holding.quantity.toLocaleString("en-IN")}</td>
-                        <td>
-                          {holding.pledgedQuantity?.toLocaleString("en-IN") ??
-                            "—"}
-                        </td>
-                        <td>
-                          {holding.t1Quantity?.toLocaleString("en-IN") ?? "—"}
-                        </td>
-                        <td>{formatAccountMoney(holding.averagePrice)}</td>
-                        <td>{formatAccountMoney(holding.markPrice)}</td>
-                        <td>
-                          {formatAccountMoney(
-                            holding.markPrice === null
-                              ? null
-                              : holding.quantity * holding.markPrice,
-                          )}
-                        </td>
-                        <td className={getPnlClassName(holding.pnl)}>
-                          {formatAccountMoney(holding.pnl)}
-                        </td>
-                      </tr>
-                    ),
-                  )}
-                </tbody>
-              </table>
+                </p>
+                <DataTable
+                  columns={holdingColumns}
+                  rows={snapshot.holdings}
+                  rowKey={(holding) => holding.id}
+                  emptyTitle="No holdings"
+                  emptyDescription="No holdings in this live account."
+                />
+              </>
             )}
           </div>
         )}
-      </section>
+      </Card>
 
       <NseMarketIntelligence />
 
       {/* Activity stays read-only; quick actions navigate to their dedicated workflows. */}
       <div className={styles.contentGrid}>
-        <section className={styles.card} aria-label="Recent activity">
-          <div className={styles.cardHeading}>
+        <Card aria-label="Recent activity">
+          <CardHeader>
             <div>
-              <h2>Recent activity</h2>
-              <p>Latest 5 workspace events · all times IST</p>
+              <CardTitle>Recent activity</CardTitle>
+              <CardDescription>
+                Latest 5 workspace events · all times IST
+              </CardDescription>
             </div>
-            <button onClick={onNavigateTo("Activity log")}>
+            <button
+              className={styles.cardHeadingLink}
+              onClick={onNavigateTo("Activity log")}
+            >
               View all <ArrowRight size={14} />
             </button>
-          </div>
+          </CardHeader>
           {recentEvents.length ? (
             <ol className={styles.activityList}>
               {recentEvents.map(
@@ -492,16 +623,16 @@ export function OverviewScreen({
               )}
             </ol>
           ) : (
-            <div className={styles.empty}>
-              <Clock3 size={26} />
-              <h3>Your activity will appear here</h3>
-              <p>Connect your broker to get started.</p>
-            </div>
+            <EmptyState
+              icon={<Clock3 size={22} />}
+              title="Your activity will appear here"
+              description="Connect your broker to get started."
+            />
           )}
-        </section>
+        </Card>
         <div className={styles.sideCards}>
-          <section className={styles.card}>
-            <h2>Quick actions</h2>
+          <Card>
+            <CardTitle>Quick actions</CardTitle>
             <div className={styles.quickActions}>
               <button
                 className={styles.primary}
@@ -519,31 +650,27 @@ export function OverviewScreen({
                 View portfolio
               </button>
             </div>
-          </section>
-          <section className={styles.card} aria-labelledby="readiness-title">
-            <h2 id="readiness-title">Before you go live</h2>
+          </Card>
+          <Card aria-labelledby="readiness-title">
+            <CardTitle id="readiness-title">Before you go live</CardTitle>
             <ul className={styles.checklist}>
               <li>
                 <LockKeyhole size={17} />
                 <span>Server capability</span>
-                <strong
-                  className={styles.readinessBadge}
-                  data-tone={workspace.live_configured ? "ready" : "neutral"}
-                >
+                <Badge tone={workspace.live_configured ? "success" : "neutral"}>
                   {workspace.live_configured ? "Available" : "Disabled"}
-                </strong>
+                </Badge>
               </li>
               <li>
                 <ShieldCheck size={17} />
                 <span>Authenticator MFA</span>
-                <strong
-                  className={styles.readinessBadge}
-                  data-tone={
+                <Badge
+                  tone={
                     account.mfaLoading
                       ? "neutral"
                       : account.mfaEnabled
-                        ? "ready"
-                        : "attention"
+                        ? "success"
+                        : "warning"
                   }
                   role="status"
                 >
@@ -554,7 +681,7 @@ export function OverviewScreen({
                       : account.mfaEnabled
                         ? "Enabled"
                         : "Required"}
-                </strong>
+                </Badge>
                 {!account.mfaLoading && account.mfaEnabled === null && (
                   <Button
                     variant="secondary"
@@ -578,14 +705,13 @@ export function OverviewScreen({
               <li>
                 <Radio size={17} />
                 <span>Broker session</span>
-                <strong
-                  className={styles.readinessBadge}
-                  data-tone={
+                <Badge
+                  tone={
                     registry.loading || account.connected === null
                       ? "neutral"
                       : account.connected
-                        ? "ready"
-                        : "attention"
+                        ? "success"
+                        : "warning"
                   }
                 >
                   {registry.loading || account.connected === null
@@ -593,7 +719,7 @@ export function OverviewScreen({
                     : account.connected
                       ? "Connected"
                       : "Required"}
-                </strong>
+                </Badge>
                 {!registry.loading && account.connected === false && (
                   <Button
                     variant="secondary"
@@ -621,7 +747,7 @@ export function OverviewScreen({
               Connection and trading permission are separate. Check all controls
               before placing a live order.
             </p>
-          </section>
+          </Card>
         </div>
       </div>
       <footer className={styles.footer}>
@@ -630,23 +756,16 @@ export function OverviewScreen({
           <Wallet size={13} /> {broker?.name ?? "No connected broker"}
         </span>
       </footer>
-      {/* Native dialog supplies modal focus containment and Escape-to-close behavior. */}
-      <dialog
-        ref={activityDialog}
-        className={styles.eventDialog}
-        aria-labelledby="overview-event-title"
+      <Dialog
+        open={activityDialogOpen}
         onClose={onActivityClosed}
+        title="Activity details"
+        labelledBy="overview-event-title"
       >
-        <div>
-          <h2 id="overview-event-title">Activity details</h2>
-          <button aria-label="Close activity details" onClick={onCloseActivity}>
-            <X size={18} />
-          </button>
-        </div>
         {selectedEvent && (
           <>
-            <p>{selectedEvent.message}</p>
-            <dl>
+            <DialogDescription>{selectedEvent.message}</DialogDescription>
+            <dl className={styles.eventDetails}>
               <dt>Event ID</dt>
               <dd>{selectedEvent.id}</dd>
               <dt>Time (IST)</dt>
@@ -656,7 +775,7 @@ export function OverviewScreen({
             </dl>
           </>
         )}
-      </dialog>
+      </Dialog>
     </section>
   );
 }

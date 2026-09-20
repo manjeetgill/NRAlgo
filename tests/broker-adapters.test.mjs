@@ -154,6 +154,115 @@ function kite(overrides = {}) {
   );
   return { sdk, clients };
 }
+test("Zerodha builder reads current/next stock expiries and caches only its session master", async () => {
+  let masters = 0,
+    reservations = 0;
+  const { sdk } = kite({
+    getInstruments: async () => {
+      masters++;
+      return ["2099-01-29", "2099-02-26", "2099-03-26"].flatMap((expiry, i) =>
+        ["CE", "PE"].map((right, j) => ({
+          name: "RELIANCE",
+          tradingsymbol: `REL${i}${right}`,
+          instrument_type: right,
+          expiry,
+          strike: 1400,
+          lot_size: 500,
+          instrument_token: i * 2 + j + 1,
+        })),
+      );
+    },
+    getQuote: async (keys) =>
+      Object.fromEntries(
+        keys.map((key) => [
+          key,
+          { last_price: key.startsWith("NSE:") ? 1410 : 25, oi: 1000 },
+        ]),
+      ),
+  });
+  const session = sdk.restore({
+    accessToken: "fixture",
+    account: { user_id: "TEST", user_name: "Fixture" },
+  });
+  const reserve = async () => {
+    reservations++;
+  };
+  const metadata = await session.optionSnapshot(
+    { query: "REL", underlying: "RELIANCE", offset: 0 },
+    reserve,
+  );
+  assert.deepEqual(metadata.expiries, ["2099-01-29", "2099-02-26"]);
+  assert.equal(metadata.items.length, 0);
+  const page = await session.optionSnapshot(
+    {
+      query: "REL",
+      underlying: "RELIANCE",
+      expiryDate: metadata.expiries[0],
+      offset: 0,
+    },
+    reserve,
+  );
+  assert.equal(page.items.length, 2);
+  assert.equal(page.items[0].price, 25);
+  assert.equal(page.items[0].lotSize, 500);
+  assert.equal(page.underlyingPrice, 1410);
+  assert.equal(page.dataMode, "historical");
+  assert.equal(masters, 1);
+  assert.equal(reservations, 2);
+  await assert.rejects(
+    session.optionSnapshot(
+      {
+        query: "REL",
+        underlying: "RELIANCE",
+        expiryDate: "2099-03-26",
+        offset: 0,
+      },
+      reserve,
+    ),
+    /current or next/,
+  );
+});
+test("Zerodha quote denial preserves contracts without fabricating premiums", async () => {
+  const { sdk } = kite({
+    getInstruments: async () => [
+      {
+        name: "RELIANCE",
+        tradingsymbol: "RELCE",
+        instrument_type: "CE",
+        expiry: "2099-01-29",
+        strike: 1400,
+        lot_size: 500,
+        instrument_token: 1,
+      },
+    ],
+    getQuote: async () => {
+      throw {
+        status: "error",
+        error_type: "PermissionException",
+        message: "private provider payload",
+      };
+    },
+  });
+  const session = sdk.restore({
+    accessToken: "fixture",
+    account: { user_id: "TEST", user_name: "Fixture" },
+  });
+  const result = await session.optionSnapshot(
+    {
+      query: "REL",
+      underlying: "RELIANCE",
+      expiryDate: "2099-01-29",
+      offset: 0,
+    },
+    async () => {},
+  );
+  assert.equal(result.items.length, 1);
+  assert.equal(result.items[0].price, null);
+  assert.equal(result.underlyingPrice, null);
+  assert.equal(result.quotesUnavailable, true);
+  assert.match(result.warning, /denied quote access/);
+  assert.ok(!JSON.stringify(result).includes("private provider payload"));
+});
 test("Zerodha restores isolated SDK clients and verifies the bound account", async () => {
   const { sdk, clients } = kite();
   const a = sdk.restore({

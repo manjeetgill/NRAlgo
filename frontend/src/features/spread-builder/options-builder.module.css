@@ -1,7 +1,7 @@
 .builder {
   display: grid;
-  gap: 18px;
-  color: #18243a;
+  gap: var(--space-4);
+  color: var(--text-primary);
 }
 /* The right workspace always leads with payoff, followed by its selected positions. */
 .builder > .header {
@@ -29,61 +29,65 @@
   justify-content: space-between;
   align-items: center;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: var(--space-3);
 }
 .eyebrow {
-  color: #64748b;
-  font-size: 11px;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
   letter-spacing: 0.12em;
   text-transform: uppercase;
   font-weight: 700;
 }
 .muted {
-  color: #64748b;
-  font-size: 12px;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
   line-height: 1.6;
 }
 .panel {
-  background: #fff;
-  border: 1px solid #e1e7f0;
-  border-radius: 14px;
-  padding: 22px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
   min-width: 0;
   display: grid;
-  gap: 18px;
+  gap: var(--space-4);
 }
 .fields {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 14px;
+  gap: var(--space-3);
 }
-.builder label {
-  display: grid;
-  gap: 7px;
-  font-size: 12px;
-  color: #64748b;
-  font-weight: 600;
-}
-.builder input,
-.builder select {
+/* Field/Input/Select own their control styling; only the dense leg-table grid
+   and the raw range sliders below still render native, unwrapped controls. */
+.builder td input,
+.builder td select {
   min-height: 38px;
   padding: 8px 10px;
-  border: 1px solid #dce3ef;
-  border-radius: 7px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
   width: 100%;
-  color: #18243a;
-  background: #fff;
+  color: var(--text-primary);
+  background: var(--bg-raised);
   font: inherit;
+}
+.builder td input:focus-visible,
+.builder td select:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-muted);
 }
 .builder input[type="range"] {
   padding: 0;
-  accent-color: #5366dd;
+  accent-color: var(--accent);
   min-height: 24px;
+  width: 100%;
+  background: transparent;
+  border: none;
 }
 .split {
   display: grid;
   grid-template-columns: minmax(0, 1.65fr) minmax(260px, 0.75fr);
-  gap: 18px;
+  gap: var(--space-4);
   align-items: start;
 }
 .tableScroll {
@@ -92,19 +96,19 @@
 .builder table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .builder th {
   text-align: left;
   padding: 10px 8px;
-  color: #64748b;
-  background: #f8faff;
+  color: var(--text-muted);
+  background: var(--bg-raised);
   font-weight: 600;
   white-space: nowrap;
 }
 .builder td {
   padding: 10px 8px;
-  border-bottom: 1px solid #edf1f7;
+  border-bottom: 1px solid var(--border-subtle);
 }
 .legs {
   min-width: 760px;
@@ -117,71 +121,79 @@
   min-height: 16px;
   width: 16px;
   height: 16px;
-  accent-color: #5366dd;
+  accent-color: var(--accent);
 }
 .legs select {
   min-width: 70px;
 }
+.numeric {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
 .buy {
-  border-left: 3px solid #16a34a;
+  border-left: 3px solid var(--success);
 }
 .sell {
-  border-left: 3px solid #ef4444;
+  border-left: 3px solid var(--danger);
 }
 .metrics {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  gap: var(--space-3);
 }
 .metric {
-  padding: 14px;
-  border: 1px solid #e8edf5;
-  border-radius: 10px;
+  padding: var(--space-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
   display: grid;
   gap: 7px;
-  font-size: 11px;
-  color: #64748b;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
 }
 .metric strong {
-  font-size: 16px;
-  color: #18243a;
+  font-size: var(--text-lg);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
 .positive {
-  color: #15803d !important;
+  color: var(--success-text) !important;
 }
 .negative {
-  color: #dc2626 !important;
+  color: var(--danger-text) !important;
 }
 .target {
-  padding: 18px;
-  border-radius: 10px;
-  background: #f5f7ff;
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--accent-muted);
   display: grid;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .target strong {
   font-size: 25px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 .empty {
   display: grid;
   place-content: center;
   text-align: center;
-  gap: 10px;
+  gap: var(--space-2);
   min-height: 290px;
-  border: 1px dashed #dce3ef;
-  border-radius: 10px;
-  background: #fbfcff;
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-raised);
 }
 .legend {
   display: flex;
-  gap: 16px;
-  font-size: 12px;
+  gap: var(--space-4);
+  font-size: var(--text-sm);
   flex-wrap: wrap;
 }
 .actions {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   flex-wrap: wrap;
   align-items: center;
 }
@@ -191,15 +203,26 @@
 }
 .scenarioBody {
   display: grid;
-  gap: 18px;
-  margin-top: 18px;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
 }
 .icon {
   border: 0;
   background: transparent;
-  color: #64748b;
-  padding: 8px;
+  color: var(--text-muted);
+  padding: var(--space-2);
   cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+.icon:hover {
+  color: var(--danger-text);
+  background: var(--bg-hover);
+}
+.positionNotice {
+  color: var(--accent-text);
+}
+.positionFooter {
+  flex-wrap: wrap;
 }
 @media (max-width: 1100px) {
   .split {
@@ -207,6 +230,38 @@
   }
 }
 @media (max-width: 650px) {
+  /* Editable cards keep every leg control reachable without a hidden table tail. */
+  .legs {
+    min-width: 0;
+  }
+  .legs thead {
+    display: none;
+  }
+  .legs tbody {
+    display: grid;
+    gap: var(--space-3);
+  }
+  .legs tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    border: 1px solid var(--border-default);
+    border-left-width: 3px;
+    border-radius: var(--radius-sm);
+  }
+  .legs td {
+    display: grid;
+    gap: 5px;
+    min-width: 0;
+  }
+  .legs td::before {
+    content: attr(data-label);
+    font-size: var(--text-sm);
+    color: var(--text-secondary);
+  }
+  .legs input,
+  .legs select {
+    min-width: 0;
+  }
   .fields {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -214,6 +269,6 @@
     grid-template-columns: 1fr;
   }
   .panel {
-    padding: 14px;
+    padding: var(--space-4);
   }
 }

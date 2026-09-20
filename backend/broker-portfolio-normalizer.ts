@@ -6,6 +6,10 @@ export interface PortfolioRow {
   /** Kotak's public instrument token is used server-side for a display quote. */
   instrumentToken: string;
   symbol: string;
+  /** ISIN is the preferred cross-broker equity identity. Empty means unavailable. */
+  isin: string;
+  /** Derivative underlying when the broker supplies it. Empty means unavailable. */
+  underlying: string;
   exchange: string;
   product: string;
   quantity: number;
@@ -13,6 +17,8 @@ export interface PortfolioRow {
   pledgedQuantity: number | null;
   /** Broker-reported unsettled/T1 units. Null means the field was not supplied. */
   t1Quantity: number | null;
+  /** Broker-reported MTF units remain separate from settled/T1/collateral buckets. */
+  mtfQuantity: number | null;
   averagePrice: number | null;
   markPrice: number | null;
   pnl: number | null;
@@ -96,11 +102,20 @@ export function normalizePortfolioRows(
     const t1Quantity = holding
       ? firstOptionalPortfolioNumber(row.t1Quantity, row.t1Qty, row.t1_quantity)
       : null;
+    const mtfQuantity = holding
+      ? firstOptionalPortfolioNumber(
+          row.mtfQuantity,
+          row.mtfQty,
+          row.mtf_quantity,
+        )
+      : null;
     if (
       (pledgedQuantity !== null &&
         (!Number.isSafeInteger(pledgedQuantity) || pledgedQuantity < 0)) ||
       (t1Quantity !== null &&
-        (!Number.isSafeInteger(t1Quantity) || t1Quantity < 0))
+        (!Number.isSafeInteger(t1Quantity) || t1Quantity < 0)) ||
+      (mtfQuantity !== null &&
+        (!Number.isSafeInteger(mtfQuantity) || mtfQuantity < 0))
     ) {
       throw new Error("Invalid holding quantity breakdown");
     }
@@ -135,6 +150,12 @@ export function normalizePortfolioRows(
     }
     return {
       symbol,
+      isin: readPortfolioDisplayText(
+        holding ? (row.isin ?? row.isinCode ?? row.isinCd) : "",
+      ).toUpperCase(),
+      underlying: readPortfolioDisplayText(
+        holding ? "" : (row.underlying ?? row.undSym ?? row.sym),
+      ).toUpperCase(),
       instrumentToken: holding
         ? readPortfolioDisplayText(
             row.instrumentToken ??
@@ -146,6 +167,7 @@ export function normalizePortfolioRows(
       quantity,
       pledgedQuantity,
       t1Quantity,
+      mtfQuantity,
       exchange: readPortfolioDisplayText(
         holding ? row.exchangeSegment : row.exSeg,
       ),
@@ -278,17 +300,27 @@ export function normalizeZerodhaPortfolioRows(
     ) {
       throw new Error("Invalid holding quantity breakdown");
     }
+    const averagePrice = parseOptionalPortfolioNumber(row.average_price);
+    const markPrice = parseOptionalPortfolioNumber(row.last_price);
+    const reportedPnl = parseOptionalPortfolioNumber(row.pnl);
     return {
       symbol,
+      isin: readPortfolioDisplayText(row.isin).toUpperCase(),
+      underlying: readPortfolioDisplayText(row.underlying).toUpperCase(),
       instrumentToken: String(instrumentToken),
       exchange,
       product: readPortfolioDisplayText(row.product),
       quantity,
       pledgedQuantity,
       t1Quantity,
-      averagePrice: parseOptionalPortfolioNumber(row.average_price),
-      markPrice: parseOptionalPortfolioNumber(row.last_price),
-      pnl: parseOptionalPortfolioNumber(row.pnl),
+      mtfQuantity: holding ? mtfQuantity : null,
+      averagePrice,
+      markPrice,
+      pnl:
+        reportedPnl ??
+        (holding && averagePrice !== null && markPrice !== null
+          ? (markPrice - averagePrice) * quantity
+          : null),
       pnlBase: null,
       pnlPerMark: null,
       expiry: "",
@@ -298,28 +330,76 @@ export function normalizeZerodhaPortfolioRows(
   });
 }
 
-/** Read Zerodha's NSE/NFO buying power without exposing the raw margin payload. */
-export function normalizeZerodhaAvailableFunds(raw: unknown): number | null {
+/** Broker-neutral funds keep buying power distinct from cash and collateral. */
+export interface NormalizedFunds {
+  availableMargin: number | null;
+  cashBalance: number | null;
+  usedMargin: number | null;
+  collateralValue: number | null;
+  /** Account-wide open-position MTM when the broker reports it with limits. */
+  positionMtm: number | null;
+}
+
+/** Read Zerodha's NSE/NFO margin breakdown without exposing the raw payload. */
+export function normalizeZerodhaFunds(raw: unknown): NormalizedFunds {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return null;
+    return {
+      availableMargin: null,
+      cashBalance: null,
+      usedMargin: null,
+      collateralValue: null,
+      positionMtm: null,
+    };
   }
   const equity = (raw as Record<string, unknown>).equity;
   if (!equity || typeof equity !== "object" || Array.isArray(equity)) {
-    return null;
+    return {
+      availableMargin: null,
+      cashBalance: null,
+      usedMargin: null,
+      collateralValue: null,
+      positionMtm: null,
+    };
   }
   const record = equity as Record<string, unknown>;
-  const available = record.available;
-  const candidates = [
-    record.net,
-    available && typeof available === "object" && !Array.isArray(available)
-      ? (available as Record<string, unknown>).live_balance
-      : null,
-  ];
+  const available =
+    record.available &&
+    typeof record.available === "object" &&
+    !Array.isArray(record.available)
+      ? (record.available as Record<string, unknown>)
+      : null;
+  const utilised =
+    record.utilised &&
+    typeof record.utilised === "object" &&
+    !Array.isArray(record.utilised)
+      ? (record.utilised as Record<string, unknown>)
+      : null;
+  const candidates = [record.net, available?.live_balance];
+  let availableMargin: number | null = null;
   for (const value of candidates) {
     const parsed = parseOptionalPortfolioNumber(value);
     if (parsed !== null) {
-      return parsed;
+      availableMargin = parsed;
+      break;
     }
   }
-  return null;
+  return {
+    availableMargin,
+    cashBalance: firstOptionalPortfolioNumber(
+      available?.cash,
+      available?.opening_balance,
+      available?.live_balance,
+    ),
+    usedMargin: firstOptionalPortfolioNumber(utilised?.debits, utilised?.span),
+    collateralValue: firstOptionalPortfolioNumber(
+      available?.collateral,
+      available?.adhoc_margin,
+    ),
+    positionMtm: null,
+  };
+}
+
+/** Compatibility helper for account cards that only need current buying power. */
+export function normalizeZerodhaAvailableFunds(raw: unknown): number | null {
+  return normalizeZerodhaFunds(raw).availableMargin;
 }

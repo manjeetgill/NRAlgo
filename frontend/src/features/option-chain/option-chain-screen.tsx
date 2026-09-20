@@ -5,8 +5,12 @@ import {
   type ChainContract,
 } from "@/components/live-option-chain";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/field";
+import { Badge } from "@/components/ui/badge";
+import { Dialog } from "@/components/ui/dialog";
+import { useToast } from "@/components/ui/toast";
 import { useMarketFeed } from "./use-market-feed";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { UnderlyingSearch } from "@/components/underlying-search";
 import { IndependentChart } from "./independent-chart";
 import { LiveOrderTicket } from "@/features/live-trading/live-order-ticket";
@@ -52,12 +56,7 @@ export function OptionChainScreen({
     contract: ChainContract;
     side: "buy" | "sell";
   } | null>(null);
-  const orderDialog = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    if (order) {
-      orderDialog.current?.showModal();
-    }
-  }, [order]);
+  const toast = useToast();
   return (
     <section
       className={`screen-stack ${styles.workspace}`}
@@ -69,7 +68,7 @@ export function OptionChainScreen({
         </div>
         <label>
           Index / Stock
-          <select
+          <Select
             aria-label="Option chain index or stock"
             value={
               [
@@ -95,7 +94,7 @@ export function OptionChainScreen({
               ),
             )}
             <option value="stock">Search stock…</option>
-          </select>
+          </Select>
         </label>
         <Button
           variant="secondary"
@@ -111,7 +110,7 @@ export function OptionChainScreen({
         </Button>
         <label>
           Columns
-          <select
+          <Select
             value={essentialColumns ? "essential" : "all"}
             onChange={(event) =>
               setEssentialColumns(event.target.value === "essential")
@@ -119,19 +118,25 @@ export function OptionChainScreen({
           >
             <option value="essential">Premiums & strike</option>
             <option value="all">All columns & Greeks</option>
-          </select>
+          </Select>
         </label>
         <div className={styles.broker}>
-          <span>
-            For live trading:{" "}
+          <span>For live trading:</span>
+          <Badge
+            tone={activeBroker?.status === "connected" ? "success" : "neutral"}
+          >
             {activeBroker
               ? `${activeBroker.provider.toUpperCase()} · ${activeBroker.status}`
               : "No active broker"}
-          </span>{" "}
+          </Badge>
           <a href="#/brokers">Manage brokers →</a>
         </div>
       </div>
-      {brokers.error && <p role="alert">{brokers.error}</p>}
+      {brokers.error && (
+        <p role="alert" className={styles.error}>
+          {brokers.error}
+        </p>
+      )}
       <p className={styles.notes}>
         Select a premium to inspect the contract or add a payoff leg.{" "}
         {dataMode === "historical"
@@ -153,7 +158,7 @@ export function OptionChainScreen({
         />
       )}
       {underlying && feed.error && (
-        <p role="alert" className="error">
+        <p role="alert" className={styles.error}>
           {feed.error}
         </p>
       )}
@@ -167,7 +172,17 @@ export function OptionChainScreen({
           onExpiryChange={() => setReference(null)}
           csrf={csrf}
           ticks={dataMode === "live" ? feed.ticks : []}
-          onAddLeg={onAddLeg}
+          onAddLeg={(contract, side) => {
+            const message = onAddLeg(contract, side);
+            if (!message) {
+              toast({
+                tone: "success",
+                title: `${contract.symbol} added to payoff builder`,
+                description: `${side === "buy" ? "Buy" : "Sell"} leg queued for the builder.`,
+              });
+            }
+            return message;
+          }}
           compact
           analytics
           essentialColumns={essentialColumns}
@@ -195,26 +210,23 @@ export function OptionChainScreen({
         <summary>Historical price chart</summary>
         {chartOpen && <IndependentChart />}
       </details>
-      <dialog
-        ref={orderDialog}
-        className={`workspace-dialog ${styles.ticket}`}
+      <Dialog
+        open={Boolean(order)}
         onClose={() => setOrder(null)}
-        aria-label="Review option order"
+        title="Review option order"
+        labelledBy="option-chain-order-title"
+        className={styles.wideDialog}
       >
-        <Button
-          variant="secondary"
-          onClick={() => orderDialog.current?.close()}
-        >
-          Close order review
-        </Button>
-        {order && (
-          <LiveOrderTicket
-            key={`${brokers.activeBrokerId}:${order.contract.symbol}:${order.side}`}
-            csrf={csrf}
-            initialOrder={order}
-          />
-        )}
-      </dialog>
+        <div className={styles.ticket}>
+          {order && (
+            <LiveOrderTicket
+              key={`${brokers.activeBrokerId}:${order.contract.symbol}:${order.side}`}
+              csrf={csrf}
+              initialOrder={order}
+            />
+          )}
+        </div>
+      </Dialog>
     </section>
   );
 }

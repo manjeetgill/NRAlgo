@@ -3,9 +3,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Trash2, Plus } from "lucide-react";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Field, Input, Select } from "@/components/ui/field";
+import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import type { ResearchDraft } from "@/features/research/research-draft";
 import {
   usePayoffCalculation,
+  type PayoffCalculation,
   type PayoffCalculationInput,
   type PayoffLegInput,
 } from "./use-payoff-calculation";
@@ -28,6 +32,7 @@ type EditorLeg = {
 };
 /** Enabled editor positions drive chain highlighting, including manual side changes. */
 export type PayoffSelection = {
+  enabled: boolean;
   stockCode: string;
   expiryDate: string;
   strikePrice: number;
@@ -63,6 +68,43 @@ const day = (offset = 0) =>
     .toISOString()
     .slice(0, 10);
 const daySchema = z.iso.date();
+type ScenarioPoint = PayoffCalculation["points"][number];
+/** Sampled expiry/target-date rows for the read-only scenario table. */
+const scenarioColumns: DataTableColumn<ScenarioPoint>[] = [
+  {
+    key: "spot",
+    header: "Underlying ₹",
+    align: "right",
+    sortValue: (p) => p.spot,
+    render: (p) => <span className={styles.numeric}>{money(p.spot)}</span>,
+  },
+  {
+    key: "expiry",
+    header: "Expiry P&L",
+    align: "right",
+    sortValue: (p) => p.expiry,
+    render: (p) => (
+      <span
+        className={`${styles.numeric} ${p.expiry >= 0 ? styles.positive : styles.negative}`}
+      >
+        {money(p.expiry)}
+      </span>
+    ),
+  },
+  {
+    key: "scenario",
+    header: "Target-date P&L",
+    align: "right",
+    sortValue: (p) => p.scenario ?? 0,
+    render: (p) => (
+      <span
+        className={`${styles.numeric} ${(p.scenario ?? 0) >= 0 ? styles.positive : styles.negative}`}
+      >
+        {p.scenario === null ? "Unavailable" : money(p.scenario)}
+      </span>
+    ),
+  },
+];
 
 /** Editable scenario assumptions are calculated by Python and never enter order execution. */
 export function OptionsPayoffBuilder({
@@ -72,6 +114,7 @@ export function OptionsPayoffBuilder({
   valuationDate,
   referenceSpot,
   referenceDay,
+  useStoredSpot = true,
   onSelectionChange,
 }: {
   csrf: string;
@@ -80,6 +123,8 @@ export function OptionsPayoffBuilder({
   valuationDate?: string;
   referenceSpot?: number;
   referenceDay?: string;
+  /** Chain-driven editors must use the chain date/spot, not unrelated cash history. */
+  useStoredSpot?: boolean;
   onSelectionChange?: (legs: PayoffSelection[]) => void;
 }) {
   const [symbol, setSymbol] = useState("");
@@ -92,15 +137,14 @@ export function OptionsPayoffBuilder({
   useUnsavedResearchWarning(legs.length > 0);
   useEffect(() => {
     onSelectionChange?.(
-      legs
-        .filter((leg) => leg.enabled)
-        .map((leg) => ({
-          stockCode: symbol,
-          expiryDate: expiry,
-          strikePrice: Number(leg.strike),
-          right: leg.right,
-          side: leg.side,
-        })),
+      legs.map((leg) => ({
+        enabled: leg.enabled,
+        stockCode: symbol,
+        expiryDate: expiry,
+        strikePrice: Number(leg.strike),
+        right: leg.right,
+        side: leg.side,
+      })),
     );
   }, [legs, symbol, expiry, onSelectionChange]);
   const [target, setTarget] = useState("");
@@ -109,7 +153,6 @@ export function OptionsPayoffBuilder({
   const [notice, setNotice] = useState("");
   const [view, setView] = useState("graph");
   const sourceIds = useRef(new WeakMap<object, string>());
-  const removedIds = useRef(new Set<string>());
   /** Resolve the selected scrip's last real stored close at the replay cutoff.
    * A missing stored candle leaves spot blank; option premiums are never derived
    * from this underlying value.
@@ -128,6 +171,11 @@ export function OptionsPayoffBuilder({
     ) {
       setSpot(String(referenceSpot));
       setAsOf(referenceDay ?? valuationDate ?? day());
+      setTarget("");
+      return;
+    }
+    if (!useStoredSpot) {
+      setAsOf(valuationDate ?? day());
       setTarget("");
       return;
     }
@@ -180,7 +228,13 @@ export function OptionsPayoffBuilder({
       }
     })();
     return () => controller.abort();
-  }, [initialUnderlying, valuationDate, referenceSpot, referenceDay]);
+  }, [
+    initialUnderlying,
+    valuationDate,
+    referenceSpot,
+    referenceDay,
+    useStoredSpot,
+  ]);
   /** Apply one immutable leg edit so memoized validation sees a new basket. */
   function edit(id: string, patch: Partial<EditorLeg>) {
     setLegs((rows) =>
@@ -214,39 +268,37 @@ export function OptionsPayoffBuilder({
     }
     setSymbol(source[0].stockCode);
     setExpiry(source[0].expiryDate?.slice(0, 10) ?? "");
-    setLegs((previous) =>
-      source
-        .slice(0, 12)
-        .map((leg) => {
-          let id = sourceIds.current.get(leg);
-          if (!id) {
-            id = crypto.randomUUID();
-            sourceIds.current.set(leg, id);
-          }
-          const existing = previous.find((row) => row.id === id);
-          if (existing) {
-            return existing;
-          }
-          const reference = draft?.marketReferences?.find(
-            (item) =>
-              item.stockCode === leg.stockCode &&
-              item.expiryDate === leg.expiryDate &&
-              item.right === leg.right &&
-              item.strikePrice === leg.strikePrice,
-          );
-          return {
-            ...freshLeg(),
-            id,
-            right: leg.right ?? "call",
-            side: leg.side,
-            strike: String(leg.strikePrice ?? ""),
-            lotSize: leg.quantity > 0 ? String(leg.quantity) : "",
-            lots: "1",
-            premium: reference ? String(reference.price) : "",
-          };
-        })
-        .filter((leg) => !removedIds.current.has(leg.id)),
-    );
+    // Consume each handoff once outside React's replayable state updater.
+    const additions = source
+      .slice(0, 12)
+      .filter((leg) => !sourceIds.current.has(leg))
+      .map((leg) => {
+        let id = sourceIds.current.get(leg);
+        if (!id) {
+          id = crypto.randomUUID();
+          sourceIds.current.set(leg, id);
+        }
+        const reference = draft?.marketReferences?.find(
+          (item) =>
+            item.stockCode === leg.stockCode &&
+            item.expiryDate === leg.expiryDate &&
+            item.right === leg.right &&
+            item.strikePrice === leg.strikePrice,
+        );
+        return {
+          ...freshLeg(),
+          id,
+          right: leg.right ?? "call",
+          side: leg.side,
+          strike: String(leg.strikePrice ?? ""),
+          lotSize: leg.quantity > 0 ? String(leg.quantity) : "",
+          lots: "1",
+          premium: reference ? String(reference.price) : "",
+        };
+      });
+    if (additions.length) {
+      setLegs((previous) => [...previous, ...additions]);
+    }
     setElapsed(0);
     setNotice(
       draft?.marketReferences?.length
@@ -408,7 +460,7 @@ export function OptionsPayoffBuilder({
           <p className={styles.eyebrow}>OPTIONS WORKSPACE</p>
           <h2>Build a strategy. Explore its payoff.</h2>
         </div>
-        <span className="badge">SIMULATION ONLY</span>
+        <Badge tone="warning">Simulation only</Badge>
       </div>
       <article className={`${styles.panel} ${styles.positionsPanel}`}>
         <div className={styles.header}>
@@ -416,20 +468,19 @@ export function OptionsPayoffBuilder({
           <span className={styles.muted}>Use B / S in the option chain</span>
         </div>
         <div className={`${styles.fields} ${styles.contractFields}`}>
-          <label>
-            Underlying
-            <input
-              aria-label="Payoff underlying"
+          <Field label="Underlying" htmlFor="payoff-underlying">
+            <Input
+              id="payoff-underlying"
               placeholder="e.g. NIFTY"
               value={symbol}
               maxLength={60}
               onChange={(e) => setSymbol(e.target.value)}
             />
-          </label>
-          <label>
-            Spot price (₹)
-            <input
-              aria-label="Payoff spot price"
+          </Field>
+          <Field label="Spot price (₹)" htmlFor="payoff-spot">
+            <Input
+              id="payoff-spot"
+              className={styles.numeric}
               type="number"
               min="0.01"
               step="0.01"
@@ -439,31 +490,31 @@ export function OptionsPayoffBuilder({
                 setTarget("");
               }}
             />
-          </label>
-          <label>
-            Valuation date
-            <input
+          </Field>
+          <Field label="Valuation date" htmlFor="payoff-asof">
+            <Input
+              id="payoff-asof"
               type="date"
-              aria-label="Valuation date"
+              className={styles.numeric}
               value={asOf}
               onChange={(e) => {
                 setAsOf(e.target.value);
                 setElapsed(0);
               }}
             />
-          </label>
-          <label>
-            Common expiry
-            <input
+          </Field>
+          <Field label="Common expiry" htmlFor="payoff-expiry">
+            <Input
+              id="payoff-expiry"
               type="date"
-              aria-label="Common expiry"
+              className={styles.numeric}
               value={expiry}
               onChange={(e) => {
                 setExpiry(e.target.value);
                 setElapsed(0);
               }}
             />
-          </label>
+          </Field>
         </div>
         {notice && (
           <p
@@ -494,7 +545,7 @@ export function OptionsPayoffBuilder({
                   key={leg.id}
                   className={leg.side === "buy" ? styles.buy : styles.sell}
                 >
-                  <td>
+                  <td data-label="Use leg">
                     <input
                       type="checkbox"
                       aria-label={`Enable leg ${i + 1}`}
@@ -504,7 +555,7 @@ export function OptionsPayoffBuilder({
                       }
                     />
                   </td>
-                  <td>
+                  <td data-label="Side">
                     <select
                       aria-label={`Side leg ${i + 1}`}
                       value={leg.side}
@@ -516,7 +567,7 @@ export function OptionsPayoffBuilder({
                       <option value="sell">Sell</option>
                     </select>
                   </td>
-                  <td>
+                  <td data-label="Type">
                     <select
                       aria-label={`Type leg ${i + 1}`}
                       value={leg.right}
@@ -533,9 +584,21 @@ export function OptionsPayoffBuilder({
                   {(
                     ["strike", "lots", "lotSize", "premium", "iv"] as const
                   ).map((field) => (
-                    <td key={field}>
+                    <td
+                      key={field}
+                      data-label={
+                        {
+                          strike: "Strike",
+                          lots: "Lots",
+                          lotSize: "Lot size",
+                          premium: "Premium ₹",
+                          iv: "IV %",
+                        }[field]
+                      }
+                    >
                       <input
                         type="number"
+                        className={styles.numeric}
                         aria-label={`${field} leg ${i + 1}`}
                         value={leg[field]}
                         min={
@@ -554,13 +617,12 @@ export function OptionsPayoffBuilder({
                       />
                     </td>
                   ))}
-                  <td>
+                  <td data-label="Remove">
                     <button
                       type="button"
                       className={styles.icon}
                       aria-label={`Remove leg ${i + 1}`}
                       onClick={() => {
-                        removedIds.current.add(leg.id);
                         setLegs((rows) =>
                           rows.filter((row) => row.id !== leg.id),
                         );
@@ -592,7 +654,7 @@ export function OptionsPayoffBuilder({
         <article className={styles.panel}>
           <div className={styles.header}>
             <h3>Payoff analysis</h3>
-            <select
+            <Select
               aria-label="Payoff view"
               style={{ width: "auto" }}
               value={view}
@@ -600,8 +662,15 @@ export function OptionsPayoffBuilder({
             >
               <option value="graph">Payoff graph</option>
               <option value="matrix">Scenario table</option>
-            </select>
+            </Select>
           </div>
+          <p className={styles.muted}>
+            Target-date P&amp;L is a model estimate, not broker P&amp;L. IV
+            defaults to 20% unless edited; it is not calibrated to the entered
+            premium. Even at unchanged spot and 0 days passed, model value can
+            differ from your entry price. Expiry payoff uses the entered
+            premiums.
+          </p>
           {result?.analysis && result.basket ? (
             <>
               <div className={styles.metrics}>
@@ -625,7 +694,7 @@ export function OptionsPayoffBuilder({
               <div className={styles.legend}>
                 <span>━ Expiry payoff</span>
                 {result.analysis.target && (
-                  <span style={{ color: "#6366f1" }}>
+                  <span style={{ color: "var(--accent-text)" }}>
                     ┄ Target-date estimate
                   </span>
                 )}
@@ -638,46 +707,12 @@ export function OptionsPayoffBuilder({
                   onTarget={(s) => setTarget(String(s))}
                 />
               ) : (
-                <div className={styles.tableScroll}>
-                  <table aria-label="Payoff scenario table">
-                    <thead>
-                      <tr>
-                        <th>Underlying ₹</th>
-                        <th>Expiry P&amp;L</th>
-                        <th>Target-date P&amp;L</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {result.analysis.points
-                        .filter((_, i) => i % 10 === 0)
-                        .map((p) => (
-                          <tr key={p.spot}>
-                            <td>{money(p.spot)}</td>
-                            <td
-                              className={
-                                p.expiry >= 0
-                                  ? styles.positive
-                                  : styles.negative
-                              }
-                            >
-                              {money(p.expiry)}
-                            </td>
-                            <td
-                              className={
-                                (p.scenario ?? 0) >= 0
-                                  ? styles.positive
-                                  : styles.negative
-                              }
-                            >
-                              {p.scenario === null
-                                ? "Unavailable"
-                                : money(p.scenario)}
-                            </td>
-                          </tr>
-                        ))}
-                    </tbody>
-                  </table>
-                </div>
+                <DataTable
+                  columns={scenarioColumns}
+                  rows={result.analysis.points.filter((_, i) => i % 10 === 0)}
+                  rowKey={(p) => String(p.spot)}
+                  emptyTitle="No scenario rows"
+                />
               )}
               <p className={styles.muted}>
                 Breakeven at expiry:{" "}
@@ -704,16 +739,16 @@ export function OptionsPayoffBuilder({
               <p className={styles.eyebrow}>WHAT IF?</p>
               <h3>Target scenario</h3>
             </div>
-            <label>
-              Target price (₹)
-              <input
-                aria-label="Target price"
+            <Field label="Target price (₹)" htmlFor="payoff-target">
+              <Input
+                id="payoff-target"
+                className={styles.numeric}
                 type="number"
                 step="0.01"
                 value={target || spot}
                 onChange={(e) => setTarget(e.target.value)}
               />
-            </label>
+            </Field>
             {calculation.analysis && (
               <input
                 aria-label="Target price slider"
@@ -725,10 +760,12 @@ export function OptionsPayoffBuilder({
                 onChange={(e) => setTarget(e.target.value)}
               />
             )}
-            <label>
-              Days passed: {Math.min(elapsed, calculation.days ?? 0)} /{" "}
-              {calculation.days ?? 0}
+            <Field
+              label={`Days passed: ${Math.min(elapsed, calculation.days ?? 0)} / ${calculation.days ?? 0}`}
+              htmlFor="payoff-days-passed"
+            >
               <input
+                id="payoff-days-passed"
                 aria-label="Days passed"
                 type="range"
                 min="0"
@@ -738,11 +775,13 @@ export function OptionsPayoffBuilder({
                 value={Math.min(elapsed, calculation.days ?? 0)}
                 onChange={(e) => setElapsed(Number(e.target.value))}
               />
-            </label>
-            <label>
-              IV change: {ivShift > 0 ? "+" : ""}
-              {ivShift} percentage points
+            </Field>
+            <Field
+              label={`IV change: ${ivShift > 0 ? "+" : ""}${ivShift} percentage points`}
+              htmlFor="payoff-iv-shift"
+            >
               <input
+                id="payoff-iv-shift"
                 aria-label="IV change"
                 type="range"
                 min="-20"
@@ -751,7 +790,7 @@ export function OptionsPayoffBuilder({
                 value={ivShift}
                 onChange={(e) => setIvShift(Number(e.target.value))}
               />
-            </label>
+            </Field>
             <div className={styles.target}>
               <span className={styles.muted}>
                 Estimated target-date P&amp;L
@@ -795,25 +834,25 @@ export function OptionsPayoffBuilder({
                 className={styles.fields}
                 style={{ gridTemplateColumns: "1fr 1fr", marginTop: 12 }}
               >
-                <label>
-                  Risk-free rate %
-                  <input
-                    aria-label="Risk-free rate"
+                <Field label="Risk-free rate %" htmlFor="payoff-rate">
+                  <Input
+                    id="payoff-rate"
+                    className={styles.numeric}
                     type="number"
                     value={rate}
                     onChange={(e) => setRate(e.target.value)}
                   />
-                </label>
-                <label>
-                  Dividend yield %
-                  <input
-                    aria-label="Dividend yield"
+                </Field>
+                <Field label="Dividend yield %" htmlFor="payoff-dividend">
+                  <Input
+                    id="payoff-dividend"
+                    className={styles.numeric}
                     type="number"
                     min="0"
                     value={dividend}
                     onChange={(e) => setDividend(e.target.value)}
                   />
-                </label>
+                </Field>
               </div>
               <p className={styles.muted}>
                 European Black–Scholes, calendar days / 365, constant IV per

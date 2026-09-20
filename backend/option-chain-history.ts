@@ -27,6 +27,58 @@ const storedChainSchema = z
 
 export type StoredOptionChain = z.infer<typeof storedChainSchema>;
 
+/** Research-only fallback: exact provider cache first, then explicitly labelled NSE close.
+ * No other broker's tokens are substituted and expired contracts are excluded.
+ */
+export async function readBuilderSnapshot(
+  store: Store,
+  input: {
+    userId: string;
+    provider: string;
+    underlying: string;
+    expiryDate?: string;
+    offset: number;
+  },
+) {
+  const today = new Date(Date.now() + 19800000).toISOString().slice(0, 10);
+  if (input.expiryDate && input.expiryDate < today) {
+    return null;
+  }
+  const broker = await readOptionChainSnapshot(store, input);
+  const validBroker =
+    broker &&
+    (!input.expiryDate ||
+      broker.items.some(
+        (item) => typeof item.price === "number" && item.price > 0,
+      ));
+  const result = validBroker
+    ? broker
+    : await readOptionChainSnapshot(store, {
+        userId: input.userId,
+        underlying: input.underlying,
+        expiryDate: input.expiryDate,
+        offset: input.offset,
+        closingOnly: true,
+      });
+  if (!result) {
+    return null;
+  }
+  const expiries = result.expiries.filter((day) => day >= today).slice(0, 2);
+  if (
+    !expiries.length ||
+    (input.expiryDate && !expiries.includes(input.expiryDate))
+  ) {
+    return null;
+  }
+  return {
+    ...result,
+    expiries,
+    warning: validBroker
+      ? "Broker unavailable. Saved broker snapshot; not live prices."
+      : "Broker quotes unavailable. Showing NSE closing prices from the displayed snapshot date, not live broker quotes. Research only.",
+  };
+}
+
 /** End an ISO exchange day at 23:59:59.999 IST for an inclusive replay lookup. */
 function replayCutoff(asOf?: string) {
   return asOf ? Date.parse(`${asOf}T23:59:59.999+05:30`) : Date.now();
@@ -72,7 +124,7 @@ export async function saveOptionChainSnapshot(
   });
 }
 
-/** List only underlyings for which this owner has a genuine stored broker snapshot. */
+/** Search actual option observations, not cash history that cannot supply premiums. */
 export async function searchStoredOptionUnderlyings(
   store: Store,
   userId: string,
@@ -85,9 +137,6 @@ export async function searchStoredOptionUnderlyings(
       `SELECT underlying FROM (
          SELECT DISTINCT underlying FROM option_chain_snapshots
          WHERE user_id=$1 AND underlying ILIKE $2 AND observed_at<=$3
-         UNION
-         SELECT DISTINCT symbol AS underlying FROM eod_instruments
-         WHERE symbol ILIKE $2
          UNION
          SELECT DISTINCT i.underlying FROM option_eod_instruments i
          JOIN option_eod_candles c ON c.instrument_id=i.id
@@ -228,6 +277,10 @@ export async function readOptionChainSnapshot(
       pageOffset: Number(row.page_offset),
     };
   });
+  // Provider-specific fallback must never substitute another feed or EOD archive.
+  if (input.provider) {
+    return stored;
+  }
   if (input.expiryDate) {
     return (
       stored ??

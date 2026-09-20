@@ -1,0 +1,18 @@
+/* Scoped overrides exclusive to the research workbench; shared tokens/layout live in
+ * globals.css (.research-lab) and workspace.css (.research-workspace-columns). */
+.wideDialog {
+  width: min(900px, calc(100vw - 32px));
+}
+.libraryField {
+  flex: 1;
+  min-width: 220px;
+}
+.mono {
+  font-family: var(--font-mono);
+}
+.positive {
+  color: var(--success-text);
+}
+.negative {
+  color: var(--danger-text);
+}

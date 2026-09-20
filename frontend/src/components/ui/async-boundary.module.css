@@ -1,0 +1,29 @@
+.errorPanel {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid rgba(242, 73, 92, 0.35);
+  background: var(--danger-muted);
+  border-radius: var(--radius-md);
+}
+.errorIcon {
+  color: var(--danger-text);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.errorTitle {
+  font-size: var(--text-sm);
+  font-weight: 650;
+  color: var(--text-primary);
+}
+.errorMessage {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin-top: 2px;
+}
+.retry {
+  margin-left: auto;
+  flex-shrink: 0;
+}

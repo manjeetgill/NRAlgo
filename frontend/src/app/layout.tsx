@@ -1,6 +1,9 @@
 /** Root document metadata and shared stylesheet. No user or broker secrets belong in layout props. */
 import type { Metadata } from "next";
 import { connection } from "next/server";
+import { ThemeProvider } from "@/components/ui/theme-provider";
+import { ToastProvider } from "@/components/ui/toast";
+import { ConfirmProvider } from "@/components/ui/confirm";
 import "./globals.css";
 export const metadata: Metadata = {
   title: "NRIAlgo · Your trading workspace",
@@ -18,7 +21,13 @@ export default async function RootLayout({
       {/* Extensions such as Writer add body attributes before React hydrates.
           Tolerate differences on this element only; child UI mismatches must still surface.
           This neither enables extension scripts nor relaxes the Content Security Policy. */}
-      <body suppressHydrationWarning>{children}</body>
+      <body suppressHydrationWarning>
+        <ThemeProvider>
+          <ToastProvider>
+            <ConfirmProvider>{children}</ConfirmProvider>
+          </ToastProvider>
+        </ThemeProvider>
+      </body>
     </html>
   );
 }

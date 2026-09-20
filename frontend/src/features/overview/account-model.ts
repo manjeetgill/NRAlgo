@@ -47,6 +47,8 @@ export interface AccountSnapshot {
   availableFunds: number | null;
   pnl: number | null;
   positions: AccountPosition[] | null;
+  /** Account-wide unrealized P&L has a different basis from marked open positions. */
+  reportedUnrealizedPnl?: number | null;
   holdings: AccountHolding[] | null;
   capturedAt: number;
   warnings: string[];

@@ -37,12 +37,21 @@ export function PayoffGraph({
     Math.abs(a.spot - cursor) < Math.abs(b.spot - cursor) ? a : b,
   );
   return (
-    <div>
+    <div
+      style={{ overflowX: "auto" }}
+      tabIndex={0}
+      aria-label="Payoff chart; scroll horizontally on small screens"
+    >
       <svg
         viewBox="0 0 780 354"
         role="img"
         aria-label="Strategy payoff graph: expiry and target-date P&L"
-        style={{ width: "100%", display: "block", touchAction: "pan-y" }}
+        style={{
+          width: "100%",
+          minWidth: 580,
+          display: "block",
+          touchAction: "pan-x pan-y",
+        }}
         onPointerMove={(event) => {
           const rect = event.currentTarget.getBoundingClientRect();
           const px = ((event.clientX - rect.left) / rect.width) * 780;
@@ -77,48 +86,57 @@ export function PayoffGraph({
                 x2="738"
                 y1={y(value)}
                 y2={y(value)}
-                stroke="#e8edf5"
+                stroke="var(--border-subtle)"
               />
               <text
                 x="68"
                 y={y(value) + 4}
                 textAnchor="end"
                 fontSize="11"
-                fill="#64748b"
+                fontFamily="var(--font-mono)"
+                fill="var(--text-muted)"
               >
                 {money(value)}
               </text>
             </g>
           );
         })}
-        <path d={area} fill="#dcfce7" clipPath={`url(#${id}-positive)`} />
-        <path d={area} fill="#fee2e2" clipPath={`url(#${id}-negative)`} />
+        <path
+          d={area}
+          fill="var(--success-muted)"
+          clipPath={`url(#${id}-positive)`}
+        />
+        <path
+          d={area}
+          fill="var(--danger-muted)"
+          clipPath={`url(#${id}-negative)`}
+        />
         <line
           x1="78"
           x2="738"
           y1={y(0)}
           y2={y(0)}
-          stroke="#94a3b8"
+          stroke="var(--border-strong)"
           strokeDasharray="4 4"
         />
         <polyline
           points={line("expiry")}
           fill="none"
-          stroke="#16a34a"
+          stroke="var(--success)"
           strokeWidth="2.5"
           clipPath={`url(#${id}-positive)`}
         />
         <polyline
           points={line("expiry")}
           fill="none"
-          stroke="#dc2626"
+          stroke="var(--danger)"
           strokeWidth="2.5"
           clipPath={`url(#${id}-negative)`}
         />
         <polyline
           points={line("scenario")}
           fill="none"
-          stroke="#6366f1"
+          stroke="var(--accent)"
           strokeWidth="2.5"
           strokeDasharray="6 4"
         />
@@ -127,7 +145,7 @@ export function PayoffGraph({
           x2={x(cursor)}
           y1="40"
           y2="300"
-          stroke="#64748b"
+          stroke="var(--text-muted)"
           strokeDasharray="3 5"
         />
         {[0, 1, 2, 3, 4].map((i) => {
@@ -139,16 +157,23 @@ export function PayoffGraph({
               y="320"
               textAnchor="middle"
               fontSize="11"
-              fill="#64748b"
+              fontFamily="var(--font-mono)"
+              fill="var(--text-muted)"
             >
               {money(price)}
             </text>
           );
         })}
-        <text x="400" y="348" textAnchor="middle" fontSize="12" fill="#64748b">
+        <text
+          x="400"
+          y="348"
+          textAnchor="middle"
+          fontSize="12"
+          fill="var(--text-muted)"
+        >
           Underlying price (₹)
         </text>
-        <text x="78" y="20" fontSize="12" fill="#64748b">
+        <text x="78" y="20" fontSize="12" fill="var(--text-muted)">
           Profit / loss (₹)
         </text>
       </svg>
@@ -159,11 +184,13 @@ export function PayoffGraph({
           gap: 16,
           flexWrap: "wrap",
           justifyContent: "center",
+          fontFamily: "var(--font-mono)",
+          color: "var(--text-secondary)",
         }}
       >
         <span>Spot ₹{money(nearest.spot)}</span>
         <span>Expiry ₹{money(nearest.expiry)}</span>
-        <span style={{ color: "#6366f1" }}>
+        <span style={{ color: "var(--accent-text)" }}>
           Target date ₹{money(nearest.scenario)}
         </span>
       </div>

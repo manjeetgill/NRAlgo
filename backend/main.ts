@@ -54,6 +54,12 @@ import {
   registerBrokerRegistryRoutes,
 } from "./broker-registry.js";
 import {
+  PortfolioService,
+  portfolioTradingDay,
+  registerPortfolioRoutes,
+  type PortfolioBrokerReader,
+} from "./portfolio-service.js";
+import {
   CalculationClient,
   marketInsightDatasetSchema,
 } from "./calculation-client.js";
@@ -139,14 +145,35 @@ export function createApiApplication(
     history,
     env.LIVE_TRADING_ENABLED !== "true",
   );
+  const portfolioService = new PortfolioService(store);
   const zerodha = createZerodhaConnection(
     env,
     undefined,
     {
-      connected: (userId, accountBinding) =>
-        recordBrokerConnected(store, userId, "zerodha", accountBinding).then(
-          () => undefined,
-        ),
+      connected: async (userId, _sessionHash, accountBinding, reader) => {
+        const brokerId = await recordBrokerConnected(
+          store,
+          userId,
+          "zerodha",
+          accountBinding,
+        );
+        try {
+          await portfolioService.syncRegisteredBroker({
+            userId,
+            brokerId,
+            reader,
+            source: "connection",
+          });
+        } catch {
+          await store.transaction((query) =>
+            audit(
+              query,
+              "Zerodha connected; initial portfolio synchronization unavailable.",
+              userId,
+            ),
+          );
+        }
+      },
       disconnected: (userId) =>
         recordBrokerDisconnected(store, userId, "zerodha").then(
           () => undefined,
@@ -156,6 +183,53 @@ export function createApiApplication(
     brokerAppCredentials,
   );
   const kotakClient = kotakData || new KotakMarketDataClient();
+  /** Adapt the current Kotak session to normalized read-only portfolio capabilities. */
+  const kotakPortfolioReader = (
+    userId: string,
+    sessionHash: string,
+  ): PortfolioBrokerReader | null => {
+    if (!kotakClient.isConnected(userId, sessionHash)) {
+      return null;
+    }
+    const brokerSession = kotakClient.executionSession(userId, sessionHash);
+    return {
+      provider: "kotak",
+      accountBinding: brokerSession.accountBinding,
+      loadFunds: async () => {
+        const rows = (await kotakClient.getAccountReport(
+          userId,
+          sessionHash,
+          "limits",
+        )) as Array<{
+          available: number | null;
+          marginUsed: number | null;
+          collateral: number | null;
+          unrealizedPnl: number | null;
+        }>;
+        const row = rows[0];
+        return {
+          availableMargin: row?.available ?? null,
+          cashBalance: null,
+          usedMargin: row?.marginUsed ?? null,
+          collateralValue: row?.collateral ?? null,
+          positionMtm: row?.unrealizedPnl ?? null,
+        };
+      },
+      loadHoldings: () =>
+        kotakClient.getPortfolioRows(userId, sessionHash, "holdings"),
+      loadPositions: () =>
+        kotakClient.getPortfolioRows(userId, sessionHash, "positions"),
+    };
+  };
+  /** Resolve only the session-bound reader for the requested provider. */
+  const resolvePortfolioReader = (
+    provider: "kotak" | "zerodha",
+    userId: string,
+    sessionHash: string,
+  ) =>
+    provider === "kotak"
+      ? kotakPortfolioReader(userId, sessionHash)
+      : zerodha.portfolioReader(userId, sessionHash);
   // Share one public catalog between market-data and research contract resolution.
   const catalog = instrumentCatalog || new InstrumentCatalog();
   const liveManager = new KotakLiveManager(
@@ -170,6 +244,93 @@ export function createApiApplication(
     env.MARKET_DATA_PROVIDER || "kotak",
     [kotakMarketData, ...additionalMarketDataProviders],
   );
+  let dailyCaptureRunning = false;
+  let dailyCaptureDay = "";
+  const dailyCapturedBindings = new Set<string>();
+  /** Capture one close-of-day snapshot for every broker session available to this process. */
+  async function captureDailyPortfolios() {
+    const now = new Date();
+    const ist = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Kolkata",
+      weekday: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(now);
+    const part = (type: Intl.DateTimeFormatPartTypes) =>
+      ist.find((value) => value.type === type)?.value ?? "";
+    const weekday = part("weekday");
+    const minutes = Number(part("hour")) * 60 + Number(part("minute"));
+    if (["Sat", "Sun"].includes(weekday) || minutes < 15 * 60 + 35) {
+      return;
+    }
+    const day = portfolioTradingDay(now.getTime());
+    if (dailyCaptureDay !== day) {
+      dailyCaptureDay = day;
+      dailyCapturedBindings.clear();
+    }
+    if (dailyCaptureRunning) {
+      return;
+    }
+    dailyCaptureRunning = true;
+    try {
+      const candidates: Array<{
+        userId: string;
+        reader: PortfolioBrokerReader;
+      }> = [];
+      for (const connection of kotakClient.activePortfolioConnections()) {
+        const reader = kotakPortfolioReader(
+          connection.userId,
+          connection.sessionHash,
+        );
+        if (reader) {
+          candidates.push({ userId: connection.userId, reader });
+        }
+      }
+      candidates.push(
+        ...zerodha
+          .activePortfolioReaders()
+          .map(({ userId, reader }) => ({ userId, reader })),
+      );
+      for (const candidate of candidates) {
+        const key = `${candidate.userId}|${candidate.reader.accountBinding}`;
+        if (dailyCapturedBindings.has(key)) {
+          continue;
+        }
+        const [broker] = await store.transaction((query) =>
+          query<{ id: string }>(
+            "SELECT id FROM user_brokers WHERE user_id=$1 AND provider=$2 AND account_binding=$3 AND status='connected'",
+            [
+              candidate.userId,
+              candidate.reader.provider,
+              candidate.reader.accountBinding,
+            ],
+          ),
+        );
+        if (!broker) {
+          continue;
+        }
+        try {
+          await portfolioService.syncRegisteredBroker({
+            userId: candidate.userId,
+            brokerId: broker.id,
+            reader: candidate.reader,
+            source: "daily",
+          });
+          dailyCapturedBindings.add(key);
+        } catch {
+          // Leave uncaptured so the next bounded interval retries while the session is valid.
+        }
+      }
+    } finally {
+      dailyCaptureRunning = false;
+    }
+  }
+  const dailyPortfolioTimer = setInterval(
+    () => void captureDailyPortfolios(),
+    5 * 60_000,
+  );
+  dailyPortfolioTimer.unref();
   /** Revoke live permission and release provider sessions when application authentication changes. */
   async function disconnectUserData(userId: string) {
     restoreEpoch.set(userId, (restoreEpoch.get(userId) || 0) + 1);
@@ -189,6 +350,7 @@ export function createApiApplication(
     openRegistration || Boolean(env.REGISTRATION_TOKEN);
   const app = express();
   app.locals.shutdown = async () => {
+    clearInterval(dailyPortfolioTimer);
     calculationRunner.close();
     zerodha.close();
     await liveManager.close();
@@ -833,11 +995,11 @@ export function createApiApplication(
     app,
     store,
     vault,
-    (provider, userId, sessionHash) =>
-      provider === "kotak"
-        ? kotakClient.isConnected(userId, sessionHash)
-        : zerodha.isConnected(userId, sessionHash),
+    (provider, userId, sessionHash, accountBinding) =>
+      resolvePortfolioReader(provider, userId, sessionHash)?.accountBinding ===
+      accountBinding,
   );
+  registerPortfolioRoutes(app, store, portfolioService, resolvePortfolioReader);
   registerMarketDataRoutes(
     app,
     store,
@@ -846,6 +1008,19 @@ export function createApiApplication(
     production,
     marketData,
     savedBrokerSessions,
+    async ({ userId, sessionHash, brokerId, accountBinding }) => {
+      const reader = kotakPortfolioReader(userId, sessionHash);
+      if (!reader || reader.accountBinding !== accountBinding) {
+        throw new Error("Kotak portfolio session changed.");
+      }
+      await portfolioService.syncRegisteredBroker({
+        userId,
+        brokerId,
+        reader,
+        source: "connection",
+      });
+    },
+    zerodha,
   );
   registerDatabaseBrowserRoutes(app, store);
   zerodha.register(app);
@@ -861,7 +1036,15 @@ export function createApiApplication(
       detail?: string;
       publicCode?: "SESSION_EXPIRED";
     };
-    const status = err instanceof z.ZodError ? 422 : error.status || 500;
+    // Provider SDKs may use status: "error"; only real HTTP errors reach Express.
+    const status =
+      err instanceof z.ZodError
+        ? 422
+        : Number.isInteger(error?.status) &&
+            Number(error.status) >= 400 &&
+            Number(error.status) <= 599
+          ? Number(error.status)
+          : 500;
     if (status >= 500) {
       const requestId = res.locals.correlationId ?? randomUUID();
       res.setHeader("X-Request-Id", requestId);

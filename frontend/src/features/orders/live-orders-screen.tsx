@@ -2,65 +2,86 @@
 
 /** Read-only live order history; execution remains behind the dedicated confirmation and risk controls. */
 import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
+import { AsyncBoundary } from "@/components/ui/async-boundary";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { requestApiJson } from "@/lib/api";
 import { OrderRecordsTable } from "./order-records-table";
+import styles from "./live-orders-screen.module.css";
 
 /** Render OMS records, preserving unknown quantities and distinguishing limit prices from actual fills. */
 export function LiveOrdersScreen() {
   const { snapshot, loading, error, onRefresh } = useLiveOrders();
   return (
-    <section className="panel" aria-label="Live orders" aria-busy={loading}>
-      <div className="panel-heading">
-        <div>
-          <h3>Live orders & fills</h3>
-          <p>
-            App-managed orders only · filled units are broker acknowledgements,
-            not a full exchange trade book.
+    <section
+      className="screen-stack"
+      aria-label="Live orders"
+      aria-busy={loading}
+    >
+      <Card>
+        <CardHeader>
+          <div>
+            <CardTitle>Live orders &amp; fills</CardTitle>
+            <CardDescription>
+              App-managed orders only · filled units are broker
+              acknowledgements, not a full exchange trade book.
+            </CardDescription>
+          </div>
+          <Button variant="secondary" disabled={loading} onClick={onRefresh}>
+            Refresh orders
+          </Button>
+        </CardHeader>
+        {error && (
+          <p role="alert" className={styles.alert}>
+            {error} Previously loaded records, if shown, may be stale.
           </p>
-        </div>
-        <Button variant="secondary" disabled={loading} onClick={onRefresh}>
-          Refresh orders
-        </Button>
-      </div>
-      {loading && <p role="status">Loading live orders…</p>}
-      {error && (
-        <p role="alert">
-          {error} Previously loaded records, if shown, may be stale.
-        </p>
-      )}
-      {snapshot?.reason && <p role="status">{snapshot.reason}</p>}
-      {snapshot && !Array.isArray(snapshot.orders) && (
-        <p>
-          Order history is unavailable.{" "}
-          <a href="#/live-trading">Open Live positions</a> to review execution
-          readiness.
-        </p>
-      )}
-      {snapshot?.orders?.length === 0 && (
-        <p>No app-managed live orders recorded.</p>
-      )}
-      {snapshot?.orders && (
-        <OrderRecordsTable
-          brokerLabel={
-            snapshot.provider === "kotak"
-              ? "Kotak Neo"
-              : snapshot.provider === "zerodha"
-                ? "Zerodha Kite"
-                : undefined
-          }
-          records={snapshot.orders.map((order) => ({
-            id: order.id,
-            instrument: order.intent.instrument,
-            side: order.intent.side,
-            quantity: order.intent.quantity,
-            limit: order.intent.limitPaise / 100,
-            filled: order.brokerOrder?.filledQuantity ?? null,
-            state: order.state,
-            brokerOrderId: order.brokerOrder?.brokerOrderId,
-          }))}
-        />
-      )}
+        )}
+        {/* Loading shows a skeleton; an error above never hides an already-loaded, possibly
+         * stale snapshot, since useLiveOrders intentionally retains the last known records. */}
+        <AsyncBoundary status={loading ? "loading" : "success"}>
+          {snapshot?.reason && (
+            <p role="status" className={styles.status}>
+              {snapshot.reason}
+            </p>
+          )}
+          {snapshot && !Array.isArray(snapshot.orders) && (
+            <p className={styles.note}>
+              Order history is unavailable.{" "}
+              <a href="#/live-positions">Open Live positions</a> to review
+              execution readiness.
+            </p>
+          )}
+          {snapshot?.orders?.length === 0 && (
+            <p className={styles.note}>No app-managed live orders recorded.</p>
+          )}
+          {snapshot?.orders && (
+            <OrderRecordsTable
+              brokerLabel={
+                snapshot.provider === "kotak"
+                  ? "Kotak Neo"
+                  : snapshot.provider === "zerodha"
+                    ? "Zerodha Kite"
+                    : undefined
+              }
+              records={snapshot.orders.map((order) => ({
+                id: order.id,
+                instrument: order.intent.instrument,
+                side: order.intent.side,
+                quantity: order.intent.quantity,
+                limit: order.intent.limitPaise / 100,
+                filled: order.brokerOrder?.filledQuantity ?? null,
+                state: order.state,
+                brokerOrderId: order.brokerOrder?.brokerOrderId,
+              }))}
+            />
+          )}
+        </AsyncBoundary>
+      </Card>
     </section>
   );
 }

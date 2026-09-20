@@ -15,42 +15,43 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 .workspace-dialog {
-  border: 1px solid #dee4ed;
+  border: 1px solid var(--border-default);
   border-radius: 12px;
   padding: 26px;
-  color: #162237;
+  color: var(--text-primary);
   width: min(760px, calc(100vw - 32px));
   max-height: 85vh;
   overflow: auto;
+  background: var(--bg-overlay);
 }
 .workspace-dialog::backdrop {
-  background: #101a2e80;
+  background: rgba(5, 8, 14, 0.6);
 }
 .workspace-section-tabs {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
   margin-bottom: 24px;
-  border-bottom: 1px solid #dbe3ef;
+  border-bottom: 1px solid var(--border-default);
   padding-bottom: 12px;
 }
 .workspace-section-tabs button {
-  border: 1px solid #dbe3ef;
+  border: 1px solid var(--border-default);
   border-radius: 8px;
-  background: white;
-  color: #475569;
+  background: var(--bg-raised);
+  color: var(--text-secondary);
   padding: 10px 16px;
   font: inherit;
   cursor: pointer;
 }
 .workspace-section-tabs button[aria-current="page"] {
-  color: #244bce;
-  background: #edf2ff;
-  border-color: #a8b9f5;
+  color: var(--accent-text);
+  background: var(--accent-muted);
+  border-color: var(--accent);
   font-weight: 600;
 }
 .workspace-section-tabs button:focus-visible {
-  outline: 2px solid #335cde;
+  outline: 2px solid var(--accent);
   outline-offset: 3px;
 }
 .contract-drawer {
@@ -66,7 +67,7 @@
 .chain-price-button {
   border: 0;
   background: transparent;
-  color: #335cde;
+  color: var(--accent);
   cursor: pointer;
   padding: 4px;
   font: inherit;
@@ -87,7 +88,7 @@
 }
 .screen-card p,
 .muted {
-  color: #57677d;
+  color: var(--text-muted);
   font-size: 13px;
   line-height: 1.6;
 }
@@ -117,8 +118,8 @@
   padding: 13px 15px;
 }
 .active-broker-option:has(input:checked) {
-  border-color: #335cde;
-  box-shadow: 0 0 0 1px #335cde;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
 }
 .active-broker-option:has(input:disabled) {
   cursor: not-allowed;
@@ -129,7 +130,7 @@
   gap: 3px;
 }
 .active-broker-option small {
-  color: #57677d;
+  color: var(--text-muted);
 }
 .stored-instrument-results {
   display: grid;
@@ -229,17 +230,17 @@
   .app-shell .navigation-toggle {
     display: grid;
     place-items: center;
-    background: white;
-    border: 1px solid #dee4ed;
+    background: var(--bg-raised);
+    border: 1px solid var(--border-default);
     border-radius: 6px;
     padding: 7px;
-    color: #162237;
+    color: var(--text-primary);
   }
   .app-shell .navigation-overlay {
     display: block;
     position: fixed;
     inset: 0;
-    background: #101a2e66;
+    background: rgba(5, 8, 14, 0.4);
     border: 0;
     z-index: 19;
   }
@@ -260,31 +261,20 @@
   }
 }
 
-/* Reference presentation tokens. Account state and execution permissions remain independent. */
+/* Layout-only: color now comes from the shared token cascade in globals.css, not a local override. */
 .app-shell {
-  --ink: #162237;
-  --muted: #57677d;
-  --border: #dee4ed;
-  --blue: #335cde;
-  --green: #117650;
-  --nav: #101827;
   --rail: 236px;
-  color: var(--ink);
-  background: #f4f6fa;
-  font-family:
-    Inter,
-    ui-sans-serif,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    sans-serif;
+  color: var(--text-primary);
+  background: var(--bg-app);
+  font-family: var(--font-sans);
   line-height: 1.5;
   min-height: 100dvh;
 }
 .app-shell .sidebar {
   width: var(--rail);
   padding: 23px 14px 16px;
-  background: var(--nav);
+  background: var(--sidebar-bg);
+  color: var(--sidebar-text);
 }
 .app-shell .main-shell {
   margin-left: var(--rail);
@@ -298,14 +288,14 @@
   font-size: 9px;
   letter-spacing: 1.75px;
   padding: 8px 12px 20px;
-  color: #99aac2;
+  color: var(--sidebar-text-muted);
   font-weight: 600;
 }
 .app-shell .workspace-selector {
   margin: 0 4px 20px;
   padding: 12px;
-  background: #1d2b43;
-  border: 1px solid #2b3b53;
+  background: var(--sidebar-bg-active);
+  border: 1px solid var(--sidebar-border);
   border-radius: 9px;
 }
 .app-shell .sidebar nav {
@@ -335,8 +325,8 @@
   border-radius: 7px;
 }
 .app-shell .sidebar nav button.active {
-  background: #253956;
-  color: #fff;
+  background: var(--sidebar-bg-active);
+  color: var(--sidebar-text-active);
 }
 .app-shell .sidebar nav button.active::before {
   content: "";
@@ -346,7 +336,7 @@
   bottom: 11px;
   width: 3px;
   border-radius: 3px;
-  background: #83a2ff;
+  background: var(--accent);
 }
 .app-shell .topbar {
   height: 72px;
@@ -357,10 +347,10 @@
   font-size: 12px;
   margin-right: auto;
   gap: 9px;
-  color: var(--muted);
+  color: var(--text-muted);
 }
 .app-shell .breadcrumb strong {
-  color: var(--ink);
+  color: var(--text-primary);
   font-weight: 550;
 }
 .header-tools {
@@ -385,8 +375,8 @@
   font-size: 10.5px;
   font-weight: 700;
   white-space: nowrap;
-  background: #eef2ff;
-  color: var(--blue);
+  background: var(--accent-muted);
+  color: var(--accent-text);
   line-height: 1.6;
   letter-spacing: normal;
 }
@@ -404,10 +394,25 @@
   width: 38px;
   height: 38px;
   border-radius: 9px;
-  border: 1px solid var(--border);
-  background: #f7f9fc;
-  color: var(--blue);
+  border: 1px solid var(--border-default);
+  background: var(--bg-raised);
+  color: var(--accent-text);
   font-size: 13px;
+}
+.broker-connection-facts {
+  display: grid;
+  grid-template-columns: minmax(100px, 0.5fr) minmax(0, 1fr);
+  gap: 10px 15px;
+  margin: 16px 0;
+  font-size: 12px;
+}
+.broker-connection-facts dt {
+  color: var(--text-muted);
+}
+.broker-connection-facts dd {
+  margin: 0;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
 }
 .workspace-icon-button {
   display: inline-grid;
@@ -418,17 +423,17 @@
   background: transparent;
   border: 0;
   border-radius: 7px;
-  color: var(--muted);
+  color: var(--text-muted);
 }
 .workspace-icon-button:hover {
-  background: #eef2ff;
-  color: var(--blue);
+  background: var(--accent-muted);
+  color: var(--accent-text);
 }
 .workspace-avatar {
   width: 32px;
   height: 32px;
-  background: #1d2b43;
-  color: white;
+  background: var(--sidebar-bg-active);
+  color: var(--sidebar-text-active);
   border: 0;
   border-radius: 50%;
   font-size: 11px;
@@ -451,10 +456,10 @@
 }
 .app-shell .heading > div > p:last-child {
   font-size: 13px;
-  color: var(--muted);
+  color: var(--text-muted);
 }
 .app-shell .panel {
-  border-color: var(--border);
+  border-color: var(--border-default);
   border-radius: 12px;
   box-shadow: none;
 }
@@ -480,12 +485,12 @@
 }
 /* Consistent keyboard focus across links, controls and native disclosures. */
 .app-shell :is(button, a, input, select, textarea, summary):focus-visible {
-  outline: 3px solid #335cde;
+  outline: 3px solid var(--accent);
   outline-offset: 3px;
 }
 .screen-loading {
   min-height: 280px;
-  color: var(--muted);
+  color: var(--text-muted);
 }
 .screen-loading > div {
   display: grid;
@@ -495,54 +500,54 @@
   display: block;
   height: 56px;
   border-radius: 10px;
-  background: #e8edf4;
+  background: var(--bg-hover);
 }
 .screen-loading span:last-child {
   height: 140px;
 }
 .app-shell .button-primary {
-  background: #335cde;
-  border-color: #335cde;
+  background: var(--accent);
+  border-color: var(--accent);
 }
 .app-shell .button-primary:hover {
-  background: #254bc6;
+  background: var(--accent-hover);
 }
 .app-shell .button-secondary {
-  border-color: var(--border);
-  color: var(--ink);
+  border-color: var(--border-default);
+  color: var(--text-primary);
 }
 .app-shell .button-danger {
-  color: #b42332;
-  border-color: #e4aeb4;
-  background: white;
+  color: var(--danger-text);
+  border-color: rgba(242, 73, 92, 0.35);
+  background: var(--danger-muted);
 }
 .app-shell .button-danger:hover {
-  background: #fdedf0;
+  background: rgba(242, 73, 92, 0.22);
 }
 .app-shell input:not([type="checkbox"]),
 .app-shell select {
   min-height: 43px;
-  border: 1px solid #c5cfdd;
+  border: 1px solid var(--border-default);
   border-radius: 8px;
   padding: 10px 12px;
-  color: var(--ink);
-  background: white;
+  color: var(--text-primary);
+  background: var(--bg-raised);
 }
 .app-shell label {
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 13px;
 }
 .app-shell th {
   padding: 13px 14px;
-  background: #f7f9fc;
-  color: var(--muted);
+  background: var(--bg-raised);
+  color: var(--text-muted);
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.4px;
 }
 .app-shell td {
   padding: 17px 14px;
-  border-bottom-color: #e8edf4;
+  border-bottom-color: var(--border-subtle);
   font-size: 13px;
 }
 .app-shell .tabs button,
@@ -551,32 +556,32 @@
   min-height: 34px;
   padding: 7px 15px;
   font-size: 11.5px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-default);
 }
 .app-shell .tabs button.active,
 .app-shell .screen-filters [aria-pressed="true"] {
-  background: #1d2b43;
-  border-color: #1d2b43;
-  color: white;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
 }
 .app-shell .workspace-dialog {
   margin: auto;
   width: min(620px, calc(100vw - 20px));
   max-height: calc(100dvh - 40px);
   padding: 24px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-default);
   border-radius: 14px;
-  box-shadow: 0 16px 60px #10182726;
-  color: var(--ink);
+  box-shadow: var(--shadow-lg);
+  color: var(--text-primary);
 }
 .app-shell .workspace-dialog::backdrop {
-  background: #10182780;
+  background: rgba(5, 8, 14, 0.6);
   backdrop-filter: blur(3px);
 }
 .app-shell .workspace-dialog > .panel-heading {
   padding-bottom: 18px;
   margin-bottom: 20px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-default);
 }
 .app-shell .workspace-dialog .panel-heading h3 {
   font-size: 23px;
@@ -590,7 +595,7 @@
   font-size: 12px;
 }
 .app-shell .workspace-dialog dt {
-  color: var(--muted);
+  color: var(--text-muted);
 }
 .app-shell .workspace-dialog dd {
   margin: 0;
@@ -614,7 +619,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 23px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-default);
 }
 .dialog-head h2 {
   font-size: 23px;
@@ -624,36 +629,37 @@
 }
 .dialog-body > p {
   margin-bottom: 20px;
-  color: var(--muted);
+  color: var(--text-muted);
 }
 .dialog-actions {
   display: flex;
   gap: 10px;
   justify-content: flex-end;
   padding: 18px 23px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-default);
 }
 .workspace-tour {
   display: flex;
   align-items: center;
   gap: 16px;
   padding: 14px 32px;
-  background: #eef2ff;
-  border-bottom: 1px solid #d4defb;
+  background: var(--accent-muted);
+  border-bottom: 1px solid var(--border-default);
   font-size: 12px;
 }
 .workspace-tour > div {
   flex: 1;
 }
 .workspace-tour p {
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 11px;
 }
 .workspace-skip {
   position: fixed;
   top: -80px;
   left: 250px;
-  background: white;
+  background: var(--bg-raised);
+  color: var(--text-primary);
   padding: 12px;
   z-index: 100;
 }
@@ -666,9 +672,9 @@
   right: 16px;
   padding: 10px;
   z-index: 30;
-  background: white;
-  border: 1px solid var(--border);
-  color: var(--ink);
+  background: var(--bg-overlay);
+  border: 1px solid var(--border-default);
+  color: var(--text-primary);
 }
 body:has(.workspace-dialog[open]) {
   overflow: hidden;
@@ -683,12 +689,24 @@ body:has(.workspace-dialog[open]) {
 }
 .strategy-refine {
   margin-bottom: 18px;
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 12px;
 }
 .strategy-refine label {
   max-width: 240px;
   margin-top: 12px;
+}
+/* Backtest Studio, Strategy Library and Strategies still use the legacy `.panel`
+   surface for a few native <details> disclosures Card can't express; scope the
+   token background to just these exclusive selectors instead of retheming
+   `.panel` globally (it's shared by screens outside this rollout). */
+.backtest-studio-screen .panel,
+.strategy-library-screen .panel,
+.strategies-screen .panel {
+  background: var(--bg-surface);
+}
+.backtest-assumptions {
+  background: var(--bg-surface);
 }
 .audit-toolbar {
   display: flex;
@@ -711,14 +729,14 @@ body:has(.workspace-dialog[open]) {
   align-items: flex-start;
   gap: 14px;
   padding: 17px 0;
-  border-bottom: 1px solid #edf0f5;
+  border-bottom: 1px solid var(--border-subtle);
 }
 .audit-timeline > div:last-child {
   border-bottom: 0;
 }
 .audit-timeline time {
   font-size: 11px;
-  color: var(--muted);
+  color: var(--text-muted);
   width: 100px;
   flex-shrink: 0;
 }
@@ -727,7 +745,7 @@ body:has(.workspace-dialog[open]) {
   min-width: 0;
 }
 .audit-timeline .timeline-dot {
-  color: var(--blue);
+  color: var(--accent);
 }
 .audit-event-button {
   text-align: left;
@@ -737,14 +755,29 @@ body:has(.workspace-dialog[open]) {
   border: 0;
   background: none;
   padding: 0;
-  color: var(--ink);
+  color: var(--text-primary);
   overflow-wrap: anywhere;
 }
 .audit-event-button:hover {
-  color: var(--blue);
+  color: var(--accent);
 }
 .audit-footnote {
   margin-top: 22px;
+}
+.audit-screen dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 10px 15px;
+  margin: 0 0 16px;
+  font-size: 12px;
+}
+.audit-screen dl dt {
+  color: var(--text-muted);
+}
+.audit-screen dl dd {
+  margin: 0;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
 }
 .app-shell input.spread-units {
   width: 88px;
@@ -752,9 +785,9 @@ body:has(.workspace-dialog[open]) {
   padding: 6px 8px;
 }
 .app-shell .reference-chain {
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-default);
   border-radius: 12px;
-  background: white;
+  background: var(--bg-surface);
 }
 .app-shell .reference-chain table {
   min-width: 420px;
@@ -762,12 +795,12 @@ body:has(.workspace-dialog[open]) {
 }
 .app-shell .reference-chain .chain-call-heading,
 .app-shell .reference-chain .chain-put-heading {
-  background: #f7f9fc;
-  color: var(--muted);
+  background: var(--bg-raised);
+  color: var(--text-muted);
 }
 .app-shell .reference-chain .chain-strike {
-  background: #eef2ff;
-  color: var(--ink);
+  background: var(--accent-muted);
+  color: var(--text-primary);
 }
 /* Trading canvases use the top bar and sidebar for navigation, preserving height for data. */
 .app-shell .content.trading-canvas {
@@ -938,9 +971,9 @@ body:has(.workspace-dialog[open]) {
   height: 66px;
   overflow: visible;
   padding: 0 12px;
-  border-top: 1px solid #34445c;
-  background: #18243a;
-  color: #dbe4f3;
+  border-top: 1px solid var(--sidebar-border);
+  background: var(--sidebar-bg);
+  color: var(--sidebar-text);
   transform: none;
   visibility: visible;
 }
@@ -974,20 +1007,20 @@ body:has(.workspace-dialog[open]) {
   border: 0;
   border-radius: 0;
   background: transparent;
-  color: #b7c3d7;
+  color: var(--sidebar-text-muted);
   font-size: 11px;
   text-align: center;
 }
 .app-shell .sidebar .dock-primary > button:hover,
 .app-shell .sidebar .dock-primary > button.active {
-  background: #263854;
-  color: white;
+  background: var(--sidebar-bg-active);
+  color: var(--sidebar-text-active);
 }
 .app-shell .sidebar .dock-primary > button.active::before {
   inset: 0 12px auto;
   width: auto;
   height: 3px;
-  background: #8da6ff;
+  background: var(--accent);
 }
 .app-shell .dock-submenu {
   position: fixed;
@@ -998,10 +1031,10 @@ body:has(.workspace-dialog[open]) {
   max-width: min(280px, calc(100vw - 24px));
   overflow: hidden;
   padding: 6px;
-  border: 1px solid #34445c;
+  border: 1px solid var(--sidebar-border);
   border-radius: 10px;
-  background: #18243a;
-  box-shadow: 0 16px 38px #0f172a40;
+  background: var(--sidebar-bg);
+  box-shadow: var(--shadow-lg);
 }
 .app-shell .dock-submenu button {
   min-height: 38px;
@@ -1009,7 +1042,7 @@ body:has(.workspace-dialog[open]) {
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: #dbe4f3;
+  color: var(--sidebar-text);
   font: inherit;
   font-size: 12px;
   text-align: left;
@@ -1017,8 +1050,8 @@ body:has(.workspace-dialog[open]) {
 }
 .app-shell .dock-submenu button:hover,
 .app-shell .dock-submenu button[aria-current="page"] {
-  background: #304665;
-  color: white;
+  background: var(--sidebar-hover);
+  color: var(--sidebar-text-active);
 }
 .app-shell .sidebar-bottom {
   display: flex;

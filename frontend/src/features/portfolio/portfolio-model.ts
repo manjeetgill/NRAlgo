@@ -3,167 +3,119 @@ import { z } from "zod";
 export const portfolioProviderSchema = z.enum(["kotak", "zerodha"]);
 export type PortfolioProvider = z.infer<typeof portfolioProviderSchema>;
 
-const portfolioRowSchema = z
+const nullableMoney = z.number().finite().nullable();
+
+const portfolioAccountSchema = z
   .object({
-    /** Kotak may omit a holding token; positions and Zerodha holdings retain numeric tokens. */
-    instrumentToken: z.string().regex(/^(?:|\d{1,20})$/),
-    symbol: z.string().min(1).max(120),
-    exchange: z.string().min(1).max(120),
-    product: z.string().max(120),
+    id: z.string().uuid(),
+    brokerId: z.string().uuid(),
+    provider: portfolioProviderSchema,
+    label: z.string().min(1).max(80),
+    currency: z.literal("INR"),
+    observedAt: z.number().finite().nonnegative().nullable(),
+    complete: z.boolean(),
+    warnings: z.array(z.string().max(300)).max(3),
+  })
+  .strict();
+
+const accountBreakdownSchema = z
+  .object({
+    accountId: z.string().uuid(),
+    provider: portfolioProviderSchema,
     quantity: z.number().int().safe(),
-    pledgedQuantity: z.number().int().nonnegative().safe().nullable(),
-    t1Quantity: z.number().int().nonnegative().safe().nullable(),
-    averagePrice: z.number().finite().nullable(),
-    markPrice: z.number().finite().nullable(),
-    pnl: z.number().finite().nullable(),
-    pnlBase: z.number().finite().nullable(),
-    pnlPerMark: z.number().finite().nullable(),
-    expiry: z.string().max(120),
-    right: z.string().max(120),
-    strike: z.string().max(120),
+    pledgedQuantity: z.number().int().safe().nullable(),
+    currentValue: nullableMoney,
   })
   .strict();
 
-const portfolioSectionSchema = z
+const portfolioItemSchema = z
   .object({
-    rows: z.array(portfolioRowSchema).max(9999).nullable(),
-    error: z.string().max(300).nullable(),
+    kind: z.enum(["holding", "position"]),
+    canonicalKey: z.string().min(1).max(500),
+    isin: z.string().max(32),
+    symbol: z.string().min(1).max(120),
+    underlying: z.string().max(120),
+    exchange: z.string().max(40),
+    product: z.string().max(40),
+    expiry: z.string().max(40),
+    right: z.string().max(20),
+    strike: z.string().max(40),
+    quantity: z.number().int().safe(),
+    pledgedQuantity: z.number().int().safe().nullable(),
+    t1Quantity: z.number().int().safe().nullable(),
+    mtfQuantity: z.number().int().safe().nullable(),
+    averagePrice: nullableMoney,
+    markPrice: nullableMoney,
+    investedAmount: nullableMoney,
+    currentValue: nullableMoney,
+    pnl: nullableMoney,
+    accounts: z.array(accountBreakdownSchema).max(20),
   })
   .strict();
 
-export const portfolioSnapshotSchema = z
+export const portfolioDashboardSchema = z
   .object({
-    broker: portfolioProviderSchema,
     readOnly: z.literal(true),
-    observedAt: z.number().int().nonnegative(),
-    positions: portfolioSectionSchema,
-    holdings: portfolioSectionSchema,
+    accounts: z.array(portfolioAccountSchema).max(20),
+    coverage: z
+      .object({
+        updatedAccounts: z.number().int().nonnegative(),
+        totalAccounts: z.number().int().nonnegative(),
+        completeAccounts: z.number().int().nonnegative(),
+      })
+      .strict(),
+    summary: z
+      .object({
+        holdingsValue: nullableMoney,
+        investedValue: nullableMoney,
+        pledgedValue: nullableMoney,
+        positionsPnl: nullableMoney,
+        availableMargin: nullableMoney,
+        cashBalance: nullableMoney,
+        usedMargin: nullableMoney,
+        collateralValue: nullableMoney,
+        totalEquity: nullableMoney,
+      })
+      .strict(),
+    items: z.array(portfolioItemSchema).max(20_000),
+    history: z.array(
+      z
+        .object({
+          day: z.iso.date(),
+          updatedAccounts: z.number().int().nonnegative(),
+          totalAccounts: z.number().int().nonnegative(),
+          holdingsValue: nullableMoney,
+          totalEquity: nullableMoney,
+        })
+        .strict(),
+    ),
+    synchronization: z
+      .object({
+        updated: z.number().int().nonnegative(),
+        requested: z.number().int().nonnegative(),
+        failures: z.number().int().nonnegative(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 
-export const portfolioRegistrySchema = z.object({
-  activeBrokerId: z.string().uuid().nullable(),
-  brokers: z.array(
-    z.object({
-      id: z.string().uuid(),
-      provider: portfolioProviderSchema,
-      status: z.enum(["connected", "disconnected"]),
-      connectedAt: z.number().finite(),
-      updatedAt: z.number().finite(),
-    }),
-  ),
-});
+export type PortfolioDashboard = z.infer<typeof portfolioDashboardSchema>;
+export type PortfolioAccount = PortfolioDashboard["accounts"][number];
+export type PortfolioItem = PortfolioDashboard["items"][number];
 
-export type PortfolioSnapshot = z.infer<typeof portfolioSnapshotSchema>;
-export type PortfolioKind = "holdings" | "positions";
-export type PortfolioDisplayRow = z.infer<typeof portfolioRowSchema> & {
-  providers: PortfolioProvider[];
-  investedAmount: number | null;
-  currentValue: number | null;
-};
-
-/** Club exact instruments without hiding simultaneous long and short exposure. */
-export function clubPortfolioRows(
-  snapshots: readonly PortfolioSnapshot[],
-  kind: PortfolioKind,
-): PortfolioDisplayRow[] {
-  const groups = new Map<
-    string,
-    Array<{
-      provider: PortfolioProvider;
-      row: z.infer<typeof portfolioRowSchema>;
-    }>
-  >();
-  for (const snapshot of snapshots) {
-    for (const row of snapshot[kind].rows ?? []) {
-      if (row.quantity === 0) {
-        continue;
-      }
-      const side = kind === "positions" && row.quantity < 0 ? "short" : "long";
-      const canonicalSymbol =
-        kind === "holdings"
-          ? row.symbol.replace(/-(?:EQ|BE)$/i, "").toUpperCase()
-          : row.symbol.toUpperCase();
-      const key = [
-        row.exchange,
-        canonicalSymbol,
-        row.expiry,
-        row.right,
-        row.strike,
-        side,
-      ].join("|");
-      const group = groups.get(key) ?? [];
-      group.push({ provider: snapshot.broker, row });
-      groups.set(key, group);
-    }
-  }
-  return [...groups.values()]
-    .map((group): PortfolioDisplayRow => {
-      const first = group[0]!.row;
-      const quantity = group.reduce((sum, item) => sum + item.row.quantity, 0);
-      const knownAverages = group.every(
-        (item) => item.row.averagePrice !== null,
-      );
-      const knownMarks = group.every((item) => item.row.markPrice !== null);
-      const knownPnl = group.every((item) => item.row.pnl !== null);
-      const knownPledged = group.every(
-        (item) => item.row.pledgedQuantity !== null,
-      );
-      const knownT1 = group.every((item) => item.row.t1Quantity !== null);
-      const absoluteUnits = group.reduce(
-        (sum, item) => sum + Math.abs(item.row.quantity),
-        0,
-      );
-      const investedAmount = knownAverages
-        ? group.reduce(
-            (sum, item) =>
-              sum + Math.abs(item.row.quantity) * item.row.averagePrice!,
-            0,
-          )
-        : null;
-      const currentValue = knownMarks
-        ? group.reduce(
-            (sum, item) => sum + item.row.quantity * item.row.markPrice!,
-            0,
-          )
-        : null;
-      return {
-        ...first,
-        product:
-          new Set(group.map((item) => item.row.product)).size === 1
-            ? first.product
-            : "Multiple",
-        quantity,
-        pledgedQuantity: knownPledged
-          ? group.reduce((sum, item) => sum + item.row.pledgedQuantity!, 0)
-          : null,
-        t1Quantity: knownT1
-          ? group.reduce((sum, item) => sum + item.row.t1Quantity!, 0)
-          : null,
-        averagePrice:
-          investedAmount !== null && absoluteUnits
-            ? investedAmount / absoluteUnits
-            : null,
-        markPrice:
-          currentValue !== null && quantity ? currentValue / quantity : null,
-        pnl: knownPnl
-          ? group.reduce((sum, item) => sum + item.row.pnl!, 0)
-          : null,
-        providers: [...new Set(group.map((item) => item.provider))],
-        investedAmount,
-        currentValue,
-      };
-    })
-    .sort((left, right) => left.symbol.localeCompare(right.symbol));
-}
-
-/** A portfolio total is unavailable when any contributing row is unknown. */
-export function completeTotal(
-  rows: readonly PortfolioDisplayRow[],
-  field: "investedAmount" | "currentValue" | "pnl",
-): number | null {
-  if (rows.some((row) => row[field] === null)) {
-    return null;
-  }
-  return rows.reduce((sum, row) => sum + row[field]!, 0);
+/** Keep derivative contract terms visible when a broker symbol is abbreviated. */
+export function portfolioContractLabel(item: {
+  symbol: string;
+  expiry?: string;
+  strike?: string;
+  right?: string;
+  product?: string;
+}) {
+  const right =
+    item.right ||
+    (/option/i.test(item.product ?? "") ? "option type unavailable" : "");
+  return [item.symbol, item.expiry, item.strike, right]
+    .filter(Boolean)
+    .join(" · ");
 }

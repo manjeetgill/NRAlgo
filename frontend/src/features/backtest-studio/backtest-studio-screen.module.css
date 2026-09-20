@@ -1,0 +1,9 @@
+.mono {
+  font-family: var(--font-mono);
+}
+.positive {
+  color: var(--success-text);
+}
+.negative {
+  color: var(--danger-text);
+}

@@ -1,6 +1,7 @@
 /** Kotak wire normalization lives here, not in the Overview screen or shared model.
  * Adding a broker means implementing BrokerAccountAdapter and registering it once. */
 import { requestApiJson } from "../../../lib/api";
+import { portfolioContractLabel } from "../../portfolio/portfolio-model";
 import {
   calculatePositionPnl,
   type AccountSnapshot,
@@ -62,6 +63,9 @@ export const kotakAccountAdapter: BrokerAccountAdapter = {
       mode: "live",
       capturedAt: numberOrNull(reports.observedAt) ?? Date.now(),
       availableFunds: numberOrNull(reports.limits?.rows?.[0]?.available),
+      reportedUnrealizedPnl: numberOrNull(
+        reports.limits?.rows?.[0]?.unrealizedPnl,
+      ),
       pnl: null,
       positions:
         rows
@@ -100,7 +104,13 @@ export const kotakAccountAdapter: BrokerAccountAdapter = {
             id: `${row.exchange}|${row.instrumentToken || row.symbol}|${index}`,
             instrument: String(row.instrumentToken ?? ""),
             exchange: String(row.exchange ?? ""),
-            symbol: String(row.symbol ?? "Unknown holding"),
+            symbol: portfolioContractLabel({
+              symbol: String(row.symbol ?? "Unknown holding"),
+              expiry: String(row.expiry ?? ""),
+              strike: String(row.strike ?? ""),
+              right: String(row.right ?? ""),
+              product: String(row.product ?? ""),
+            }),
             product: String(row.product ?? ""),
             quantity: row.quantity as number,
             pledgedQuantity: numberOrNull(row.pledgedQuantity),

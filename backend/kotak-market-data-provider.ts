@@ -54,6 +54,83 @@ export function createKotakMarketDataProvider(
         });
       }
     },
+    /** Kotak exposes a native active-expiry directory. Keep its exchange and
+     * wire request names inside this adapter.
+     */
+    async getOptionExpiries(userId, sessionHash, underlying) {
+      const result = await client.fetchMarketData(userId, sessionHash, {
+        operation: "expiries",
+        exchange: "nse_fo",
+        underlying,
+        instrumentType: "option",
+      });
+      if (!("expiries" in result)) {
+        throw new Error("Option expiries unavailable.");
+      }
+      return result.expiries;
+    },
+    /** Prefer Kotak's single native-chain request over reconstructing a chain
+     * from many quote calls. The endpoint has no exchange timestamp or depth,
+     * so those fields remain explicitly stale/null until a live tick arrives.
+     */
+    async getOptionChain(userId, sessionHash, input) {
+      const result = await client.fetchMarketData(userId, sessionHash, {
+        operation: "chain",
+        exchange: "nse_fo",
+        underlying: input.underlying,
+        expiry: input.expiryDate,
+        instrumentType: "option",
+        count: input.count,
+      });
+      if (!("call" in result) || !("put" in result)) {
+        throw new Error("Option chain unavailable.");
+      }
+      const lotSize = result.common_data.mktLot;
+      const items = [...result.call, ...result.put]
+        .map((row) => {
+          const instrument = row.instrument.neoSymbol.split("|")[1];
+          const right =
+            row.instrument.optionType === "CE"
+              ? ("call" as const)
+              : ("put" as const);
+          return {
+            masterToken: `kotak:options:${instrument}`,
+            instrument,
+            symbol: input.underlying,
+            name: row.instrument.symbol,
+            market: "options" as const,
+            lotSize,
+            option: {
+              expiryDate: input.expiryDate,
+              right,
+              strikePrice: row.instrument.strikePrice,
+              lotSize,
+            },
+            price: row.quote.ltp,
+            bid: null,
+            ask: null,
+            openInterest: row.openInterest.current,
+            volume: row.quote.volume,
+            change:
+              row.quote.ltp !== null && row.quote.prevClose !== null
+                ? row.quote.ltp - row.quote.prevClose
+                : null,
+            stale: true,
+          };
+        })
+        .sort(
+          (a, b) =>
+            a.option.strikePrice - b.option.strikePrice ||
+            a.option.right.localeCompare(b.option.right),
+        );
+      return {
+        items,
+        total: items.length,
+        observedAt: Date.now(),
+        warning:
+          "Broker chain snapshot has no exchange timestamp or executable depth; streamed ticks replace prices while the market is open.",
+      };
+    },
     getQuoteSnapshots: (...args) => client.getQuoteSnapshots(...args),
     getHistoricalCandlesForDay: (...args) =>
       client.getHistoricalCandlesForDay(...args),

@@ -31,7 +31,7 @@ from typing import Iterable
 
 ARCHIVE_HOST = "https://nsearchives.nseindia.com"
 UDIFF_START = date(2024, 7, 8)
-NORMALIZER_VERSION = 3
+NORMALIZER_VERSION = 4
 MAX_ARCHIVE_BYTES = 30 * 1024 * 1024
 MAX_CSV_BYTES = 160 * 1024 * 1024
 DEFAULT_SYMBOLS = ("NIFTY", "BANKNIFTY")
@@ -286,8 +286,9 @@ def normalize_archive(
     payload: bytes,
     report_day: date,
     symbols: Iterable[str],
+    current_next: bool = False,
 ) -> tuple[list[dict[str, str]], str, int]:
-    """Validate one archive and normalize genuine index-option rows."""
+    """Normalize genuine index/stock options; ALL and current_next support one closing snapshot."""
 
     text = read_single_csv(payload)
     reader = csv.DictReader(io.StringIO(text))
@@ -309,7 +310,7 @@ def normalize_archive(
             observed_report_days.add(actual_day)
             underlying = source["SYMBOL"].strip().upper()
             option_type = source["OPTION_TYP"].strip().upper()
-            if source["INSTRUMENT"].strip() != "OPTIDX" or underlying not in allowed or option_type not in {"CE", "PE"}:
+            if source["INSTRUMENT"].strip() not in {"OPTIDX", "OPTSTK"} or ("ALL" not in allowed and underlying not in allowed) or option_type not in {"CE", "PE"}:
                 skipped += 1
                 continue
             expiry = datetime.strptime(source["EXPIRY_DT"].strip(), "%d-%b-%Y").date()
@@ -330,7 +331,7 @@ def normalize_archive(
             observed_report_days.add(actual_day)
             underlying = source["TckrSymb"].strip().upper()
             option_type = source["OptnTp"].strip().upper()
-            if source["FinInstrmTp"].strip() != "IDO" or underlying not in allowed or option_type not in {"CE", "PE"}:
+            if source["FinInstrmTp"].strip() not in {"IDO", "STO"} or ("ALL" not in allowed and underlying not in allowed) or option_type not in {"CE", "PE"}:
                 skipped += 1
                 continue
             expiry = date.fromisoformat(source["XpryDt"].strip())
@@ -402,6 +403,13 @@ def normalize_archive(
         raise ArchiveValidationError(
             f"Archive reports {sorted(day.isoformat() for day in observed_report_days)}, expected {report_day}."
         )
+    if current_next:
+        expiries: dict[str, set[str]] = {}
+        for row in normalized:
+            if row["expiry_date"] >= report_day.isoformat():
+                expiries.setdefault(row["underlying"], set()).add(row["expiry_date"])
+        nearest = {symbol: sorted(days)[:2] for symbol, days in expiries.items()}
+        normalized = [row for row in normalized if row["expiry_date"] in nearest.get(row["underlying"], [])]
     normalized.sort(
         key=lambda row: (
             row["underlying"],
@@ -525,13 +533,13 @@ def run(args: argparse.Namespace) -> int:
         key = day.isoformat()
         raw_path = root / "raw" / f"{key}.zip"
         normalized_path = root / "normalized" / f"{key}.csv"
-        if is_complete(days.get(key), raw_path, normalized_path, symbols):
+        if is_complete(days.get(key), raw_path, normalized_path, symbols) and bool(days[key].get("currentNext", False)) == args.current_next:
             print(f"skip {key}: verified local copy")
             continue
         url, expected_family = archive_url(day)
         try:
             prior = days.get(key)
-            payload = (
+            payload = args.archive.read_bytes() if args.archive else (
                 raw_path.read_bytes()
                 if isinstance(prior, dict)
                 and raw_path.is_file()
@@ -544,7 +552,7 @@ def run(args: argparse.Namespace) -> int:
                 else payload
             )
             rows, family, skipped = normalize_archive(
-                normalization_payload, day, symbols
+                normalization_payload, day, symbols, args.current_next
             )
             if family != expected_family:
                 raise ArchiveValidationError(
@@ -557,6 +565,7 @@ def run(args: argparse.Namespace) -> int:
                 "status": "complete",
                 "normalizerVersion": NORMALIZER_VERSION,
                 "symbols": sorted(symbols),
+                "currentNext": args.current_next,
                 "url": url,
                 "schema": family,
                 "legacyProvider": (
@@ -595,6 +604,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--from", dest="from_day", type=parse_day, required=True)
     parser.add_argument("--to", dest="to_day", type=parse_day, required=True)
     parser.add_argument("--symbols", nargs="+", default=list(DEFAULT_SYMBOLS))
+    parser.add_argument("--current-next", action="store_true", help="Keep only the two nearest expiries per underlying.")
+    parser.add_argument("--archive", type=Path, help="Use a local official archive; its report date is still validated.")
     parser.add_argument("--output", type=Path, default=Path(".runtime/nse-fno"))
     parser.add_argument("--delay", type=float, default=1.5)
     parser.add_argument(

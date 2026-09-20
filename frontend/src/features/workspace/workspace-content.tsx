@@ -210,7 +210,6 @@ export function WorkspaceContent({
           csrf={workspace.csrf}
           draft={spreadDraft}
           initialSelection={spreadContext}
-          onAddLeg={onAddSpreadLeg}
         />
       );
     case "Option chain":

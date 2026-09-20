@@ -1,0 +1,36 @@
+.toggle {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  border-radius: 999px;
+  border: 1px solid var(--sidebar-border);
+  background: var(--sidebar-bg-active);
+  padding: 0 5px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+.toggle:hover {
+  border-color: var(--sidebar-text-muted);
+}
+.iconSun,
+.iconMoon {
+  color: var(--sidebar-text-muted);
+  position: relative;
+  z-index: 1;
+}
+.thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--sidebar-text-active);
+  transition: transform var(--duration-base) var(--ease-standard);
+}
+.thumb[data-dark="true"] {
+  transform: translateX(20px);
+  background: var(--accent);
+}

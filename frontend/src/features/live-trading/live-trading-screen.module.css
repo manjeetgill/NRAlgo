@@ -1,0 +1,104 @@
+.intro {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.introLead {
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+}
+.introNote {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+}
+.alert {
+  color: var(--danger-text);
+  background: var(--danger-muted);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+}
+.status {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+}
+.contextNote {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+}
+.contextNote a {
+  color: var(--accent-text);
+  text-decoration: underline;
+}
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+.statCard {
+  display: grid;
+  gap: var(--space-2);
+}
+.statLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.statValue {
+  font-size: var(--text-xl);
+  color: var(--text-primary);
+}
+.mono {
+  font-family: var(--font-mono);
+}
+.positive {
+  color: var(--success-text);
+}
+.negative {
+  color: var(--danger-text);
+}
+.infoTrigger {
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0;
+  line-height: 0;
+}
+.infoTrigger:hover {
+  color: var(--accent);
+}
+.tableFooter {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  margin-top: var(--space-3);
+  line-height: 1.6;
+}
+.safetyText {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+}
+.safetyText + .safetyText {
+  margin-top: var(--space-2);
+}
+.reviewMeta {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+@media (max-width: 700px) {
+  .statsGrid {
+    grid-template-columns: 1fr;
+  }
+}

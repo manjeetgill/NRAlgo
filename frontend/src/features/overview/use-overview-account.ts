@@ -71,18 +71,21 @@ export function useOverviewAccount(
    * generation checks discard late results, and failures preserve the last known snapshot. */
   const loadAccountSnapshot = useCallback(
     /** Load only the configured account's connection status and funds/positions.
-     * This callback handles its own rejection so event handlers can safely invoke it with void. */
-    async () => {
+     * This callback handles its own rejection so event handlers can safely invoke it with void.
+     * Returns `true` on success, the error message on failure, or `undefined` when this call
+     * was skipped or superseded — callers use this only to surface refresh feedback (e.g. a
+     * toast); it never changes what is requested or how failures are handled internally. */
+    async (): Promise<true | string | undefined> => {
       if (!broker) {
         setConnected(false);
         setLive(null);
         liveSnapshot.current = null;
         setLoading(false);
         setError("");
-        return;
+        return true;
       }
       if (inFlight.current) {
-        return;
+        return undefined;
       }
       inFlight.current = true;
       // A new explicit read supersedes any slower account request from the last refresh.
@@ -92,7 +95,7 @@ export function useOverviewAccount(
       try {
         const result = await loadOverviewSnapshot(broker, csrf);
         if (version !== generation.current) {
-          return;
+          return undefined;
         }
         setConnected(result.connected);
         liveSnapshot.current = result.snapshot;
@@ -101,6 +104,7 @@ export function useOverviewAccount(
             previous,
           ) => retainKnownExposure(previous, result.snapshot),
         );
+        return true;
       } catch (failure) {
         if (version === generation.current) {
           setConnected(null);
@@ -114,12 +118,14 @@ export function useOverviewAccount(
                 "Account refresh failed. Showing last known exposure and marks; reconciliation is required.",
               ),
           );
-          setError(
+          const message =
             failure instanceof Error
               ? failure.message
-              : "Account snapshot unavailable.",
-          );
+              : "Account snapshot unavailable.";
+          setError(message);
+          return message;
         }
+        return undefined;
       } finally {
         if (version === generation.current) {
           inFlight.current = false;
@@ -223,7 +229,7 @@ export function useOverviewAccount(
                   position.instrument === tick.instrument,
               ),
           )
-            ? "Prices updating from shared feed"
+            ? "Contract quotes received · exchange trade freshness unverified"
             : "No fresh prices · showing last known marks",
         );
       } catch {

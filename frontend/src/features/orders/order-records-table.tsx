@@ -1,9 +1,15 @@
 "use client";
 /** Broker order records presentation. */
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Field, Input, Select } from "@/components/ui/field";
+import { Badge, type BadgeTone } from "@/components/ui/badge";
+import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
+import { Dialog } from "@/components/ui/dialog";
 import { formatInr } from "@/lib/format";
 import { downloadText, encodeCsv } from "@/lib/download";
+import styles from "./order-records-table.module.css";
+
 export interface OrderRecord {
   id: string;
   instrument: string;
@@ -16,7 +22,23 @@ export interface OrderRecord {
   fillPrice?: number | null;
   createdAt?: number;
 }
-/** Filter/export the same records; a native dialog preserves keyboard focus and never submits an order. */
+
+/** Broker order lifecycle values persisted by the OMS; purely presentational tones. */
+const ORDER_STATE_TONE: Record<string, BadgeTone> = {
+  filled: "success",
+  acknowledged: "success",
+  open: "info",
+  partially_filled: "info",
+  reserved: "neutral",
+  bound: "neutral",
+  submitting: "warning",
+  unknown: "warning",
+  blocked: "danger",
+  rejected: "danger",
+  cancelled: "neutral",
+};
+
+/** Filter/export the same records; a controlled dialog preserves keyboard focus and never submits an order. */
 export function OrderRecordsTable({
   records,
   brokerLabel = "Broker not reported",
@@ -27,7 +49,7 @@ export function OrderRecordsTable({
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
   const [selected, setSelected] = useState<OrderRecord | null>(null);
-  const dialog = useRef<HTMLDialogElement>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
   /** Search is a local projection and cannot change the broker account. */
   const filtered = useMemo(
     () =>
@@ -73,20 +95,88 @@ export function OrderRecordsTable({
       "text/csv",
     );
   }
+  const columns: DataTableColumn<OrderRecord>[] = [
+    {
+      key: "mode",
+      header: "Mode / broker",
+      render: () => `live · ${brokerLabel}`,
+    },
+    {
+      key: "instrument",
+      header: "Instrument",
+      sortValue: (order) => order.instrument,
+      render: (order) => (
+        <>
+          {order.instrument}
+          <small className={styles.orderId}>{order.id}</small>
+        </>
+      ),
+    },
+    { key: "side", header: "Side", render: (order) => order.side },
+    {
+      key: "quantity",
+      header: "Units",
+      align: "right",
+      sortValue: (order) => order.quantity,
+      render: (order) => <span className={styles.mono}>{order.quantity}</span>,
+    },
+    {
+      key: "filled",
+      header: "Filled units",
+      align: "right",
+      sortValue: (order) => order.filled ?? -1,
+      render: (order) => (
+        <span className={styles.mono}>{order.filled ?? "—"}</span>
+      ),
+    },
+    {
+      key: "limit",
+      header: "Limit",
+      align: "right",
+      sortValue: (order) => order.limit,
+      render: (order) => (
+        <span className={styles.mono}>{formatInr(order.limit)}</span>
+      ),
+    },
+    {
+      key: "state",
+      header: "Status",
+      render: (order) => (
+        <Badge tone={ORDER_STATE_TONE[order.state] ?? "neutral"}>
+          {order.state}
+        </Badge>
+      ),
+    },
+    {
+      key: "action",
+      header: "Action",
+      render: (order) => (
+        <Button
+          variant="ghost"
+          onClick={() => {
+            setSelected(order);
+            setDetailOpen(true);
+          }}
+        >
+          Details
+        </Button>
+      ),
+    },
+  ];
   return (
     <>
       <div className="screen-toolbar">
-        <label>
-          Search orders
-          <input
+        <Field label="Search orders" htmlFor="order-search">
+          <Input
+            id="order-search"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Instrument, order or broker"
           />
-        </label>
-        <label>
-          Order status
-          <select
+        </Field>
+        <Field label="Order status" htmlFor="order-status">
+          <Select
+            id="order-status"
             value={status}
             onChange={(event) => setStatus(event.target.value)}
           >
@@ -96,8 +186,8 @@ export function OrderRecordsTable({
               .map((state) => (
                 <option key={state}>{state}</option>
               ))}
-          </select>
-        </label>
+          </Select>
+        </Field>
         <Button
           variant="secondary"
           disabled={!filtered.length}
@@ -106,73 +196,24 @@ export function OrderRecordsTable({
           Export filtered orders
         </Button>
       </div>
-      <div className="table-scroll">
-        <table>
-          <thead>
-            <tr>
-              <th>Mode / broker</th>
-              <th>Instrument</th>
-              <th>Side</th>
-              <th>Units</th>
-              <th>Filled units</th>
-              <th>Limit</th>
-              <th>Status</th>
-              <th>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((order) => (
-              <tr key={order.id}>
-                <td>live · {brokerLabel}</td>
-                <td>
-                  {order.instrument}
-                  <small>{order.id}</small>
-                </td>
-                <td>{order.side}</td>
-                <td>{order.quantity}</td>
-                <td>{order.filled ?? "—"}</td>
-                <td>{formatInr(order.limit)}</td>
-                <td>
-                  <span className="badge">{order.state}</span>
-                </td>
-                <td>
-                  <Button
-                    variant="ghost"
-                    onClick={() => {
-                      setSelected(order);
-                      dialog.current?.showModal();
-                    }}
-                  >
-                    Details
-                  </Button>
-                </td>
-              </tr>
-            ))}
-            {!filtered.length && (
-              <tr>
-                <td colSpan={8}>No orders match this view.</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-      <p className="muted">
+      <DataTable
+        columns={columns}
+        rows={filtered}
+        rowKey={(order) => order.id}
+        emptyTitle="No orders match this view."
+      />
+      <p className={styles.footer}>
         {filtered.length} of {records.length} records · App-managed OMS only;
         not the complete broker trade book.
       </p>
-      <dialog
-        ref={dialog}
-        className="workspace-dialog"
-        aria-labelledby="order-detail-title"
+      <Dialog
+        open={detailOpen}
+        onClose={() => setDetailOpen(false)}
+        title="Order details"
+        labelledBy="order-detail-title"
       >
-        <div className="screen-toolbar">
-          <h2 id="order-detail-title">Order details</h2>
-          <Button variant="secondary" onClick={() => dialog.current?.close()}>
-            Close details
-          </Button>
-        </div>
         {selected && (
-          <dl>
+          <dl className={styles.detail}>
             <dt>Order ID</dt>
             <dd>{selected.id}</dd>
             <dt>Account domain</dt>
@@ -196,11 +237,11 @@ export function OrderRecordsTable({
             <dd>{selected.brokerOrderId ?? "Unavailable"}</dd>
           </dl>
         )}
-        <p>
+        <p className={styles.detailNote}>
           Only recorded facts are shown. A complete exchange event timeline is
           not available here.
         </p>
-      </dialog>
+      </Dialog>
     </>
   );
 }

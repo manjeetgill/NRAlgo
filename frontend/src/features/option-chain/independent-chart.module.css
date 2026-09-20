@@ -1,0 +1,53 @@
+.panel {
+  display: grid;
+  gap: var(--space-3);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: var(--space-6);
+}
+.panel h2 {
+  margin: 0;
+  font-size: var(--text-lg);
+  color: var(--text-primary);
+}
+.panel p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+.status {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+.error {
+  margin: 0;
+  color: var(--danger-text);
+  font-size: var(--text-sm);
+}
+.results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 280px;
+  overflow-y: auto;
+  display: grid;
+  gap: var(--space-2);
+}
+.results :global(.button) {
+  width: 100%;
+  justify-content: flex-start;
+  text-align: left;
+  font-family: var(--font-mono);
+}
+.pager {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+/* The daily candlestick chart needs more room than the default dialog width. */
+.wideDialog {
+  width: min(960px, calc(100vw - 32px));
+}

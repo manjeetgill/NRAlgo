@@ -3,6 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { requestApiJson } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { Card, CardHeader, CardTitle } from "@/components/ui/card";
+import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
+import { Badge } from "@/components/ui/badge";
+import { useConfirm } from "@/components/ui/confirm";
+import { useToast } from "@/components/ui/toast";
 type SessionRecord = { id: string; current: boolean; expiresAt: number };
 /** List and explicitly revoke owner-scoped sessions; revocation may close the broker data connection. */
 export function AccountSessions({ csrf }: { csrf: string }) {
@@ -11,6 +16,8 @@ export function AccountSessions({ csrf }: { csrf: string }) {
   const [busy, setBusy] = useState(false);
   const pending = useRef(false);
   const generation = useRef(0);
+  const confirm = useConfirm();
+  const toast = useToast();
   /** Read bounded session metadata and discard results belonging to a departed screen. */
   const load = useCallback(async () => {
     const version = ++generation.current;
@@ -43,9 +50,13 @@ export function AccountSessions({ csrf }: { csrf: string }) {
   async function revoke(id?: string) {
     if (
       pending.current ||
-      !window.confirm(
-        "Revoke this access? Broker connections will close, but exchange positions will remain open.",
-      )
+      !(await confirm({
+        title: "Revoke this access?",
+        description:
+          "Broker connections will close, but exchange positions will remain open.",
+        confirmLabel: "Revoke access",
+        tone: "danger",
+      }))
     ) {
       return;
     }
@@ -60,6 +71,10 @@ export function AccountSessions({ csrf }: { csrf: string }) {
         csrf,
       );
       await load();
+      toast({
+        tone: "success",
+        title: id ? "Session revoked" : "Other sessions signed out",
+      });
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : "Session revocation failed.",
@@ -69,58 +84,58 @@ export function AccountSessions({ csrf }: { csrf: string }) {
       setBusy(false);
     }
   }
+  const columns: DataTableColumn<SessionRecord>[] = [
+    {
+      key: "session",
+      header: "Session",
+      render: (session) =>
+        session.current
+          ? "Current session"
+          : `Session ${session.id.slice(0, 8)}`,
+    },
+    { key: "device", header: "Device", render: () => "Not recorded" },
+    {
+      key: "expires",
+      header: "Expires (IST)",
+      sortValue: (session) => session.expiresAt,
+      render: (session) =>
+        new Date(session.expiresAt).toLocaleString("en-IN", {
+          timeZone: "Asia/Kolkata",
+        }),
+    },
+    {
+      key: "action",
+      header: "Action",
+      render: (session) =>
+        session.current ? (
+          <Badge tone="accent">Current</Badge>
+        ) : (
+          <Button
+            variant="ghost"
+            disabled={busy}
+            onClick={() => void revoke(session.id)}
+          >
+            Revoke session
+          </Button>
+        ),
+    },
+  ];
   return (
-    <section className="panel screen-card">
-      <div className="screen-toolbar">
-        <h2>Active sessions</h2>
+    <Card>
+      <CardHeader>
+        <CardTitle>Active sessions</CardTitle>
         <Button variant="secondary" disabled={busy} onClick={() => void load()}>
           Refresh sessions
         </Button>
-      </div>
+      </CardHeader>
       {error && <p role="alert">{error}</p>}
-      <div className="table-scroll">
-        <table>
-          <thead>
-            <tr>
-              <th>Session</th>
-              <th>Device</th>
-              <th>Expires (IST)</th>
-              <th>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sessions?.map((session) => (
-              <tr key={session.id}>
-                <td>
-                  {session.current
-                    ? "Current session"
-                    : `Session ${session.id.slice(0, 8)}`}
-                </td>
-                <td>Not recorded</td>
-                <td>
-                  {new Date(session.expiresAt).toLocaleString("en-IN", {
-                    timeZone: "Asia/Kolkata",
-                  })}
-                </td>
-                <td>
-                  {session.current ? (
-                    "Current"
-                  ) : (
-                    <Button
-                      variant="ghost"
-                      disabled={busy}
-                      onClick={() => void revoke(session.id)}
-                    >
-                      Revoke session
-                    </Button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <p>
+      <DataTable
+        columns={columns}
+        rows={sessions ?? []}
+        rowKey={(session) => session.id}
+        emptyTitle="No sessions loaded yet"
+      />
+      <p style={{ marginTop: "var(--space-4)" }}>
         Device identity and last-active timestamps are not collected. Revoking
         access does not close broker positions.
       </p>
@@ -131,6 +146,6 @@ export function AccountSessions({ csrf }: { csrf: string }) {
       >
         Sign out other devices
       </Button>
-    </section>
+    </Card>
   );
 }

@@ -19,6 +19,7 @@ export type BrokerProvider = z.infer<typeof brokerProviderSchema>;
 type BrokerRow = {
   id: string;
   provider: BrokerProvider;
+  account_binding: string;
   status: "connected" | "disconnected";
   connected_at: number;
   updated_at: number;
@@ -32,6 +33,7 @@ export type BrokerConnectivityResolver = (
   provider: BrokerProvider,
   userId: string,
   sessionHash: string,
+  accountBinding: string,
 ) => boolean;
 
 /** Resolve the owner-selected connected broker. Reservation callers use FOR UPDATE so
@@ -87,10 +89,31 @@ export async function recordBrokerConnected(
     if (!settings) {
       throw new Error("Broker owner settings are missing.");
     }
-    const [broker] = await query<{ id: string }>(
-      "INSERT INTO user_brokers(id,user_id,provider,account_binding,status,connected_at,updated_at) VALUES($1,$2,$3,$4,'connected',$5,$5) ON CONFLICT(user_id,provider) DO UPDATE SET account_binding=EXCLUDED.account_binding,status='connected',connected_at=EXCLUDED.connected_at,updated_at=EXCLUDED.updated_at RETURNING id",
-      [randomUUID(), userId, provider, accountBinding, timestamp],
+    const [existing] = await query<{ id: string; user_id: string }>(
+      "SELECT id,user_id FROM user_brokers WHERE provider=$1 AND account_binding=$2 FOR UPDATE",
+      [provider, accountBinding],
     );
+    if (existing && existing.user_id !== userId) {
+      throw new Error(
+        "This broker account is already bound to another workspace.",
+      );
+    }
+    // A provider runtime has one session per application login. Preserve older
+    // accounts and their snapshots, but do not report them as currently connected.
+    await query(
+      "UPDATE user_brokers SET status='disconnected',updated_at=$3 WHERE user_id=$1 AND provider=$2 AND account_binding<>$4",
+      [userId, provider, timestamp, accountBinding],
+    );
+    const brokerId = existing?.id ?? randomUUID();
+    const [broker] = existing
+      ? await query<{ id: string }>(
+          "UPDATE user_brokers SET status='connected',connected_at=$3,updated_at=$3 WHERE id=$1 AND user_id=$2 RETURNING id",
+          [brokerId, userId, timestamp],
+        )
+      : await query<{ id: string }>(
+          "INSERT INTO user_brokers(id,user_id,provider,account_binding,status,connected_at,updated_at) VALUES($1,$2,$3,$4,'connected',$5,$5) RETURNING id",
+          [brokerId, userId, provider, accountBinding, timestamp],
+        );
     if (!settings.active_broker_id) {
       await query(
         "UPDATE user_settings SET active_broker_id=$2 WHERE user_id=$1",
@@ -134,14 +157,19 @@ async function listBrokers(
       [userId],
     );
     const brokers = await query<BrokerRow>(
-      "SELECT id,provider,status,connected_at,updated_at FROM user_brokers WHERE user_id=$1 ORDER BY provider,id",
+      "SELECT id,provider,account_binding,status,connected_at,updated_at FROM user_brokers WHERE user_id=$1 ORDER BY provider,id",
       [userId],
     );
     return {
       activeBrokerId: settings?.active_broker_id ?? null,
       brokers: brokers.map((broker) => {
         const connected = isConnected
-          ? isConnected(broker.provider, userId, sessionHash)
+          ? isConnected(
+              broker.provider,
+              userId,
+              sessionHash,
+              broker.account_binding,
+            )
           : broker.status === "connected";
         return {
           id: broker.id,
@@ -176,7 +204,7 @@ async function selectActiveBroker(
       fail(409, "Account settings are unavailable.");
     }
     const [target] = await query<BrokerRow>(
-      "SELECT id,provider,status,connected_at,updated_at FROM user_brokers WHERE id=$1 AND user_id=$2 FOR UPDATE",
+      "SELECT id,provider,account_binding,status,connected_at,updated_at FROM user_brokers WHERE id=$1 AND user_id=$2 FOR UPDATE",
       [brokerId, userId],
     );
     if (!target) {
@@ -185,7 +213,10 @@ async function selectActiveBroker(
     if (target.status !== "connected") {
       fail(409, "Reconnect this broker before making it active.");
     }
-    if (isConnected && !isConnected(target.provider, userId, sessionHash)) {
+    if (
+      isConnected &&
+      !isConnected(target.provider, userId, sessionHash, target.account_binding)
+    ) {
       fail(
         409,
         "This broker session is no longer connected. Reconnect it first.",

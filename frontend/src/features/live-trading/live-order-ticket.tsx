@@ -1,10 +1,17 @@
 "use client";
 /** Explicit real-money ticket, separate from simulated ledgers. Never submits on mount or retry. */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Info } from "lucide-react";
 import { createLatestRequest } from "@/lib/latest-request";
 import { requestApiJson } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { Field, Input, Select } from "@/components/ui/field";
+import { Badge, type BadgeTone } from "@/components/ui/badge";
+import { Tooltip } from "@/components/ui/tooltip";
+import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
+import { useToast } from "@/components/ui/toast";
 import type { BrokerInstrument } from "@/components/instrument-picker";
+import styles from "./live-order-ticket.module.css";
 
 type Intent = {
   instrument: string;
@@ -20,6 +27,12 @@ type Preview = {
   tradingSymbol: string;
   notionalPaise: number;
 };
+type LiveOrderState = {
+  id: string;
+  state: string;
+  intent: Intent;
+  brokerOrder?: { brokerOrderId: string; filledQuantity: number } | null;
+};
 type LiveStatus = {
   enabled: boolean;
   armed: boolean;
@@ -27,15 +40,26 @@ type LiveStatus = {
   activeBrokerId?: string;
   provider?: string;
   reason?: string;
-  orders?: {
-    id: string;
-    state: string;
-    intent: Intent;
-    brokerOrder?: { brokerOrderId: string; filledQuantity: number } | null;
-  }[];
+  orders?: LiveOrderState[];
 };
 const money = (paise: number) =>
   (paise / 100).toLocaleString("en-IN", { style: "currency", currency: "INR" });
+
+/** Broker order lifecycle values persisted by the OMS; purely presentational tones, not
+ * a re-implementation of any state-machine logic owned by the backend. */
+const ORDER_STATE_TONE: Record<string, BadgeTone> = {
+  filled: "success",
+  acknowledged: "success",
+  open: "info",
+  partially_filled: "info",
+  reserved: "neutral",
+  bound: "neutral",
+  submitting: "warning",
+  unknown: "warning",
+  blocked: "danger",
+  rejected: "danger",
+  cancelled: "neutral",
+};
 
 /** Render explicit live controls, retaining server, MFA, risk and confirmation safeguards. */
 export function LiveOrderTicket({
@@ -47,6 +71,7 @@ export function LiveOrderTicket({
 }) {
   const statusGate = useRef(createLatestRequest());
   const actionPending = useRef(false);
+  const toast = useToast();
   const [status, setStatus] = useState<LiveStatus | null>(null),
     [error, setError] = useState("");
   const [busy, setBusy] = useState(false),
@@ -147,17 +172,51 @@ export function LiveOrderTicket({
   function handleLiveTradingDisable() {
     void action(requestLiveTradingDisable);
   }
+  const orderColumns: DataTableColumn<LiveOrderState>[] = [
+    { key: "instrument", header: "Intent", render: (o) => o.intent.instrument },
+    {
+      key: "side",
+      header: "Side / quantity",
+      render: (o) => (
+        <span className={styles.mono}>
+          {o.intent.side} / {o.intent.quantity}
+        </span>
+      ),
+    },
+    {
+      key: "state",
+      header: "State",
+      render: (o) => (
+        <Badge tone={ORDER_STATE_TONE[o.state] ?? "neutral"}>{o.state}</Badge>
+      ),
+    },
+    {
+      key: "brokerOrder",
+      header: "Broker order",
+      render: (o) => o.brokerOrder?.brokerOrderId ?? "Awaiting confirmation",
+    },
+    {
+      key: "filled",
+      header: "Filled units",
+      align: "right",
+      render: (o) => (
+        <span className={styles.mono}>
+          {o.brokerOrder?.filledQuantity ?? "—"}
+        </span>
+      ),
+    },
+  ];
   return (
     <section
-      className="research-panel live-execution-panel"
+      className={`live-execution-panel ${styles.panel}`}
       aria-label="Live execution controls"
     >
-      <div className="panel-heading">
+      <div className={styles.heading}>
         <div>
           <h2>Live execution</h2>
-          <p>Connected broker · LIMIT / DAY · NSE cash and long options</p>
+          <p>Execution capability · LIMIT / DAY · NSE cash and long options</p>
           {initialOrder && (
-            <p>
+            <p className={styles.chainNote}>
               From option chain: {initialOrder.contract.symbol}. Search and
               select the exact contract from the active broker before reviewing.
               Chain tokens and prices are never used as execution authorization.
@@ -168,12 +227,15 @@ export function LiveOrderTicket({
       </div>
       <fieldset disabled={busy}>
         <legend>Live trading control</legend>
-        <p role="status">
+        <p role="status" className={styles.statusLine}>
           Server capability: {status?.enabled ? "Available" : "Locked"} · Live
-          trading: {status?.armed ? "Enabled" : "Disabled"} · Active broker:{" "}
-          {status?.provider?.toUpperCase() ?? "Not selected"}. {status?.reason}
+          trading: {status?.armed ? "Enabled" : "Disabled"} · Execution
+          provider:{" "}
+          {status?.provider?.toUpperCase() ??
+            "Unavailable until execution status is available"}
+          . {status?.reason}
         </p>
-        <p>
+        <p className={styles.statusLine}>
           Enabling is temporary and requires reconciliation, an authenticator
           code and explicit confirmation. Disabling blocks new submissions
           first, then requests cancellation of non-terminal broker orders.
@@ -184,18 +246,34 @@ export function LiveOrderTicket({
           </Button>
         )}
       </fieldset>
-      <p>
+      <p className={styles.sectionNote}>
         Use a dedicated trading account. Only reconciled, app-tracked exposure
-        can be managed here; unexplained positions or unknown order outcomes
-        require review. Every live order requires explicit authorization.
+        can be managed here; every live order requires explicit authorization.
+        <Tooltip label="Unexplained positions or unknown order outcomes require review before continuing.">
+          <button
+            type="button"
+            className={styles.infoTrigger}
+            aria-label="More about account hygiene requirements"
+          >
+            <Info size={13} />
+          </button>
+        </Tooltip>
       </p>
-      <p>
+      <p className={styles.statusLine}>
         Funds use the active broker&apos;s available buying power, not a settled
         cash ledger. Halting requests cancellation of app-managed orders; it
         does not close positions.
       </p>
-      {error && <p role="alert">{error}</p>}
-      {message && <p role="status">{message}</p>}
+      {error && (
+        <p role="alert" className={styles.alert}>
+          {error}
+        </p>
+      )}
+      {message && (
+        <p role="status" className={styles.status}>
+          {message}
+        </p>
+      )}
       <Button
         variant="secondary"
         disabled={busy}
@@ -208,7 +286,7 @@ export function LiveOrderTicket({
         Check live status
       </Button>
       {status?.enabled === false ? (
-        <p>
+        <p className={styles.statusLine}>
           Disabled by the server operator. Static-IP registration and explicit
           server configuration are required before activation.
         </p>
@@ -227,9 +305,9 @@ export function LiveOrderTicket({
                     ["rate", "Orders per minute (1–60)"],
                   ] as const
                 ).map(([key, label]) => (
-                  <label key={key}>
-                    {label}
-                    <input
+                  <Field key={key} label={label} htmlFor={`risk-${key}`}>
+                    <Input
+                      id={`risk-${key}`}
                       type="number"
                       min="1"
                       value={limits[key]}
@@ -237,7 +315,7 @@ export function LiveOrderTicket({
                         setLimits({ ...limits, [key]: e.target.value })
                       }
                     />
-                  </label>
+                  </Field>
                 ))}
               </div>
               <Button
@@ -259,6 +337,10 @@ export function LiveOrderTicket({
                       fundsDriftTolerancePaise: 0,
                     });
                     await refresh();
+                    toast({
+                      tone: "success",
+                      title: "Live risk limits saved",
+                    });
                   })
                 }
               >
@@ -270,64 +352,75 @@ export function LiveOrderTicket({
             <>
               <fieldset disabled={busy}>
                 <legend>2. Enable live trading for five minutes</legend>
-                <label>
-                  Fresh app authenticator or unused recovery code
-                  <input
+                <Field
+                  label="Fresh app authenticator or unused recovery code"
+                  htmlFor="mfa-token"
+                >
+                  <Input
+                    id="mfa-token"
                     type="password"
                     autoComplete="one-time-code"
                     maxLength={32}
                     value={token}
                     onChange={(e) => setToken(e.target.value)}
                   />
-                </label>
-                <p>
+                </Field>
+                <p className={styles.statusLine}>
                   Use a new code for each authorization. If you just changed
                   brokers, wait for your authenticator to show its next code.
                 </p>
-                <label>
-                  Type ENABLE REAL MONEY
-                  <input
+                <Field label="Type ENABLE REAL MONEY" htmlFor="arm-proof">
+                  <Input
+                    id="arm-proof"
                     value={armProof}
                     onChange={(e) => setArmProof(e.target.value)}
                     autoComplete="off"
                   />
-                </label>
-                <Button
-                  disabled={
-                    status?.armed || armProof !== "ENABLE REAL MONEY" || !token
-                  }
-                  onClick={() =>
-                    void action(async () => {
-                      try {
-                        await post("arm", { token, confirmation: armProof });
+                </Field>
+                <div className={styles.actions}>
+                  <Button
+                    disabled={
+                      status?.armed ||
+                      armProof !== "ENABLE REAL MONEY" ||
+                      !token
+                    }
+                    onClick={() =>
+                      void action(async () => {
+                        try {
+                          await post("arm", { token, confirmation: armProof });
+                          await refresh();
+                        } finally {
+                          setToken("");
+                          setArmProof("");
+                        }
+                      })
+                    }
+                  >
+                    Enable live trading
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() =>
+                      void action(async () => {
+                        await post("reconcile");
                         await refresh();
-                      } finally {
-                        setToken("");
-                        setArmProof("");
-                      }
-                    })
-                  }
-                >
-                  Enable live trading
-                </Button>
-                <Button
-                  variant="secondary"
-                  onClick={() =>
-                    void action(async () => {
-                      await post("reconcile");
-                      await refresh();
-                    })
-                  }
-                >
-                  Reconcile broker books
-                </Button>
+                        toast({
+                          tone: "success",
+                          title: "Broker books reconciled",
+                        });
+                      })
+                    }
+                  >
+                    Reconcile broker books
+                  </Button>
+                </div>
               </fieldset>
               <fieldset disabled={busy || !status?.armed || uncertain}>
                 <legend>3. Review a live order</legend>
                 <div className="form-grid">
-                  <label>
-                    Market
-                    <select
+                  <Field label="Market" htmlFor="market-select">
+                    <Select
+                      id="market-select"
                       value={market}
                       onChange={(e) => {
                         setMarket(e.target.value as "cash" | "options");
@@ -338,16 +431,19 @@ export function LiveOrderTicket({
                     >
                       <option value="cash">NSE cash (CNC)</option>
                       <option value="options">NSE options (NRML)</option>
-                    </select>
-                  </label>
-                  <label>
-                    Search active broker contract
-                    <input
+                    </Select>
+                  </Field>
+                  <Field
+                    label="Search active broker contract"
+                    htmlFor="contract-query"
+                  >
+                    <Input
+                      id="contract-query"
                       value={query}
                       onChange={(e) => setQuery(e.target.value.toUpperCase())}
                       placeholder="RELIANCE / NIFTY"
                     />
-                  </label>
+                  </Field>
                   <Button
                     variant="secondary"
                     onClick={() =>
@@ -365,9 +461,9 @@ export function LiveOrderTicket({
                   >
                     Search contracts
                   </Button>
-                  <label>
-                    Contract
-                    <select
+                  <Field label="Contract" htmlFor="contract-select">
+                    <Select
+                      id="contract-select"
                       value={selected?.masterToken ?? ""}
                       onChange={(e) => {
                         const row =
@@ -384,11 +480,11 @@ export function LiveOrderTicket({
                           {i.name} · lot {i.lotSize}
                         </option>
                       ))}
-                    </select>
-                  </label>
-                  <label>
-                    Side
-                    <select
+                    </Select>
+                  </Field>
+                  <Field label="Side" htmlFor="side-select">
+                    <Select
+                      id="side-select"
                       value={side}
                       onChange={(e) => {
                         setSide(e.target.value as "buy" | "sell");
@@ -399,11 +495,14 @@ export function LiveOrderTicket({
                       <option value="sell">
                         Sell — reduce tracked long only
                       </option>
-                    </select>
-                  </label>
-                  <label>
-                    Quantity (exchange units)
-                    <input
+                    </Select>
+                  </Field>
+                  <Field
+                    label="Quantity (exchange units)"
+                    htmlFor="quantity-input"
+                  >
+                    <Input
+                      id="quantity-input"
                       type="number"
                       min="1"
                       value={quantity}
@@ -412,10 +511,10 @@ export function LiveOrderTicket({
                         invalidate();
                       }}
                     />
-                  </label>
-                  <label>
-                    Limit price ₹
-                    <input
+                  </Field>
+                  <Field label="Limit price ₹" htmlFor="price-input">
+                    <Input
+                      id="price-input"
                       type="number"
                       min="0.01"
                       step="0.01"
@@ -425,7 +524,7 @@ export function LiveOrderTicket({
                         invalidate();
                       }}
                     />
-                  </label>
+                  </Field>
                 </div>
                 <Button
                   disabled={!selected || !quantity || !price}
@@ -449,21 +548,27 @@ export function LiveOrderTicket({
               {preview && (
                 <fieldset disabled={busy || uncertain}>
                   <legend>4. Confirm real-money submission</legend>
-                  <p>
+                  <p className={styles.previewSummary}>
                     {preview.intent.side.toUpperCase()}{" "}
-                    {preview.intent.quantity} × {preview.tradingSymbol} at{" "}
-                    {money(preview.intent.limitPaise)}. Notional{" "}
-                    {money(preview.notionalPaise)} before fees. Preview expires
-                    at {new Date(preview.expires).toLocaleTimeString()}.
+                    <span className={styles.mono}>
+                      {preview.intent.quantity} × {preview.tradingSymbol} at{" "}
+                      {money(preview.intent.limitPaise)}
+                    </span>
+                    . Notional{" "}
+                    <span className={styles.mono}>
+                      {money(preview.notionalPaise)}
+                    </span>{" "}
+                    before fees. Preview expires at{" "}
+                    {new Date(preview.expires).toLocaleTimeString()}.
                   </p>
-                  <label>
-                    Type PLACE LIVE ORDER
-                    <input
+                  <Field label="Type PLACE LIVE ORDER" htmlFor="submit-proof">
+                    <Input
+                      id="submit-proof"
                       value={proof}
                       onChange={(e) => setProof(e.target.value)}
                       autoComplete="off"
                     />
-                  </label>
+                  </Field>
                   <Button
                     disabled={
                       proof !== "PLACE LIVE ORDER" ||
@@ -498,39 +603,18 @@ export function LiveOrderTicket({
                 </fieldset>
               )}
               {uncertain && (
-                <p role="alert">
+                <p role="alert" className={styles.alert}>
                   Submission outcome needs review. New tickets are locked in
                   this view. Reconcile and check the active broker before
                   continuing; do not recreate this order.
                 </p>
               )}
-              <table>
-                <thead>
-                  <tr>
-                    <th>Intent</th>
-                    <th>Side / quantity</th>
-                    <th>State</th>
-                    <th>Broker order</th>
-                    <th>Filled units</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {status?.orders?.map((o) => (
-                    <tr key={o.id}>
-                      <td>{o.intent.instrument}</td>
-                      <td>
-                        {o.intent.side} / {o.intent.quantity}
-                      </td>
-                      <td>{o.state}</td>
-                      <td>
-                        {o.brokerOrder?.brokerOrderId ??
-                          "Awaiting confirmation"}
-                      </td>
-                      <td>{o.brokerOrder?.filledQuantity ?? "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <DataTable
+                columns={orderColumns}
+                rows={status?.orders ?? []}
+                rowKey={(o) => o.id}
+                emptyTitle="No live orders recorded in this session yet."
+              />
             </>
           )}
         </>

@@ -715,11 +715,13 @@ export function LiveOptionChain({
   }
   /** Keep compact provenance useful without repeating the full provider description. */
   const compactSourceLabel =
-    sourceInfo.dataMode === "historical"
-      ? `Stored${sourceInfo.observedAt ? ` · ${new Date(sourceInfo.observedAt).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" })}` : ""}`
-      : sourceInfo.dataMode === "live"
-        ? "Live"
-        : "Loading";
+    error && !chain
+      ? "Unavailable"
+      : sourceInfo.dataMode === "historical"
+        ? `Snapshot${sourceInfo.observedAt ? ` · ${new Date(sourceInfo.observedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}` : ""}`
+        : sourceInfo.dataMode === "live"
+          ? "Live"
+          : "Loading";
   const sourceDescription = `${chain?.source || sourceInfo.source || "Market data provider"} · ${sourceInfo.observedAt ? new Date(sourceInfo.observedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }) : "current observation"} IST`;
   /** Reuse the same controlled expiry selector in compact and full layouts. */
   const expirySelect = (
@@ -930,7 +932,9 @@ export function LiveOptionChain({
               ? `${experience === "chain" ? "Last available close" : "Stored snapshot"}${sourceInfo.observedAt ? ` · ${new Date(sourceInfo.observedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST` : ""}`
               : sourceInfo.dataMode === "live"
                 ? "Active broker live feed"
-                : "Checking data source…"}
+                : error
+                  ? "Data unavailable"
+                  : "Checking data source…"}
           </span>
         )}
       </header>
@@ -1004,9 +1008,11 @@ export function LiveOptionChain({
       {feedError && <p role="alert">Feed: {feedError}</p>}
       {draftError && <p role="alert">{draftError}</p>}
       {analytics && greeks.error && <p role="alert">Greeks: {greeks.error}</p>}
-      {chain?.warning && !optionChain.items.some((item) => item.tickAt) && (
-        <p role="status">{chain.warning}</p>
-      )}
+      {chain?.warning &&
+        (chain.dataMode === "historical" ||
+          !optionChain.items.some((item) => item.tickAt)) && (
+          <p role="status">{chain.warning}</p>
+        )}
       {busy && !chain && <p role="status">Loading selected option chain…</p>}
       <div
         className="table-wrap chain-scroll"
@@ -1124,13 +1130,15 @@ export function LiveOptionChain({
         <p>No contracts for this selection.</p>
       )}
       <p className="chain-note">
-        {sourceInfo.dataMode === "historical"
-          ? analytics
-            ? "Stored premiums are replay observations, not executable quotes. Greeks are derived from observed premiums; missing values are never filled."
-            : "Stored premiums are replay observations, not executable quotes. Missing strikes and dates are never filled or estimated."
-          : analytics
-            ? "Prices and OI update from the shared tick batch. Greeks are derived from displayed premiums by the calculation service."
-            : "Prices and OI update from the same tick batch as dashboard P&L. This page streams up to 50 chain contracts alongside up to 50 open positions."}
+        {error && !chain
+          ? "No option prices loaded. Cash history cannot substitute for option premiums."
+          : sourceInfo.dataMode === "historical"
+            ? analytics
+              ? "Stored premiums are replay observations, not executable quotes. Greeks are derived from observed premiums; missing values are never filled."
+              : "Stored premiums are replay observations, not executable quotes. Missing strikes and dates are never filled or estimated."
+            : analytics
+              ? "Prices and OI update from the shared tick batch. Greeks are derived from displayed premiums by the calculation service."
+              : "Prices and OI update from the same tick batch as dashboard P&L. This page streams up to 50 chain contracts alongside up to 50 open positions."}
       </p>
     </section>
   );

@@ -249,6 +249,17 @@ export function KotakAccountReports({
               Open contracts · includes realised P&amp;L within each position ·
               check feed status for freshness
             </small>
+            <small>
+              Broker account unrealized P&amp;L:{" "}
+              {rupees(
+                typeof limits?.unrealizedPnl === "number"
+                  ? limits.unrealizedPnl
+                  : null,
+              )}
+              . This account-wide figure has a different basis; it is not the
+              sum of this view’s marked open contracts. Quote receipt time does
+              not establish exchange trade freshness.
+            </small>
           </article>
           <article>
             <span>Available margin</span>

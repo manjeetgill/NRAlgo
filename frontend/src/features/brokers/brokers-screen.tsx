@@ -4,7 +4,7 @@
  * Private views share the connection hooks; portfolio reports remain lazy and read-only.
  * This screen never mounts an execution ticket or submits a broker order.
  */
-import { useMemo, useRef, useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import {
   brokerConnectionAdapters,
   useBrokerConnection,
@@ -12,6 +12,12 @@ import {
   useZerodhaConnection,
 } from "./broker-hooks";
 import { Button } from "@/components/ui/button";
+import { Card, CardHeader, CardTitle } from "@/components/ui/card";
+import { Field, Input } from "@/components/ui/field";
+import { Badge, type BadgeTone } from "@/components/ui/badge";
+import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
+import { Dialog, DialogActions } from "@/components/ui/dialog";
+import { useToast } from "@/components/ui/toast";
 import dynamic from "next/dynamic";
 
 /** Broker reports are an explicit, separately loaded read-only tool; connecting never fetches them. */
@@ -21,81 +27,110 @@ const BrokerPortfolioPanel = dynamic(() =>
   ),
 );
 
+interface CapabilityRow {
+  id: string;
+  broker: string;
+  reports: string;
+  marketData: string;
+  execution: string;
+}
+/** Static, informational comparison; never derived from a live connection response. */
+const capabilityRows: CapabilityRow[] = [
+  {
+    id: "kotak",
+    broker: "Kotak Neo",
+    reports: "Holdings, positions and funds",
+    marketData: "Requires a valid connection",
+    execution: "Separate live authorization and risk checks",
+  },
+  {
+    id: "zerodha",
+    broker: "Zerodha Kite",
+    reports: "Read-only portfolio",
+    marketData: "Not integrated",
+    execution: "Not available in this app",
+  },
+];
+const capabilityColumns: DataTableColumn<CapabilityRow>[] = [
+  { key: "broker", header: "Broker", render: (row) => row.broker },
+  {
+    key: "reports",
+    header: "Account reports",
+    render: (row) => row.reports,
+  },
+  {
+    key: "marketData",
+    header: "Live market data",
+    render: (row) => row.marketData,
+  },
+  {
+    key: "execution",
+    header: "Order execution",
+    render: (row) => row.execution,
+  },
+];
+
 /** Render implemented provider login fields and leave async/session management to the connection hook. */
 export function BrokersScreen({ csrf }: { csrf: string }) {
   const adapter = brokerConnectionAdapters[0];
   const connection = useBrokerConnection(adapter, csrf);
+  const toast = useToast();
   const [credentials, setCredentials] = useState<Record<string, string>>({});
   const [showPortfolio, setShowPortfolio] = useState(false);
-  const connectDialog = useRef<HTMLDialogElement>(null);
-  const disconnectDialog = useRef<HTMLDialogElement>(null);
+  const [connectOpen, setConnectOpen] = useState(false);
+  const [disconnectOpen, setDisconnectOpen] = useState(false);
 
   /** Submit credentials once, then erase all input values even after a failed broker response. */
   async function onConnect(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     try {
       if (await connection.changeConnection(credentials)) {
-        connectDialog.current?.close();
+        setConnectOpen(false);
+        toast({ tone: "success", title: `${adapter.name} connected` });
       }
     } finally {
       setCredentials({});
     }
   }
-  /** Explicitly release authentication; the hook handles errors without a blind retry. */
-  function onDisconnect() {
-    disconnectDialog.current?.showModal();
-  }
+
+  const connectionBadgeTone: BadgeTone =
+    connection.connected === null
+      ? "neutral"
+      : connection.connected
+        ? "success"
+        : "warning";
 
   return (
     <section className="screen-stack" aria-label="Broker connection">
       <ActiveBrokerSelector csrf={csrf} refreshKey={connection.checkedAt} />
-      <section className="panel screen-card" aria-label="Broker capabilities">
-        <h2>What each connection supports</h2>
-        <div className="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>Broker</th>
-                <th>Account reports</th>
-                <th>Live market data</th>
-                <th>Order execution</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <th scope="row">Kotak Neo</th>
-                <td>Holdings, positions and funds</td>
-                <td>Requires a valid connection</td>
-                <td>Separate live authorization and risk checks</td>
-              </tr>
-              <tr>
-                <th scope="row">Zerodha Kite</th>
-                <td>Read-only portfolio</td>
-                <td>Not integrated</td>
-                <td>Not available in this app</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <p>
+      <Card aria-label="Broker capabilities">
+        <CardHeader>
+          <CardTitle>What each connection supports</CardTitle>
+        </CardHeader>
+        <DataTable
+          columns={capabilityColumns}
+          rows={capabilityRows}
+          rowKey={(row) => row.id}
+        />
+        <p className="muted" style={{ marginTop: "var(--space-4)" }}>
           Connect authorizes access. Verify session only checks the connection.
           Neither action starts trading.
         </p>
-      </section>
+      </Card>
       <div className="screen-two-columns broker-cards">
-        <article className="panel screen-card">
+        <Card>
           <div className="screen-toolbar">
             <h2 className="broker-card-title">
               <span className="connection-logo">K</span>
               {adapter.name}
             </h2>
-            <span className="badge">
+            <Badge tone={connectionBadgeTone}>
               {connection.connected === null
                 ? "Unknown"
                 : connection.connected
                   ? "Connected"
                   : "Authorization required"}
-            </span>
+            </Badge>
           </div>
           <p>
             {adapter.name} · Connect your account for market data and account
@@ -153,7 +188,7 @@ export function BrokersScreen({ csrf }: { csrf: string }) {
             </Button>
             <Button
               disabled={connection.busy}
-              onClick={() => connectDialog.current?.showModal()}
+              onClick={() => setConnectOpen(true)}
             >
               {connection.connected ? "Reconnect" : "Connect broker"}
             </Button>
@@ -161,7 +196,7 @@ export function BrokersScreen({ csrf }: { csrf: string }) {
               <Button
                 variant="secondary"
                 disabled={connection.busy}
-                onClick={onDisconnect}
+                onClick={() => setDisconnectOpen(true)}
               >
                 Disconnect
               </Button>
@@ -178,36 +213,31 @@ export function BrokersScreen({ csrf }: { csrf: string }) {
           >
             {showPortfolio ? "Hide broker portfolio" : "View broker portfolio"}
           </Button>
-        </article>
+        </Card>
         <ZerodhaConnectionCard csrf={csrf} />
       </div>
       {showPortfolio && connection.connected && (
         <BrokerPortfolioPanel broker="kotak" csrf={csrf} />
       )}
-      <article className="panel screen-card">
-        <h2>Connection health and execution permission are separate</h2>
-        <p>
+      <Card>
+        <CardTitle>
+          Connection health and execution permission are separate
+        </CardTitle>
+        <p style={{ marginTop: "var(--space-2)" }}>
           Connecting a broker does not arm trading. Use Live positions to review
           account restrictions, risk limits and authorization before submitting
           an order.
         </p>
-      </article>
-      <dialog
-        ref={connectDialog}
-        className="workspace-dialog"
-        aria-labelledby="connect-broker-title"
-        onClose={() => setCredentials({})}
+      </Card>
+      <Dialog
+        open={connectOpen}
+        onClose={() => {
+          setConnectOpen(false);
+          setCredentials({});
+        }}
+        title={`Connect ${adapter.name}`}
+        labelledBy="connect-broker-title"
       >
-        <div className="screen-toolbar">
-          <h2 id="connect-broker-title">Connect {adapter.name}</h2>
-          <Button
-            variant="secondary"
-            disabled={connection.busy}
-            onClick={() => connectDialog.current?.close()}
-          >
-            Close connection form
-          </Button>
-        </div>
         {connection.error && (
           <p role="alert" className="error">
             {connection.error}
@@ -219,9 +249,13 @@ export function BrokersScreen({ csrf }: { csrf: string }) {
               /** Render provider-owned fields without hard-coding them into the hook. */ (
                 field,
               ) => (
-                <label key={field.name}>
-                  {field.label}
-                  <input
+                <Field
+                  key={field.name}
+                  label={field.label}
+                  htmlFor={`connect-${field.name}`}
+                >
+                  <Input
+                    id={`connect-${field.name}`}
                     type={field.type}
                     required
                     disabled={connection.busy}
@@ -237,7 +271,7 @@ export function BrokersScreen({ csrf }: { csrf: string }) {
                         })
                     }
                   />
-                </label>
+                </Field>
               ),
             )}
           </div>
@@ -250,38 +284,44 @@ export function BrokersScreen({ csrf }: { csrf: string }) {
             {connection.busy ? "Please wait…" : `Connect ${adapter.name}`}
           </Button>
         </form>
-      </dialog>
-      <dialog
-        ref={disconnectDialog}
-        className="workspace-dialog"
-        aria-labelledby="disconnect-broker-title"
+      </Dialog>
+      <Dialog
+        open={disconnectOpen}
+        onClose={() => setDisconnectOpen(false)}
+        title={`Disconnect ${adapter.name}?`}
+        labelledBy="disconnect-broker-title"
       >
-        <h2 id="disconnect-broker-title">Disconnect {adapter.name}?</h2>
         <p>
           This closes the server-side broker connection and interrupts market
           data. It does not close exchange positions. Resolve any active order
           uncertainty in the broker platform first.
         </p>
         {connection.error && <p role="alert">{connection.error}</p>}
-        <Button
-          variant="danger"
-          disabled={connection.busy}
-          onClick={async () => {
-            if (await connection.changeConnection()) {
-              disconnectDialog.current?.close();
-            }
-          }}
-        >
-          Confirm disconnect
-        </Button>
-        <Button
-          variant="secondary"
-          disabled={connection.busy}
-          onClick={() => disconnectDialog.current?.close()}
-        >
-          Keep connected
-        </Button>
-      </dialog>
+        <DialogActions>
+          <Button
+            variant="secondary"
+            disabled={connection.busy}
+            onClick={() => setDisconnectOpen(false)}
+          >
+            Keep connected
+          </Button>
+          <Button
+            variant="danger"
+            disabled={connection.busy}
+            onClick={async () => {
+              if (await connection.changeConnection()) {
+                setDisconnectOpen(false);
+                toast({
+                  tone: "success",
+                  title: `${adapter.name} disconnected`,
+                });
+              }
+            }}
+          >
+            Confirm disconnect
+          </Button>
+        </DialogActions>
+      </Dialog>
     </section>
   );
 }
@@ -297,7 +337,8 @@ function ActiveBrokerSelector({
   refreshKey: number | null;
 }) {
   const registry = useBrokerRegistry(csrf, refreshKey);
-  const confirmationDialog = useRef<HTMLDialogElement>(null);
+  const toast = useToast();
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [pendingBrokerId, setPendingBrokerId] = useState<string | null>(null);
   const [brokerProof, setBrokerProof] = useState("");
   const pendingBroker = registry.brokers.find(
@@ -312,9 +353,18 @@ function ActiveBrokerSelector({
       ),
     [registry.brokers],
   );
+  /** Never dismiss while a selection request is in flight; mirrors the previous native dialog guard. */
+  function closeConfirmation() {
+    if (registry.selecting) {
+      return;
+    }
+    setConfirmOpen(false);
+    setPendingBrokerId(null);
+    setBrokerProof("");
+  }
 
   return (
-    <article className="panel screen-card active-broker-card">
+    <Card className="active-broker-card">
       <div className="screen-toolbar">
         <div>
           <h2>Active live broker</h2>
@@ -323,9 +373,9 @@ function ActiveBrokerSelector({
             currently supports order execution in this app.
           </p>
         </div>
-        <span className="badge" role="status">
+        <Badge tone="accent" role="status">
           {registry.loading ? "Loading…" : `${brokers.length} registered`}
-        </span>
+        </Badge>
       </div>
       {registry.error && (
         <p role="alert" className="error">
@@ -357,7 +407,7 @@ function ActiveBrokerSelector({
                   disabled={!connected || registry.selecting}
                   onChange={() => {
                     setPendingBrokerId(broker.id);
-                    confirmationDialog.current?.showModal();
+                    setConfirmOpen(true);
                   }}
                 />
                 <span>
@@ -377,28 +427,14 @@ function ActiveBrokerSelector({
         Changing this preference never moves existing broker orders or
         positions. Live trading permission is controlled separately.
       </p>
-      <dialog
-        ref={confirmationDialog}
-        className="workspace-dialog"
-        aria-labelledby="active-live-broker-title"
-        aria-describedby="active-live-broker-description"
-        onCancel={(event) => {
-          if (registry.selecting) {
-            event.preventDefault();
-          }
-        }}
-        onClose={() => {
-          setPendingBrokerId(null);
-          setBrokerProof("");
-        }}
+      <Dialog
+        open={confirmOpen}
+        onClose={closeConfirmation}
+        title={`Use ${
+          pendingBroker ? providerNames[pendingBroker.provider] : "this broker"
+        } as your live broker?`}
+        labelledBy="active-live-broker-title"
       >
-        <h2 id="active-live-broker-title">
-          Use{" "}
-          {pendingBroker
-            ? providerNames[pendingBroker.provider]
-            : "this broker"}{" "}
-          as your live broker?
-        </h2>
         <p id="active-live-broker-description">
           This selects your connected{" "}
           {pendingBroker ? providerNames[pendingBroker.provider] : "broker"}{" "}
@@ -417,9 +453,12 @@ function ActiveBrokerSelector({
           </p>
         )}
         {registry.error && <p role="alert">{registry.error}</p>}
-        <label>
-          Fresh authenticator or unused recovery code
-          <input
+        <Field
+          label="Fresh authenticator or unused recovery code"
+          htmlFor="active-broker-proof"
+        >
+          <Input
+            id="active-broker-proof"
             type="password"
             autoComplete="one-time-code"
             maxLength={32}
@@ -427,17 +466,17 @@ function ActiveBrokerSelector({
             disabled={registry.selecting}
             onChange={(event) => setBrokerProof(event.target.value)}
           />
-        </label>
+        </Field>
         <p>
           Set up MFA in Account &amp; security first. Changing broker clears
           live trading permission. Starting live trading requires a new code;
           wait for the next code if you just used one.
         </p>
-        <div className="screen-toolbar">
+        <DialogActions>
           <Button
             variant="secondary"
             disabled={registry.selecting}
-            onClick={() => confirmationDialog.current?.close()}
+            onClick={closeConfirmation}
           >
             Cancel
           </Button>
@@ -453,7 +492,8 @@ function ActiveBrokerSelector({
                   pendingBroker &&
                   (await registry.select(pendingBroker.id, brokerProof.trim()))
                 ) {
-                  confirmationDialog.current?.close();
+                  setConfirmOpen(false);
+                  toast({ tone: "success", title: "Active broker updated" });
                 }
               } finally {
                 setBrokerProof("");
@@ -462,15 +502,16 @@ function ActiveBrokerSelector({
           >
             {registry.selecting ? "Changing…" : "Confirm live broker"}
           </Button>
-        </div>
-      </dialog>
-    </article>
+        </DialogActions>
+      </Dialog>
+    </Card>
   );
 }
 
 /** Redirect authorization and setup view; credentials exist only in transient form state. */
 function ZerodhaConnectionCard({ csrf }: { csrf: string }) {
-  const dialog = useRef<HTMLDialogElement>(null);
+  const toast = useToast();
+  const [setupOpen, setSetupOpen] = useState(false);
   const { connection, busy, error, action, configure } =
     useZerodhaConnection(csrf);
   const [appCredentials, setAppCredentials] = useState({
@@ -483,20 +524,36 @@ function ZerodhaConnectionCard({ csrf }: { csrf: string }) {
     event.preventDefault();
     try {
       if (await configure(appCredentials)) {
-        dialog.current?.close();
+        setSetupOpen(false);
+        toast({ tone: "success", title: "Zerodha credentials saved" });
       }
     } finally {
       setAppCredentials({ apiKey: "", apiSecret: "" });
     }
   }
+  const zerodhaBadgeTone: BadgeTone = !connection
+    ? "neutral"
+    : connection.connected
+      ? "success"
+      : connection.configured
+        ? "warning"
+        : "neutral";
+  async function runAction(kind: "login" | "verify" | "disconnect") {
+    await action(kind);
+    if (kind === "verify") {
+      toast({ tone: "success", title: "Zerodha session verified" });
+    } else if (kind === "disconnect") {
+      toast({ tone: "success", title: "Zerodha disconnected" });
+    }
+  }
   return (
     <>
-      <article className="panel screen-card" aria-label="Zerodha connection">
+      <Card aria-label="Zerodha connection">
         <div className="screen-toolbar">
           <h2 className="broker-card-title">
             <span className="connection-logo">Z</span>Zerodha Kite
           </h2>
-          <span className="badge" role="status">
+          <Badge tone={zerodhaBadgeTone} role="status">
             {!connection
               ? "Checking connection…"
               : connection.connected
@@ -504,7 +561,7 @@ function ZerodhaConnectionCard({ csrf }: { csrf: string }) {
                 : connection.configured
                   ? "Ready to authorize"
                   : "Setup required"}
-          </span>
+          </Badge>
         </div>
         <p>
           Authorize this app to access your Zerodha account through Kite APIs.
@@ -543,7 +600,7 @@ function ZerodhaConnectionCard({ csrf }: { csrf: string }) {
         <div className="screen-toolbar">
           <Button
             disabled={busy || !connection?.configured}
-            onClick={() => void action("login")}
+            onClick={() => void runAction("login")}
           >
             {busy
               ? "Please wait…"
@@ -554,7 +611,7 @@ function ZerodhaConnectionCard({ csrf }: { csrf: string }) {
           <Button
             variant="secondary"
             disabled={busy}
-            onClick={() => void action("verify")}
+            onClick={() => void runAction("verify")}
           >
             Verify Zerodha session
           </Button>
@@ -562,15 +619,12 @@ function ZerodhaConnectionCard({ csrf }: { csrf: string }) {
             <Button
               variant="secondary"
               disabled={busy}
-              onClick={() => void action("disconnect")}
+              onClick={() => void runAction("disconnect")}
             >
               Disconnect Zerodha
             </Button>
           )}
-          <Button
-            variant="secondary"
-            onClick={() => dialog.current?.showModal()}
-          >
+          <Button variant="secondary" onClick={() => setSetupOpen(true)}>
             Set up Zerodha
           </Button>
         </div>
@@ -586,19 +640,16 @@ function ZerodhaConnectionCard({ csrf }: { csrf: string }) {
             Set up Zerodha for instructions.
           </p>
         )}
-      </article>
-      <dialog
-        ref={dialog}
-        className="workspace-dialog"
-        aria-labelledby="zerodha-setup-title"
-        onClose={() => setAppCredentials({ apiKey: "", apiSecret: "" })}
+      </Card>
+      <Dialog
+        open={setupOpen}
+        onClose={() => {
+          setSetupOpen(false);
+          setAppCredentials({ apiKey: "", apiSecret: "" });
+        }}
+        title="Set up Zerodha Kite"
+        labelledBy="zerodha-setup-title"
       >
-        <div className="screen-toolbar">
-          <h2 id="zerodha-setup-title">Set up Zerodha Kite</h2>
-          <Button variant="secondary" onClick={() => dialog.current?.close()}>
-            Close Zerodha setup
-          </Button>
-        </div>
         <ol>
           <li>
             Create an app in the{" "}
@@ -637,9 +688,9 @@ function ZerodhaConnectionCard({ csrf }: { csrf: string }) {
         )}
         <form onSubmit={onConfigure} autoComplete="off">
           <div className="market-grid">
-            <label>
-              Zerodha API key
-              <input
+            <Field label="Zerodha API key" htmlFor="zerodha-api-key">
+              <Input
+                id="zerodha-api-key"
                 required
                 minLength={8}
                 maxLength={64}
@@ -657,10 +708,10 @@ function ZerodhaConnectionCard({ csrf }: { csrf: string }) {
                   }))
                 }
               />
-            </label>
-            <label>
-              Zerodha API secret
-              <input
+            </Field>
+            <Field label="Zerodha API secret" htmlFor="zerodha-api-secret">
+              <Input
+                id="zerodha-api-secret"
                 type="password"
                 required
                 minLength={16}
@@ -675,7 +726,7 @@ function ZerodhaConnectionCard({ csrf }: { csrf: string }) {
                   }))
                 }
               />
-            </label>
+            </Field>
           </div>
           <p>
             Stored encrypted for this workspace. The secret is never displayed
@@ -689,7 +740,7 @@ function ZerodhaConnectionCard({ csrf }: { csrf: string }) {
           No Zerodha password or OTP is collected here. Those are entered only
           on Zerodha during authorization. Your Kotak connection is independent.
         </p>
-      </dialog>
+      </Dialog>
     </>
   );
 }

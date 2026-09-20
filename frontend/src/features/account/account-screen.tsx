@@ -9,6 +9,10 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { requestApiJson } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { Card, CardTitle } from "@/components/ui/card";
+import { Field, Input } from "@/components/ui/field";
+import { Dialog, DialogActions } from "@/components/ui/dialog";
+import { useToast } from "@/components/ui/toast";
 import { AccountSessions } from "./account-sessions";
 
 /** Send same-origin authenticated JSON, with CSRF and a deadline longer than SDK authentication. */
@@ -31,6 +35,7 @@ export function AccountScreen({
   onRefresh: () => Promise<void>;
   username: string;
 }) {
+  const toast = useToast();
   const [message, setMessage] = useState(""),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
@@ -50,7 +55,8 @@ export function AccountScreen({
     }, 600000);
     return () => window.clearTimeout(timer);
   }, [enrollmentUri]);
-  const passwordDialog = useRef<HTMLDialogElement>(null);
+  const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
+  const passwordFormRef = useRef<HTMLFormElement>(null);
   const mutationPending = useRef(false);
   /** Read MFA policy for this app session; never populate an unmounted account screen from an old response. */
   useEffect(() => {
@@ -106,6 +112,10 @@ export function AccountScreen({
             ? "MFA enabled. Save the recovery codes privately before leaving."
             : "MFA disabled. Cloud broker access requires it to be re-enabled.",
         );
+        toast({
+          tone: "success",
+          title: data.enabled ? "MFA enabled" : "MFA disabled",
+        });
       }
     } catch (e) {
       setError((e as Error).message);
@@ -133,9 +143,10 @@ export function AccountScreen({
         Object.fromEntries(new FormData(form)),
       );
       form.reset();
-      passwordDialog.current?.close();
+      setPasswordDialogOpen(false);
       await onRefresh();
       setMessage("Password changed. All previous sessions were revoked.");
+      toast({ tone: "success", title: "Password changed" });
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -152,53 +163,43 @@ export function AccountScreen({
       )}
       {message && <p role="status">{message}</p>}
       <div className="screen-two-columns">
-        <article className="panel screen-card">
-          <h2>Profile</h2>
-          <label>
-            Username
-            <input readOnly value={username} />
-          </label>
+        <Card>
+          <CardTitle>Profile</CardTitle>
+          <Field label="Username" htmlFor="account-username">
+            <Input id="account-username" readOnly value={username} />
+          </Field>
           <Button
             variant="secondary"
             disabled={mfaEnabled === null}
-            onClick={() => passwordDialog.current?.showModal()}
+            onClick={() => setPasswordDialogOpen(true)}
           >
             Change password
           </Button>
-        </article>
-        <dialog
-          ref={passwordDialog}
-          className="workspace-dialog"
-          aria-labelledby="change-password-title"
-          onClose={(event) =>
-            event.currentTarget.querySelector("form")?.reset()
-          }
+        </Card>
+        <Dialog
+          open={passwordDialogOpen}
+          onClose={() => {
+            setPasswordDialogOpen(false);
+            passwordFormRef.current?.reset();
+          }}
+          title="Change password"
+          labelledBy="change-password-title"
         >
-          <div className="screen-toolbar">
-            <h2 id="change-password-title">Change password</h2>
-            <Button
-              variant="secondary"
-              disabled={busy}
-              onClick={() => passwordDialog.current?.close()}
-            >
-              Close password form
-            </Button>
-          </div>
           {error && <p role="alert">{error}</p>}
-          <form onSubmit={changePassword}>
-            <label>
-              Current password
-              <input
+          <form ref={passwordFormRef} onSubmit={changePassword}>
+            <Field label="Current password" htmlFor="current-password">
+              <Input
+                id="current-password"
                 name="current_password"
                 type="password"
                 autoComplete="current-password"
                 required
                 maxLength={128}
               />
-            </label>
-            <label>
-              New password
-              <input
+            </Field>
+            <Field label="New password" htmlFor="new-password">
+              <Input
+                id="new-password"
                 name="new_password"
                 type="password"
                 autoComplete="new-password"
@@ -206,30 +207,43 @@ export function AccountScreen({
                 minLength={12}
                 maxLength={128}
               />
-            </label>
+            </Field>
             {mfaEnabled && (
-              <label>
-                Authenticator or recovery code
-                <input
+              <Field
+                label="Authenticator or recovery code"
+                htmlFor="password-mfa-token"
+              >
+                <Input
+                  id="password-mfa-token"
                   name="token"
                   autoComplete="one-time-code"
                   required
                   maxLength={32}
                 />
-              </label>
+              </Field>
             )}
-            <Button disabled={busy}>Change password</Button>
+            <DialogActions>
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={busy}
+                onClick={() => setPasswordDialogOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button disabled={busy}>Change password</Button>
+            </DialogActions>
           </form>
-        </dialog>
-        <div className="panel screen-card">
-          <h2>
+        </Dialog>
+        <Card>
+          <CardTitle>
             Two-factor authentication ·{" "}
             {mfaEnabled === null
               ? "Unknown"
               : mfaEnabled
                 ? "Enabled"
                 : "Not enabled"}
-          </h2>
+          </CardTitle>
           <p>
             {mfaEnabled
               ? "Your authenticator is set up. Keep it available when changing your live broker or authorizing live trading. Never share its codes."
@@ -251,15 +265,18 @@ export function AccountScreen({
             </div>
           )}
           {enrollmentSecret && (
-            <label>
-              One-time setup key
-              <input
+            <Field
+              label="One-time setup key"
+              htmlFor="mfa-setup-key"
+              hint="Keep this private. Setup expires after 10 minutes."
+            >
+              <Input
+                id="mfa-setup-key"
                 readOnly
                 value={enrollmentSecret}
                 aria-label="Authenticator setup key"
               />
-              <small>Keep this private. Setup expires after 10 minutes.</small>
-            </label>
+            </Field>
           )}
           <details open={mfaEnabled !== true}>
             <summary>
@@ -276,28 +293,33 @@ export function AccountScreen({
             )}
             <form onSubmit={updateMfa}>
               {!enrollmentSecret && (
-                <label>
-                  Current password
-                  <input
+                <Field label="Current password" htmlFor="mfa-password">
+                  <Input
+                    id="mfa-password"
                     type="password"
                     name="password"
                     autoComplete="current-password"
                     required
                   />
-                </label>
+                </Field>
               )}
               {(enrollmentSecret || mfaEnabled) && (
-                <label>
-                  {mfaEnabled
-                    ? "Fresh authenticator or unused recovery code"
-                    : "6-digit authenticator code"}
-                  <input
+                <Field
+                  label={
+                    mfaEnabled
+                      ? "Fresh authenticator or unused recovery code"
+                      : "6-digit authenticator code"
+                  }
+                  htmlFor="mfa-token"
+                >
+                  <Input
+                    id="mfa-token"
                     name="token"
                     autoComplete="one-time-code"
                     required
                     maxLength={32}
                   />
-                </label>
+                </Field>
               )}
               <Button
                 variant={mfaEnabled ? "danger" : "primary"}
@@ -331,7 +353,7 @@ export function AccountScreen({
               </Button>
             </div>
           )}
-        </div>
+        </Card>
       </div>
       <AccountSessions csrf={csrf} />
     </section>

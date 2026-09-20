@@ -7,6 +7,17 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Trash2 } from "lucide-react";
 import { requestApiJson } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { Field, Input, Select } from "@/components/ui/field";
+import { Badge } from "@/components/ui/badge";
+import { Tabs } from "@/components/ui/tabs";
+import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
+import {
+  Dialog,
+  DialogActions,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { useConfirm } from "@/components/ui/confirm";
+import { useToast } from "@/components/ui/toast";
 import { OptionChainPicker } from "@/components/option-chain-picker";
 import { StoredInstrumentPicker } from "@/components/stored-instrument-picker";
 import { storedInstrumentSearchSchema } from "@/lib/stored-market-data";
@@ -22,6 +33,7 @@ import {
   type ResearchLeg as Leg,
   type ResearchDraft,
 } from "./research-draft";
+import styles from "./research-workbench.module.css";
 type Saved = { id: string; definition: Definition };
 type Point = { time: number; pnl: number; prices: number[]; open: boolean };
 type Run = {
@@ -94,13 +106,13 @@ function ResearchChart({ values, label }: { values: number[]; label: string }) {
           y1={180 + (low / span) * 150}
           x2="730"
           y2={180 + (low / span) * 150}
-          stroke="#d9e0ed"
+          style={{ stroke: "var(--border-strong)" }}
           strokeDasharray="5 5"
         />
         <polyline
           points={points}
           fill="none"
-          stroke="#5468ea"
+          style={{ stroke: "var(--accent)" }}
           strokeWidth="3"
         />
       </svg>
@@ -169,7 +181,10 @@ export function ResearchWorkbench({
     [playing, setPlaying] = useState(false),
     [clock, setClock] = useState(Date.now());
   const [kotakPolling, setKotakPolling] = useState(false);
+  const [tradeLogOpen, setTradeLogOpen] = useState(false);
   const actionPending = useRef(false);
+  const confirm = useConfirm();
+  const toast = useToast();
   useUnsavedResearchWarning(edited && !strategyId);
   /** Default replay to actual stored coverage, never yesterday or an invented trading session. */
   useEffect(() => {
@@ -206,7 +221,6 @@ export function ResearchWorkbench({
       });
     return () => controller.abort();
   }, [csrf, storedId, storedSymbol]);
-  const tradeLogDialog = useRef<HTMLDialogElement>(null);
   /** Kotak live preview is explicit, bounded REST polling, not a claimed socket stream.
    * Stop on hidden tab, navigation, editing or failure; never start an order worker.
    */
@@ -461,6 +475,149 @@ export function ResearchWorkbench({
   const payoffHigh = payoffCalculation.result?.high ?? 0;
   const point = run?.points[cursor];
   const spreadRisk = payoffCalculation.result?.risk ?? null;
+  const quoteColumns: DataTableColumn<Quote & { rowId: number }>[] = [
+    {
+      key: "leg",
+      header: "Leg",
+      render: (quote) => `${quote.rowId + 1} · ${quote.stockCode}`,
+    },
+    {
+      key: "last",
+      header: "Last",
+      align: "right",
+      render: (quote) => (
+        <span className={styles.mono}>{currency(quote.price)}</span>
+      ),
+    },
+    {
+      key: "bid",
+      header: "Bid",
+      align: "right",
+      render: (quote) => (
+        <span className={styles.mono}>{currency(quote.bid)}</span>
+      ),
+    },
+    {
+      key: "ask",
+      header: "Ask",
+      align: "right",
+      render: (quote) => (
+        <span className={styles.mono}>{currency(quote.ask)}</span>
+      ),
+    },
+    {
+      key: "observed",
+      header: "Last trade IST",
+      render: (quote) =>
+        quote.observedAt ? timeLabel(quote.observedAt) : "Unavailable",
+    },
+    {
+      key: "freshness",
+      header: "Freshness",
+      render: (quote) => {
+        const stale =
+          quote.stale ||
+          !quote.observedAt ||
+          clock - quote.observedAt > 60000 ||
+          (quote.receivedAt !== undefined && clock - quote.receivedAt > 30000);
+        return (
+          <Badge tone={stale ? "danger" : "success"}>
+            {stale ? "STALE — refresh" : "Recent"}
+          </Badge>
+        );
+      },
+    },
+  ];
+  const tradeLogColumns: DataTableColumn<
+    Run["fills"][number] & { rowId: number }
+  >[] = [
+    { key: "time", header: "Time IST", render: (fill) => timeLabel(fill.time) },
+    { key: "leg", header: "Leg", render: (fill) => fill.leg + 1 },
+    { key: "side", header: "Side", render: (fill) => fill.action },
+    {
+      key: "units",
+      header: "Units",
+      align: "right",
+      render: (fill) => <span className={styles.mono}>{fill.quantity}</span>,
+    },
+    {
+      key: "fill",
+      header: "Fill",
+      align: "right",
+      render: (fill) => (
+        <span className={styles.mono}>{currency(fill.price)}</span>
+      ),
+    },
+    { key: "reason", header: "Reason", render: (fill) => fill.reason },
+  ];
+  const selectedLegColumns: DataTableColumn<{ leg: Leg; index: number }>[] = [
+    { key: "side", header: "Side", render: ({ leg }) => leg.side },
+    {
+      key: "contract",
+      header: "Contract",
+      render: ({ leg }) => (
+        <>
+          {leg.stockCode || "Select a contract"} {leg.strikePrice || ""}{" "}
+          {leg.right} <small>{leg.expiryDate}</small>
+        </>
+      ),
+    },
+    {
+      key: "units",
+      header: "Units",
+      render: ({ leg, index }) => (
+        <Input
+          className="spread-units"
+          type="number"
+          min="1"
+          step="1"
+          disabled={busy}
+          aria-label={`Units for ${leg.side} ${leg.stockCode} ${leg.strikePrice ?? ""} ${leg.right ?? ""}`}
+          value={leg.quantity}
+          onChange={(event) =>
+            editLeg(index, {
+              quantity: Number(event.target.value),
+            })
+          }
+        />
+      ),
+    },
+    {
+      key: "premium",
+      header: "Premium",
+      render: ({ leg, index }) => (
+        <span className={styles.mono}>
+          {quotes[index] && allFresh
+            ? currency(
+                leg.side === "buy" ? quotes[index].ask : quotes[index].bid,
+              )
+            : "—"}
+        </span>
+      ),
+    },
+    {
+      key: "remove",
+      header: "",
+      render: ({ leg, index }) => (
+        <button
+          type="button"
+          className="workspace-icon-button"
+          disabled={busy}
+          aria-label={`Remove ${leg.side} ${leg.stockCode} ${leg.strikePrice ?? ""} ${leg.right ?? ""}`}
+          onClick={() =>
+            edit({
+              ...definition,
+              legs: definition.legs.filter(
+                (_, itemIndex) => itemIndex !== index,
+              ),
+            })
+          }
+        >
+          <Trash2 size={17} />
+        </button>
+      ),
+    },
+  ];
   return (
     <section
       className="research-lab"
@@ -480,22 +637,16 @@ export function ResearchWorkbench({
             confirmation
           </span>
         </div>
-        <span className="badge">NO AUTO EXECUTION</span>
+        <Badge tone="warning">NO AUTO EXECUTION</Badge>
       </div>
-      <div className="research-tabs" role="group" aria-label="Research views">
-        {[
-          ["builder", "Definition & results"],
-          ["quotes", "Live data preview"],
-        ].map(([id, label]) => (
-          <Button
-            key={id}
-            variant={tab === id ? "primary" : "secondary"}
-            onClick={() => setTab(id)}
-          >
-            {label}
-          </Button>
-        ))}
-      </div>
+      <Tabs
+        items={[
+          { key: "builder", label: "Definition & results" },
+          { key: "quotes", label: "Live data preview" },
+        ]}
+        active={tab}
+        onChange={setTab}
+      />
       {error && (
         <p className="error" role="alert">
           {error}
@@ -507,79 +658,13 @@ export function ResearchWorkbench({
           <article className="panel screen-card">
             <h2>Selected legs</h2>
             <p>{definition.legs.length} legs · quantities are exchange units</p>
-            <div className="table-scroll">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Side</th>
-                    <th>Contract</th>
-                    <th>Units</th>
-                    <th>Premium</th>
-                    <th>
-                      <span className="sr-only">Remove leg</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {definition.legs.map((leg, index) => (
-                    <tr key={index}>
-                      <td>{leg.side}</td>
-                      <td>
-                        {leg.stockCode || "Select a contract"}{" "}
-                        {leg.strikePrice || ""} {leg.right}{" "}
-                        <small>{leg.expiryDate}</small>
-                      </td>
-                      <td>
-                        <input
-                          className="spread-units"
-                          type="number"
-                          min="1"
-                          step="1"
-                          disabled={busy}
-                          aria-label={`Units for ${leg.side} ${leg.stockCode} ${leg.strikePrice ?? ""} ${leg.right ?? ""}`}
-                          value={leg.quantity}
-                          onChange={(event) =>
-                            editLeg(index, {
-                              quantity: Number(event.target.value),
-                            })
-                          }
-                        />
-                      </td>
-                      <td>
-                        {quotes[index] && allFresh
-                          ? currency(
-                              leg.side === "buy"
-                                ? quotes[index].ask
-                                : quotes[index].bid,
-                            )
-                          : "—"}
-                      </td>
-                      <td>
-                        <button
-                          type="button"
-                          className="workspace-icon-button"
-                          disabled={busy}
-                          aria-label={`Remove ${leg.side} ${leg.stockCode} ${leg.strikePrice ?? ""} ${leg.right ?? ""}`}
-                          onClick={() =>
-                            edit({
-                              ...definition,
-                              legs: definition.legs.filter(
-                                (_, itemIndex) => itemIndex !== index,
-                              ),
-                            })
-                          }
-                        >
-                          <Trash2 size={17} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {!definition.legs.length && (
-              <p>No legs selected. Choose listed contracts below to start.</p>
-            )}
+            <DataTable
+              columns={selectedLegColumns}
+              rows={definition.legs.map((leg, index) => ({ leg, index }))}
+              rowKey={(row) => String(row.index)}
+              emptyTitle="No legs selected"
+              emptyDescription="Choose listed contracts below to start."
+            />
             <Button
               variant="secondary"
               onClick={onExploreOptionChain ?? (() => setTab("builder"))}
@@ -603,7 +688,7 @@ export function ResearchWorkbench({
             <div className="research-summary">
               <div>
                 <span>Maximum profit</span>
-                <strong>
+                <strong className={spreadRisk ? styles.positive : undefined}>
                   {!spreadRisk
                     ? "—"
                     : spreadRisk.unlimitedProfit
@@ -613,7 +698,7 @@ export function ResearchWorkbench({
               </div>
               <div>
                 <span>Maximum loss</span>
-                <strong>
+                <strong className={spreadRisk ? styles.negative : undefined}>
                   {!spreadRisk
                     ? "—"
                     : spreadRisk.unlimitedLoss
@@ -647,9 +732,13 @@ export function ResearchWorkbench({
         </section>
       )}
       <div className="panel research-library">
-        <label>
-          Saved research strategy
-          <select
+        <Field
+          label="Saved research strategy"
+          htmlFor="research-saved-strategy"
+          className={styles.libraryField}
+        >
+          <Select
+            id="research-saved-strategy"
             value={strategyId}
             disabled={busy}
             onChange={(event) => {
@@ -680,32 +769,41 @@ export function ResearchWorkbench({
                   {item.definition.name} · {item.definition.market}
                 </option>
               ))}
-          </select>
-        </label>
+          </Select>
+        </Field>
         <Button
           disabled={busy || !strategyId}
           variant="danger"
           onClick={() => {
-            if (
-              !window.confirm(
-                "Delete this saved research strategy and its replay history? This does not affect live orders.",
-              )
-            ) {
-              return;
-            }
-            void act(async () => {
-              await researchRequest(
-                `/strategies/${strategyId}`,
-                csrf,
-                "DELETE",
-              );
-              setStrategyId("");
-              onDraftChange?.({ definition, savedId: "" });
-              setRun(null);
-              setBatch(null);
-              setQuotes([]);
-              await reloadLibrary();
-            });
+            void (async () => {
+              const proceed = await confirm({
+                title: "Delete this saved research strategy?",
+                description:
+                  "Delete this saved research strategy and its replay history? This does not affect live orders.",
+                confirmLabel: "Delete",
+                tone: "danger",
+              });
+              if (!proceed) {
+                return;
+              }
+              await act(async () => {
+                await researchRequest(
+                  `/strategies/${strategyId}`,
+                  csrf,
+                  "DELETE",
+                );
+                setStrategyId("");
+                onDraftChange?.({ definition, savedId: "" });
+                setRun(null);
+                setBatch(null);
+                setQuotes([]);
+                await reloadLibrary();
+                toast({
+                  tone: "success",
+                  title: "Saved research deleted",
+                });
+              });
+            })();
           }}
         >
           Delete saved research
@@ -825,9 +923,9 @@ export function ResearchWorkbench({
             >
               <fieldset disabled={busy}>
                 <div className="research-fields">
-                  <label>
-                    Research name
-                    <input
+                  <Field label="Research name" htmlFor="research-name">
+                    <Input
+                      id="research-name"
                       value={definition.name}
                       onChange={(event) =>
                         edit({ ...definition, name: event.target.value })
@@ -836,23 +934,32 @@ export function ResearchWorkbench({
                       minLength={3}
                       maxLength={80}
                     />
-                  </label>
-                  <label>
-                    Market
-                    <select value={definition.market} disabled>
-                      <option value="cash">NSE cash — one long leg</option>
-                      <option value="options">
-                        NFO options — up to four legs
+                  </Field>
+                  <Field label="Market" htmlFor="research-market">
+                    <Select
+                      id="research-market"
+                      value={definition.market}
+                      disabled
+                    >
+                      <option value={definition.market}>
+                        {definition.market === "cash"
+                          ? "NSE cash — one long leg"
+                          : "NFO options — up to four legs"}
                       </option>
-                    </select>
-                  </label>
+                    </Select>
+                  </Field>
                 </div>
                 <p className="research-note">
-                  Cash/index strategies must use an exact stored instrument.
-                  Options quantities are{" "}
-                  <strong>contract units, not lots</strong>; option legs support
-                  payoff and live preview, but stored daily data cannot
-                  reproduce historical option premiums.
+                  {definition.market === "cash" ? (
+                    "Choose an exact stored cash/index instrument and enter units. Daily research uses its saved historical candles; it does not place live orders."
+                  ) : (
+                    <>
+                      Options quantities are{" "}
+                      <strong>contract units, not lots</strong>. Option legs
+                      support payoff and live preview; underlying daily candles
+                      cannot reproduce historical option premiums.
+                    </>
+                  )}
                 </p>
                 {definition.legs.map((leg, index) => (
                   <div className="research-leg" key={index}>
@@ -877,9 +984,12 @@ export function ResearchWorkbench({
                         )}
                     </div>
                     <div className="research-fields">
-                      <label>
-                        Stock code {index + 1}
-                        <input
+                      <Field
+                        label={`Stock code ${index + 1}`}
+                        htmlFor={`research-leg-${index}-stockcode`}
+                      >
+                        <Input
+                          id={`research-leg-${index}-stockcode`}
                           required
                           value={leg.stockCode}
                           maxLength={30}
@@ -890,10 +1000,13 @@ export function ResearchWorkbench({
                             })
                           }
                         />
-                      </label>
-                      <label>
-                        Side {index + 1}
-                        <select
+                      </Field>
+                      <Field
+                        label={`Side ${index + 1}`}
+                        htmlFor={`research-leg-${index}-side`}
+                      >
+                        <Select
+                          id={`research-leg-${index}-side`}
                           value={leg.side}
                           onChange={(event) =>
                             editLeg(index, {
@@ -905,11 +1018,14 @@ export function ResearchWorkbench({
                           {definition.market === "options" && (
                             <option value="sell">Sell</option>
                           )}
-                        </select>
-                      </label>
-                      <label>
-                        Quantity units {index + 1}
-                        <input
+                        </Select>
+                      </Field>
+                      <Field
+                        label={`Quantity units ${index + 1}`}
+                        htmlFor={`research-leg-${index}-quantity`}
+                      >
+                        <Input
+                          id={`research-leg-${index}-quantity`}
                           type="number"
                           min={1}
                           max={10000}
@@ -921,12 +1037,15 @@ export function ResearchWorkbench({
                             })
                           }
                         />
-                      </label>
+                      </Field>
                       {definition.market === "options" && (
                         <>
-                          <label>
-                            Expiry {index + 1}
-                            <input
+                          <Field
+                            label={`Expiry ${index + 1}`}
+                            htmlFor={`research-leg-${index}-expiry`}
+                          >
+                            <Input
+                              id={`research-leg-${index}-expiry`}
                               type="date"
                               required
                               value={leg.expiryDate || ""}
@@ -936,10 +1055,13 @@ export function ResearchWorkbench({
                                 })
                               }
                             />
-                          </label>
-                          <label>
-                            Option type {index + 1}
-                            <select
+                          </Field>
+                          <Field
+                            label={`Option type ${index + 1}`}
+                            htmlFor={`research-leg-${index}-right`}
+                          >
+                            <Select
+                              id={`research-leg-${index}-right`}
                               value={leg.right}
                               onChange={(event) =>
                                 editLeg(index, {
@@ -949,11 +1071,14 @@ export function ResearchWorkbench({
                             >
                               <option value="call">Call</option>
                               <option value="put">Put</option>
-                            </select>
-                          </label>
-                          <label>
-                            Strike {index + 1}
-                            <input
+                            </Select>
+                          </Field>
+                          <Field
+                            label={`Strike ${index + 1}`}
+                            htmlFor={`research-leg-${index}-strike`}
+                          >
+                            <Input
+                              id={`research-leg-${index}-strike`}
                               type="number"
                               min="0.01"
                               step="0.01"
@@ -966,7 +1091,7 @@ export function ResearchWorkbench({
                                 })
                               }
                             />
-                          </label>
+                          </Field>
                         </>
                       )}
                     </div>
@@ -1001,9 +1126,12 @@ export function ResearchWorkbench({
                 <div className="research-fields">
                   {definition.market === "options" ? (
                     <>
-                      <label>
-                        Entry time (IST)
-                        <input
+                      <Field
+                        label="Entry time (IST)"
+                        htmlFor="research-entry-time"
+                      >
+                        <Input
+                          id="research-entry-time"
                           type="time"
                           required
                           min="09:15"
@@ -1016,10 +1144,13 @@ export function ResearchWorkbench({
                             })
                           }
                         />
-                      </label>
-                      <label>
-                        Exit time (IST)
-                        <input
+                      </Field>
+                      <Field
+                        label="Exit time (IST)"
+                        htmlFor="research-exit-time"
+                      >
+                        <Input
+                          id="research-exit-time"
                           type="time"
                           required
                           min="09:20"
@@ -1032,16 +1163,19 @@ export function ResearchWorkbench({
                             })
                           }
                         />
-                      </label>
+                      </Field>
                     </>
                   ) : (
-                    <label>
-                      Stored daily fill model
-                      <input
+                    <Field
+                      label="Stored daily fill model"
+                      htmlFor="research-fill-model"
+                    >
+                      <Input
+                        id="research-fill-model"
                         value="Entry at open · exit at stop, target or close"
                         readOnly
                       />
-                    </label>
+                    </Field>
                   )}
                   {(
                     [
@@ -1053,9 +1187,9 @@ export function ResearchWorkbench({
                       ["feePerOrder", "Fee per leg per fill (₹)", 0],
                     ] as const
                   ).map(([key, label, min]) => (
-                    <label key={key}>
-                      {label}
-                      <input
+                    <Field key={key} label={label} htmlFor={`research-${key}`}>
+                      <Input
+                        id={`research-${key}`}
                         type="number"
                         min={min}
                         step="0.01"
@@ -1068,7 +1202,7 @@ export function ResearchWorkbench({
                           })
                         }
                       />
-                    </label>
+                    </Field>
                   ))}
                 </div>
                 <p className="research-note">
@@ -1099,9 +1233,12 @@ export function ResearchWorkbench({
                 </p>
               )}
               <div className="research-fields">
-                <label>
-                  Historical session (IST)
-                  <input
+                <Field
+                  label="Historical session (IST)"
+                  htmlFor="research-session-date"
+                >
+                  <Input
+                    id="research-session-date"
                     type="date"
                     value={day}
                     min={coverage?.first}
@@ -1109,11 +1246,17 @@ export function ResearchWorkbench({
                     disabled={busy || !coverage}
                     onChange={(event) => setDay(event.target.value)}
                   />
-                </label>
-                <label>
-                  Candle interval
-                  <input value="Daily stored OHLC" readOnly />
-                </label>
+                </Field>
+                <Field
+                  label="Candle interval"
+                  htmlFor="research-candle-interval"
+                >
+                  <Input
+                    id="research-candle-interval"
+                    value="Daily stored OHLC"
+                    readOnly
+                  />
+                </Field>
               </div>
               <Button
                 disabled={
@@ -1230,10 +1373,13 @@ export function ResearchWorkbench({
               >
                 Run batch backtest
               </Button>
-              <label className="research-run-select">
-                Saved replay
-                <select
-                  aria-label="Saved replay"
+              <Field
+                label="Saved replay"
+                htmlFor="research-saved-replay"
+                className="research-run-select"
+              >
+                <Select
+                  id="research-saved-replay"
                   value=""
                   disabled={busy}
                   onChange={(event) => {
@@ -1261,8 +1407,8 @@ export function ResearchWorkbench({
                       · {new Date(item.created_at).toLocaleString()}
                     </option>
                   ))}
-                </select>
-              </label>
+                </Select>
+              </Field>
             </section>
             {!run && (
               <section className="panel screen-card">
@@ -1290,18 +1436,32 @@ export function ResearchWorkbench({
                   not round trips.
                 </p>
                 <p>
-                  Net P&amp;L {currency(batch.summary.totalPnl)} · Fees{" "}
-                  {currency(batch.summary.totalFees)} · Worst session drawdown{" "}
-                  {currency(batch.summary.worstSessionDrawdown)}
+                  Net P&amp;L{" "}
+                  <span
+                    className={`${styles.mono} ${batch.summary.totalPnl >= 0 ? styles.positive : styles.negative}`}
+                  >
+                    {currency(batch.summary.totalPnl)}
+                  </span>{" "}
+                  · Fees{" "}
+                  <span className={styles.mono}>
+                    {currency(batch.summary.totalFees)}
+                  </span>{" "}
+                  · Worst session drawdown{" "}
+                  <span className={`${styles.mono} ${styles.negative}`}>
+                    {currency(batch.summary.worstSessionDrawdown)}
+                  </span>
                 </p>
                 <p>
                   {batch.summary.winningSessions} winning ·{" "}
                   {batch.summary.losingSessions} losing ·{" "}
                   {batch.summary.breakEvenSessions} break-even sessions
                 </p>
-                <label>
-                  Batch replay session
-                  <select
+                <Field
+                  label="Batch replay session"
+                  htmlFor="research-batch-day"
+                >
+                  <Select
+                    id="research-batch-day"
                     value={run?.day || ""}
                     onChange={(event) => {
                       setRun(
@@ -1318,8 +1478,8 @@ export function ResearchWorkbench({
                         {session.day}
                       </option>
                     ))}
-                  </select>
-                </label>
+                  </Select>
+                </Field>
                 {batch.skipped.map((session) => (
                   <p key={session.day}>
                     {session.day}: {session.reason}
@@ -1338,11 +1498,19 @@ export function ResearchWorkbench({
                 <div className="research-summary">
                   <div>
                     <span>Full-session net P&L</span>
-                    <strong>{currency(run.pnl)}</strong>
+                    <strong
+                      className={
+                        run.pnl >= 0 ? styles.positive : styles.negative
+                      }
+                    >
+                      {currency(run.pnl)}
+                    </strong>
                   </div>
                   <div>
                     <span>Maximum candle drawdown</span>
-                    <strong>{currency(run.drawdown)}</strong>
+                    <strong className={styles.negative}>
+                      {currency(run.drawdown)}
+                    </strong>
                   </div>
                   <div>
                     <span>Total modeled fees</span>
@@ -1405,61 +1573,41 @@ export function ResearchWorkbench({
                     )
                     .join(" · ")}
                 </p>
-                <div className="table-wrap">
-                  <Button
-                    variant="secondary"
-                    onClick={() => tradeLogDialog.current?.showModal()}
-                  >
-                    View trade log
-                  </Button>
-                  <dialog
-                    ref={tradeLogDialog}
-                    className="workspace-dialog"
-                    aria-labelledby="research-trade-log-title"
-                  >
-                    <div className="screen-toolbar">
-                      <h2 id="research-trade-log-title">
-                        Historical trade log
-                      </h2>
-                      <Button
-                        variant="secondary"
-                        onClick={() => tradeLogDialog.current?.close()}
-                      >
-                        Close trade log
-                      </Button>
-                    </div>
-                    <p>
-                      {run.strategy.name} · {run.day} · Modeled fills from
-                      broker candles, not exchange executions.
-                    </p>
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Time IST</th>
-                          <th>Leg</th>
-                          <th>Side</th>
-                          <th>Units</th>
-                          <th>Fill</th>
-                          <th>Reason</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {run.fills
-                          .filter((fill) => fill.time <= point.time)
-                          .map((fill, index) => (
-                            <tr key={index}>
-                              <td>{timeLabel(fill.time)}</td>
-                              <td>{fill.leg + 1}</td>
-                              <td>{fill.action}</td>
-                              <td>{fill.quantity}</td>
-                              <td>{currency(fill.price)}</td>
-                              <td>{fill.reason}</td>
-                            </tr>
-                          ))}
-                      </tbody>
-                    </table>
-                  </dialog>
-                </div>
+                <Button
+                  variant="secondary"
+                  onClick={() => setTradeLogOpen(true)}
+                >
+                  View trade log
+                </Button>
+                <Dialog
+                  open={tradeLogOpen}
+                  onClose={() => setTradeLogOpen(false)}
+                  title="Historical trade log"
+                  labelledBy="research-trade-log-title"
+                  className={styles.wideDialog}
+                >
+                  <DialogDescription>
+                    {run.strategy.name} · {run.day} · Modeled fills from broker
+                    candles, not exchange executions.
+                  </DialogDescription>
+                  <DataTable
+                    columns={tradeLogColumns}
+                    rows={run.fills
+                      .filter((fill) => fill.time <= point.time)
+                      .map((fill, index) => ({ ...fill, rowId: index }))}
+                    rowKey={(fill) => String(fill.rowId)}
+                    emptyTitle="No fills yet"
+                    emptyDescription="No completed fills up to this replay candle."
+                  />
+                  <DialogActions>
+                    <Button
+                      variant="secondary"
+                      onClick={() => setTradeLogOpen(false)}
+                    >
+                      Close trade log
+                    </Button>
+                  </DialogActions>
+                </Dialog>
                 <ul className="research-note">
                   {run.warnings.map((warning) => (
                     <li key={warning}>{warning}</li>
@@ -1526,46 +1674,14 @@ export function ResearchWorkbench({
           </p>
           {!!quotes.length && (
             <>
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Leg</th>
-                      <th>Last</th>
-                      <th>Bid</th>
-                      <th>Ask</th>
-                      <th>Last trade IST</th>
-                      <th>Freshness</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {quotes.map((quote, index) => (
-                      <tr key={index}>
-                        <td>
-                          {index + 1} · {quote.stockCode}
-                        </td>
-                        <td>{currency(quote.price)}</td>
-                        <td>{currency(quote.bid)}</td>
-                        <td>{currency(quote.ask)}</td>
-                        <td>
-                          {quote.observedAt
-                            ? timeLabel(quote.observedAt)
-                            : "Unavailable"}
-                        </td>
-                        <td>
-                          {quote.stale ||
-                          !quote.observedAt ||
-                          clock - quote.observedAt > 60000 ||
-                          (quote.receivedAt !== undefined &&
-                            clock - quote.receivedAt > 30000)
-                            ? "STALE — refresh"
-                            : "Recent"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <DataTable
+                columns={quoteColumns}
+                rows={quotes.map((quote, index) => ({
+                  ...quote,
+                  rowId: index,
+                }))}
+                rowKey={(quote) => String(quote.rowId)}
+              />
               {definition.market === "options" && (
                 <>
                   <p className="error">

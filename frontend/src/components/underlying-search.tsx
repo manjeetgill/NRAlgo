@@ -1,8 +1,10 @@
 "use client";
 /** Search cached broker metadata; choosing an underlying is the only trigger for chain prices. */
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { requestApiJson } from "@/lib/api";
 import { Button } from "./ui/button";
+import { Field, Input } from "./ui/field";
+import styles from "./underlying-search.module.css";
 
 export function UnderlyingSearch({
   csrf,
@@ -21,6 +23,7 @@ export function UnderlyingSearch({
   const [matches, setMatches] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const inputId = useId();
   useEffect(() => {
     if (selected || query.trim().length < 2) {
       return;
@@ -56,7 +59,7 @@ export function UnderlyingSearch({
             result.underlyings.length
               ? ""
               : experience
-                ? "No stored scrip matches this search."
+                ? "No stored option-chain data matches this scrip. Cash-price history alone is not enough. Import its F&O option data or capture its broker chain during market hours."
                 : "No listed options match this search.",
           );
         }
@@ -78,13 +81,14 @@ export function UnderlyingSearch({
     };
   }, [csrf, query, selected, experience, asOf]);
   return (
-    <section
-      aria-label="Search option underlying"
-      className="panel screen-card"
-    >
-      <label>
-        Search scrip
-        <input
+    <section aria-label="Search option underlying" className={styles.panel}>
+      <Field
+        label="Search scrip"
+        htmlFor={inputId}
+        hint="Type at least two characters, then choose a scrip. Prices load only after selection."
+      >
+        <Input
+          id={inputId}
           value={query}
           maxLength={40}
           placeholder="Type REL, NIFTY, BANK…"
@@ -96,27 +100,38 @@ export function UnderlyingSearch({
             onSelect("");
           }}
         />
-      </label>
-      <p>
-        Type at least two characters, then choose a scrip. Prices load only
-        after selection.
-      </p>
-      {busy && <p role="status">Searching scrips…</p>}
-      {error && <p role="alert">{error}</p>}
-      {!selected &&
-        matches.map((symbol) => (
-          <Button
-            key={symbol}
-            variant="secondary"
-            onClick={() => {
-              setQuery(symbol);
-              onSelect(symbol);
-            }}
-          >
-            {symbol}
-          </Button>
-        ))}
-      {selected && <p role="status">Selected: {selected}</p>}
+      </Field>
+      {busy && (
+        <p className={styles.status} role="status">
+          Searching scrips…
+        </p>
+      )}
+      {error && (
+        <p className={styles.error} role="alert">
+          {error}
+        </p>
+      )}
+      {!selected && matches.length > 0 && (
+        <div className={styles.matches}>
+          {matches.map((symbol) => (
+            <Button
+              key={symbol}
+              variant="secondary"
+              onClick={() => {
+                setQuery(symbol);
+                onSelect(symbol);
+              }}
+            >
+              {symbol}
+            </Button>
+          ))}
+        </div>
+      )}
+      {selected && (
+        <p className={styles.status} role="status">
+          Selected: {selected}
+        </p>
+      )}
     </section>
   );
 }

@@ -1,8 +1,13 @@
 "use client";
 /** Owner-scoped audit viewer. Filters and exports never mutate the durable server history. */
 import { useCallback, useMemo, useRef, useState } from "react";
-import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Field, Input } from "@/components/ui/field";
+import { Badge, type BadgeTone } from "@/components/ui/badge";
+import { Tabs } from "@/components/ui/tabs";
+import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
+import { Dialog, DialogActions } from "@/components/ui/dialog";
 import { PageActions } from "@/features/workspace/workspace-views";
 import { downloadText, encodeCsv } from "@/lib/download";
 import type { WorkspaceSnapshot } from "@/features/workspace/workspace-types";
@@ -14,6 +19,15 @@ import {
   type AuditCategory,
   type AuditEvent,
 } from "./audit-model";
+
+/** Purely presentational grouping of derived categories; never a server-asserted severity. */
+const CATEGORY_TONE: Record<Exclude<AuditCategory, "All">, BadgeTone> = {
+  Security: "danger",
+  Trading: "accent",
+  Broker: "info",
+  Market: "warning",
+  Workspace: "neutral",
+};
 
 /** Present loaded events with a bounded refresh, deterministic filters and keyboard-accessible details. */
 export function ActivityScreen({
@@ -28,9 +42,10 @@ export function ActivityScreen({
   const [fromDay, setFromDay] = useState("");
   const [toDay, setToDay] = useState("");
   const [selected, setSelected] = useState<AuditEvent | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const refreshPending = useRef(false);
-  const dialog = useRef<HTMLDialogElement>(null);
+  const invalidRange = Boolean(fromDay && toDay && fromDay > toDay);
   /** Reuse the visible filtered rows for export. */
   const events = useMemo(
     () =>
@@ -77,6 +92,51 @@ export function ActivityScreen({
       "text/csv",
     );
   }, [events]);
+  const columns: DataTableColumn<AuditEvent>[] = [
+    {
+      key: "time",
+      header: "Time (IST)",
+      width: "180px",
+      sortValue: (event) => {
+        const value = Date.parse(event.created_at);
+        return Number.isFinite(value) ? value : 0;
+      },
+      render: (event) => (
+        <time dateTime={event.created_at}>
+          {formatAuditTime(event.created_at)}
+        </time>
+      ),
+    },
+    {
+      key: "event",
+      header: "Event",
+      render: (event) => (
+        <div>
+          <button
+            type="button"
+            className="audit-event-button"
+            onClick={() => {
+              setSelected(event);
+              setDetailOpen(true);
+            }}
+          >
+            {event.message}
+          </button>
+          <p className="muted">Workspace event #{event.id}</p>
+        </div>
+      ),
+    },
+    {
+      key: "category",
+      header: "Category",
+      width: "140px",
+      sortValue: (event) => categorizeAuditEvent(event.message),
+      render: (event) => {
+        const derived = categorizeAuditEvent(event.message);
+        return <Badge tone={CATEGORY_TONE[derived]}>{derived}</Badge>;
+      },
+    },
+  ];
   return (
     <section className="screen-stack audit-screen">
       <PageActions>
@@ -89,30 +149,22 @@ export function ActivityScreen({
         </Button>
         <Button
           variant="secondary"
-          disabled={!events.length}
+          disabled={invalidRange || !events.length}
           onClick={exportEvents}
         >
           Export filtered events
         </Button>
       </PageActions>
-      <section className="panel screen-card">
+      <Card>
         <div className="audit-toolbar">
-          <div className="tabs" aria-label="Audit categories">
-            {AUDIT_CATEGORIES.map((item) => (
-              <button
-                key={item}
-                type="button"
-                aria-pressed={category === item}
-                className={category === item ? "active" : ""}
-                onClick={() => setCategory(item)}
-              >
-                {item}
-              </button>
-            ))}
-          </div>
+          <Tabs
+            items={AUDIT_CATEGORIES.map((item) => ({ key: item, label: item }))}
+            active={category}
+            onChange={(key) => setCategory(key as AuditCategory)}
+          />
           <label className="audit-search">
             <span className="sr-only">Search audit log</span>
-            <input
+            <Input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search event, instrument or ID"
@@ -120,24 +172,24 @@ export function ActivityScreen({
           </label>
         </div>
         <div className="screen-toolbar">
-          <label>
-            From date (IST)
-            <input
+          <Field label="From date (IST)" htmlFor="audit-from-day">
+            <Input
+              id="audit-from-day"
               type="date"
               value={fromDay}
               max={toDay || undefined}
               onChange={(event) => setFromDay(event.target.value)}
             />
-          </label>
-          <label>
-            To date (IST)
-            <input
+          </Field>
+          <Field label="To date (IST)" htmlFor="audit-to-day">
+            <Input
+              id="audit-to-day"
               type="date"
               value={toDay}
               min={fromDay || undefined}
               onChange={(event) => setToDay(event.target.value)}
             />
-          </label>
+          </Field>
           <Button
             variant="secondary"
             onClick={() => {
@@ -150,65 +202,37 @@ export function ActivityScreen({
             Clear filters
           </Button>
         </div>
+        {invalidRange && (
+          <p role="alert" className="error">
+            From date must be on or before To date.
+          </p>
+        )}
         <p className="muted">
           Showing {events.length} of {workspace.events.length} loaded events.
           Filters and exports apply only to this recent snapshot, not the full
           audit archive.
         </p>
-        <div className="audit-timeline">
-          {events.map((event) => (
-            <div key={event.id}>
-              <time dateTime={event.created_at}>
-                {formatAuditTime(event.created_at)}
-              </time>
-              <span className="timeline-dot" aria-hidden="true">
-                •
-              </span>
-              <div>
-                <button
-                  type="button"
-                  className="audit-event-button"
-                  onClick={() => {
-                    setSelected(event);
-                    dialog.current?.showModal();
-                  }}
-                >
-                  {event.message}
-                </button>
-                <p className="muted">Workspace event #{event.id}</p>
-              </div>
-              <span className="badge">
-                {categorizeAuditEvent(event.message)}
-              </span>
-            </div>
-          ))}
-        </div>
-        {!events.length && (
-          <p role="status">No loaded events match these filters.</p>
-        )}
+        <DataTable
+          columns={columns}
+          rows={events}
+          rowKey={(event) => String(event.id)}
+          defaultSort={{ key: "time", direction: "desc" }}
+          emptyTitle="No loaded events match these filters."
+        />
         <p className="muted audit-footnote">
           Latest 50 loaded account events · times shown in IST. Categories are
           derived from recorded event text.
         </p>
-      </section>
-      <dialog
-        ref={dialog}
-        className="workspace-dialog"
-        aria-labelledby="audit-detail-title"
-        onClose={() => setSelected(null)}
+      </Card>
+      <Dialog
+        open={detailOpen}
+        onClose={() => {
+          setDetailOpen(false);
+          setSelected(null);
+        }}
+        title={selected?.message ?? "Audit event details"}
+        labelledBy="audit-detail-title"
       >
-        <div className="panel-heading">
-          <h3 id="audit-detail-title">
-            {selected?.message ?? "Audit event details"}
-          </h3>
-          <button
-            className="workspace-icon-button"
-            aria-label="Close dialog"
-            onClick={() => dialog.current?.close()}
-          >
-            <X size={20} />
-          </button>
-        </div>
         {selected && (
           <dl>
             <dt>Event ID</dt>
@@ -223,12 +247,12 @@ export function ActivityScreen({
             <dd>Your account’s stored server audit</dd>
           </dl>
         )}
-        <div className="dialog-actions">
-          <Button variant="secondary" onClick={() => dialog.current?.close()}>
+        <DialogActions>
+          <Button variant="secondary" onClick={() => setDetailOpen(false)}>
             Close
           </Button>
-        </div>
-      </dialog>
+        </DialogActions>
+      </Dialog>
     </section>
   );
 }

@@ -1,0 +1,31 @@
+.empty {
+  display: grid;
+  justify-items: center;
+  text-align: center;
+  gap: var(--space-2);
+  padding: var(--space-8) var(--space-4);
+  color: var(--text-muted);
+}
+.icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-lg);
+  background: var(--bg-hover);
+  color: var(--text-muted);
+  margin-bottom: var(--space-2);
+}
+.title {
+  font-size: var(--text-base);
+  font-weight: 650;
+  color: var(--text-secondary);
+}
+.description {
+  font-size: var(--text-sm);
+  max-width: 42ch;
+  line-height: 1.6;
+}
+.action {
+  margin-top: var(--space-3);
+}

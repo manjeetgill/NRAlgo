@@ -1,8 +1,13 @@
 "use client";
 /** Shared live/stored option-chain selection and the manual strategy payoff editor. */
-import type { ResearchDraft } from "@/features/research/research-draft";
+import {
+  createResearchDefinition,
+  type ResearchDraft,
+} from "@/features/research/research-draft";
 import { useCallback, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/ui/confirm";
+import { useToast } from "@/components/ui/toast";
 import {
   OptionsPayoffBuilder,
   type PayoffSelection,
@@ -18,12 +23,10 @@ import { useMarketFeed } from "@/features/option-chain/use-market-feed";
 export function SpreadBuilderScreen({
   csrf,
   draft,
-  onAddLeg,
   initialSelection,
 }: {
   csrf: string;
   draft?: ResearchDraft;
-  onAddLeg: (contract: ChainContract, side: "buy" | "sell") => string;
   initialSelection?: {
     underlying: string;
     expiry?: string;
@@ -31,11 +34,95 @@ export function SpreadBuilderScreen({
     spot?: number;
   };
 }) {
+  const confirm = useConfirm();
+  const toast = useToast();
   const [underlying, setUnderlying] = useState(
     initialSelection?.underlying ?? draft?.definition.legs[0]?.stockCode ?? "",
   );
   const [dataMode, setDataMode] = useState<"live" | "historical">("historical");
   const [selectedLegs, setSelectedLegs] = useState<PayoffSelection[]>([]);
+  // The shell supplies an initial handoff only. Subsequent additions are commands
+  // to the mounted editor, not a second retained copy of its editable basket.
+  const [addition, setAddition] = useState(draft);
+  const [revision, setRevision] = useState(0);
+  const [quoteRevision, setQuoteRevision] = useState(0);
+  async function resetSpread() {
+    const hadLegs = selectedLegs.length > 0;
+    if (hadLegs) {
+      const proceed = await confirm({
+        title: "Discard this spread?",
+        description:
+          "This clears every leg in the current draft and starts a new one.",
+        confirmLabel: "Discard",
+        tone: "danger",
+      });
+      if (!proceed) {
+        return false;
+      }
+    }
+    setAddition(undefined);
+    setSelectedLegs([]);
+    setRevision((value) => value + 1);
+    if (hadLegs) {
+      toast({ tone: "info", title: "Spread cleared" });
+    }
+    return true;
+  }
+  function addLeg(contract: ChainContract, side: "buy" | "sell") {
+    const option = contract.option;
+    if (!option) {
+      return "Select a listed option contract.";
+    }
+    if (!Number.isSafeInteger(contract.lotSize) || contract.lotSize < 1) {
+      return "This contract has no verified lot size. Enter units manually in the builder.";
+    }
+    if (selectedLegs.length >= 12) {
+      return "Remove a leg before adding another (maximum 12).";
+    }
+    if (
+      selectedLegs.some(
+        (leg) =>
+          leg.stockCode !== contract.symbol ||
+          leg.expiryDate !== option.expiryDate,
+      )
+    ) {
+      return "Start a new spread before adding a different underlying or expiry.";
+    }
+    if (
+      selectedLegs.some(
+        (leg) =>
+          leg.strikePrice === option.strikePrice && leg.right === option.right,
+      )
+    ) {
+      return "This contract is already in your draft. Edit its side or lots in the builder.";
+    }
+    setAddition({
+      savedId: "",
+      definition: {
+        ...createResearchDefinition("options"),
+        legs: [
+          {
+            stockCode: contract.symbol,
+            ...option,
+            side,
+            quantity: contract.lotSize,
+          },
+        ],
+      },
+      marketReferences:
+        typeof contract.price === "number"
+          ? [
+              {
+                stockCode: contract.symbol,
+                ...option,
+                price: contract.price,
+                observedAt: contract.tickAt,
+              },
+            ]
+          : [],
+    });
+    return "";
+  }
   const [reference, setReference] = useState<{
     spot: number;
     day?: string;
@@ -58,18 +145,12 @@ export function SpreadBuilderScreen({
               <strong>{underlying}</strong> ·{" "}
               {dataMode === "live"
                 ? "active broker live data"
-                : "stored database snapshot"}
+                : "quote snapshot · not a live stream"}
             </p>
             <Button
               variant="secondary"
-              onClick={() => {
-                if (
-                  !window.dispatchEvent(
-                    new Event("workspace-before-navigate", {
-                      cancelable: true,
-                    }),
-                  )
-                ) {
+              onClick={async () => {
+                if (!(await resetSpread())) {
                   return;
                 }
                 setUnderlying("");
@@ -77,6 +158,15 @@ export function SpreadBuilderScreen({
               }}
             >
               Change scrip
+            </Button>
+            <Button variant="secondary" onClick={resetSpread}>
+              New spread
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => setQuoteRevision((value) => value + 1)}
+            >
+              Refresh quotes
             </Button>
           </div>
         ) : (
@@ -117,7 +207,7 @@ export function SpreadBuilderScreen({
               </p>
             )}
             <LiveOptionChain
-              key={underlying}
+              key={`${underlying}:${quoteRevision}`}
               selectedUnderlying={underlying}
               initialExpiry={
                 underlying === initialSelection?.underlying
@@ -131,8 +221,8 @@ export function SpreadBuilderScreen({
               }
               csrf={csrf}
               ticks={feed.ticks}
-              onAddLeg={onAddLeg}
-              activeLegs={selectedLegs}
+              onAddLeg={addLeg}
+              activeLegs={selectedLegs.filter((leg) => leg.enabled)}
               onDataMode={setDataMode}
               onReferenceData={onReferenceData}
               experience="builder"
@@ -141,12 +231,14 @@ export function SpreadBuilderScreen({
           </div>
           <div className="strategy-market-payoff">
             <OptionsPayoffBuilder
+              key={`${underlying}:${revision}`}
               csrf={csrf}
-              draft={draft}
+              draft={addition}
               initialUnderlying={underlying}
               onSelectionChange={setSelectedLegs}
               referenceSpot={reference?.spot}
               referenceDay={reference?.day}
+              useStoredSpot={false}
             />
           </div>
         </div>

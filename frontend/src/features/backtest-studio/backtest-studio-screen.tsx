@@ -1,7 +1,10 @@
 "use client";
 /** Stored historical workbench. No broker login, uploaded/generated prices or execution side effects. */
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Field, Input } from "@/components/ui/field";
+import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
+import { useToast } from "@/components/ui/toast";
 import {
   PageActions,
   useUnsavedResearchWarning,
@@ -16,6 +19,7 @@ import { formatInr } from "@/lib/format";
 import { downloadText } from "@/lib/download";
 import { StoredInstrumentPicker } from "@/components/stored-instrument-picker";
 import type { StoredInstrument } from "@/lib/stored-market-data";
+import styles from "./backtest-studio-screen.module.css";
 
 /** Keep stored data/results private to this mounted screen; changing input invalidates the report. */
 export function BacktestStudioScreen({
@@ -62,6 +66,23 @@ export function BacktestStudioScreen({
       running ||
       JSON.stringify(settings) !== JSON.stringify(initialSettings.current),
   );
+  const toast = useToast();
+  const wasRunning = useRef(false);
+  /** Surface calculation completion/failure; the page itself already re-renders the report. */
+  useEffect(() => {
+    if (wasRunning.current && !running) {
+      if (report) {
+        toast({
+          tone: "success",
+          title: "Backtest complete",
+          description: `${report.returnPercent.toFixed(2)}% return over ${report.trades.length} trades.`,
+        });
+      } else if (error) {
+        toast({ tone: "error", title: "Backtest failed", description: error });
+      }
+    }
+    wasRunning.current = running;
+  }, [running, report, error, toast]);
   /** Create a durable Python job; the hook owns polling, cancellation and result validation. */
   function onRun() {
     if (runBlocked) {
@@ -136,8 +157,58 @@ export function BacktestStudioScreen({
   const low = Math.min(...values),
     high = Math.max(...values),
     span = Math.max(1, high - low);
+  const tradeRows = (report?.trades.slice(-50) ?? []).map((trade, index) => ({
+    ...trade,
+    rowId: index,
+  }));
+  const tradeColumns: DataTableColumn<(typeof tradeRows)[number]>[] = [
+    { key: "entry-date", header: "Entry", render: (trade) => trade.entryDate },
+    { key: "exit-date", header: "Exit", render: (trade) => trade.exitDate },
+    {
+      key: "quantity",
+      header: "Qty",
+      align: "right",
+      sortValue: (trade) => trade.quantity,
+      render: (trade) => <span className={styles.mono}>{trade.quantity}</span>,
+    },
+    {
+      key: "buy",
+      header: "Buy",
+      align: "right",
+      sortValue: (trade) => trade.entry,
+      render: (trade) => (
+        <span className={styles.mono}>{formatInr(trade.entry)}</span>
+      ),
+    },
+    {
+      key: "sell",
+      header: "Sell",
+      align: "right",
+      sortValue: (trade) => trade.exit,
+      render: (trade) => (
+        <span className={styles.mono}>{formatInr(trade.exit)}</span>
+      ),
+    },
+    {
+      key: "pnl",
+      header: "Net P&L",
+      align: "right",
+      sortValue: (trade) => trade.pnl,
+      render: (trade) => (
+        <span
+          className={`${styles.mono} ${trade.pnl >= 0 ? styles.positive : styles.negative}`}
+        >
+          {formatInr(trade.pnl)}
+        </span>
+      ),
+    },
+    { key: "reason", header: "Exit reason", render: (trade) => trade.reason },
+  ];
   return (
-    <section className="screen-stack" aria-label="Historical backtest studio">
+    <section
+      className="screen-stack backtest-studio-screen"
+      aria-label="Historical backtest studio"
+    >
       <div className="screen-toolbar">
         <p>{template.name} · v1.0 · daily cash-equity model</p>
         <PageActions>
@@ -189,9 +260,9 @@ export function BacktestStudioScreen({
             : "Choose a cash instrument above"}
         </p>
         <div className="research-fields">
-          <label>
-            From (IST)
-            <input
+          <Field label="From (IST)" htmlFor="backtest-from">
+            <Input
+              id="backtest-from"
               type="date"
               disabled={running}
               value={from}
@@ -202,10 +273,10 @@ export function BacktestStudioScreen({
                 setFrom(event.target.value);
               }}
             />
-          </label>
-          <label>
-            To (IST)
-            <input
+          </Field>
+          <Field label="To (IST)" htmlFor="backtest-to">
+            <Input
+              id="backtest-to"
               type="date"
               disabled={running}
               value={to}
@@ -216,7 +287,7 @@ export function BacktestStudioScreen({
                 setTo(event.target.value);
               }}
             />
-          </label>
+          </Field>
         </div>
         <Button
           disabled={
@@ -248,9 +319,9 @@ export function BacktestStudioScreen({
         </p>
         <div className="research-fields">
           {fields.map(([key, label]) => (
-            <label key={key}>
-              {label}
-              <input
+            <Field key={key} label={label} htmlFor={`backtest-setting-${key}`}>
+              <Input
+                id={`backtest-setting-${key}`}
                 type="number"
                 disabled={running}
                 step={key === "first" || key === "second" ? "1" : "0.01"}
@@ -263,7 +334,7 @@ export function BacktestStudioScreen({
                   invalidateReport();
                 }}
               />
-            </label>
+            </Field>
           ))}
         </div>
         <div className="screen-toolbar">
@@ -326,11 +397,19 @@ export function BacktestStudioScreen({
           <div className="research-summary">
             <div>
               <span>Net return</span>
-              <strong>{report.returnPercent.toFixed(2)}%</strong>
+              <strong
+                className={
+                  report.returnPercent >= 0 ? styles.positive : styles.negative
+                }
+              >
+                {report.returnPercent.toFixed(2)}%
+              </strong>
             </div>
             <div>
               <span>Maximum drawdown</span>
-              <strong>{report.drawdownPercent.toFixed(2)}%</strong>
+              <strong className={styles.negative}>
+                {report.drawdownPercent.toFixed(2)}%
+              </strong>
             </div>
             <div>
               <span>Closed trades</span>
@@ -365,7 +444,7 @@ export function BacktestStudioScreen({
             >
               <polyline
                 fill="none"
-                stroke="#335cde"
+                style={{ stroke: "var(--accent)" }}
                 strokeWidth="2"
                 points={values
                   .map(
@@ -401,13 +480,18 @@ export function BacktestStudioScreen({
             </p>
             <Button
               variant="secondary"
-              onClick={() =>
+              onClick={() => {
                 downloadText(
                   "backtest-results.json",
                   JSON.stringify(report, null, 2),
                   "application/json",
-                )
-              }
+                );
+                toast({
+                  tone: "success",
+                  title: "Results exported",
+                  description: "backtest-results.json downloaded.",
+                });
+              }}
             >
               Export results JSON
             </Button>
@@ -418,34 +502,13 @@ export function BacktestStudioScreen({
               {report.trades.length} calculated trades · latest 50 shown ·
               export includes every trade.
             </p>
-            <div className="table-scroll">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Entry</th>
-                    <th>Exit</th>
-                    <th>Qty</th>
-                    <th>Buy</th>
-                    <th>Sell</th>
-                    <th>Net P&amp;L</th>
-                    <th>Exit reason</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {report.trades.slice(-50).map((trade, index) => (
-                    <tr key={index}>
-                      <td>{trade.entryDate}</td>
-                      <td>{trade.exitDate}</td>
-                      <td>{trade.quantity}</td>
-                      <td>{formatInr(trade.entry)}</td>
-                      <td>{formatInr(trade.exit)}</td>
-                      <td>{formatInr(trade.pnl)}</td>
-                      <td>{trade.reason}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <DataTable
+              columns={tradeColumns}
+              rows={tradeRows}
+              rowKey={(trade) => String(trade.rowId)}
+              emptyTitle="No trades"
+              emptyDescription="This run closed no trades."
+            />
           </article>
         </>
       )}

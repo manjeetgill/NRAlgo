@@ -5,6 +5,9 @@ import { useEffect, useState, type ChangeEvent } from "react";
 import { BarChart3 } from "lucide-react";
 import { requestApiJson } from "@/lib/api";
 import { z } from "zod";
+import { AsyncBoundary } from "@/components/ui/async-boundary";
+import { SkeletonRows } from "@/components/ui/skeleton";
+import type { AsyncStatus } from "@/lib/use-async-resource";
 import styles from "./nse-market-intelligence.module.css";
 
 const datasetGroups: ReadonlyArray<{
@@ -74,6 +77,9 @@ export function NseMarketIntelligence() {
   const [result, setResult] = useState<MarketInsightResponse | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  // Presentation-only: lets AsyncBoundary's Retry button re-run the same effect below.
+  const [retryToken, setRetryToken] = useState(0);
+  const status: AsyncStatus = loading ? "loading" : error ? "error" : "success";
 
   /** A dataset change is sufficient user intent; the effect owns the resulting request. */
   function onDatasetChange(event: ChangeEvent<HTMLSelectElement>) {
@@ -148,7 +154,7 @@ export function NseMarketIntelligence() {
       retryTimers.forEach((timer) => clearTimeout(timer));
       retryTimers.clear();
     };
-  }, [dataset]);
+  }, [dataset, retryToken]);
 
   return (
     <section className={styles.panel} aria-label="NSE market intelligence">
@@ -178,54 +184,57 @@ export function NseMarketIntelligence() {
         </span>
       </header>
 
-      {error && (
-        <p className={styles.error} role="alert">
-          {error}
-        </p>
-      )}
-      {result && (
-        <div className={styles.results} aria-busy={loading}>
-          <div className={styles.resultHeading}>
-            <strong>
-              {result.label}
-              {result.dataset === "fii-dii" ? " · ₹ crore" : ""}
-            </strong>
-            <time dateTime={new Date(result.observedAt).toISOString()}>
-              Fetched{" "}
-              {new Date(result.observedAt).toLocaleString("en-IN", {
-                timeZone: "Asia/Kolkata",
-              })}{" "}
-              IST
-            </time>
-          </div>
-          {result.items.length ? (
-            <ul className={styles.items}>
-              {result.items.map((item, index) => (
-                <li key={`${item.title}-${index}`}>
-                  <div className={styles.identity}>
-                    <strong>{item.title}</strong>
-                    {item.subtitle && <span>{item.subtitle}</span>}
-                  </div>
-                  <dl>
-                    {item.values.map((field) => (
-                      <div
-                        key={field.label}
-                        data-tone={metricTone(field.label, field.value)}
-                      >
-                        <dt>{field.label}</dt>
-                        <dd>{metricValue(field.label, field.value)}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className={styles.empty}>No rows were returned by NSE.</p>
+      <div className={styles.results}>
+        <AsyncBoundary
+          status={status}
+          error={error}
+          onRetry={() => setRetryToken((token) => token + 1)}
+          isEmpty={status === "success" && result?.items.length === 0}
+          emptyTitle="No rows were returned"
+          emptyDescription="NSE did not return any rows for this dataset."
+          skeleton={<SkeletonRows rows={3} columns={4} />}
+        >
+          {result && (
+            <>
+              <div className={styles.resultHeading}>
+                <strong>
+                  {result.label}
+                  {result.dataset === "fii-dii" ? " · ₹ crore" : ""}
+                </strong>
+                <time dateTime={new Date(result.observedAt).toISOString()}>
+                  Fetched{" "}
+                  {new Date(result.observedAt).toLocaleString("en-IN", {
+                    timeZone: "Asia/Kolkata",
+                  })}{" "}
+                  IST
+                </time>
+              </div>
+              <ul className={styles.items}>
+                {result.items.map((item, index) => (
+                  <li key={`${item.title}-${index}`}>
+                    <div className={styles.identity}>
+                      <strong>{item.title}</strong>
+                      {item.subtitle && <span>{item.subtitle}</span>}
+                    </div>
+                    <dl>
+                      {item.values.map((field) => (
+                        <div
+                          key={field.label}
+                          data-tone={metricTone(field.label, field.value)}
+                        >
+                          <dt>{field.label}</dt>
+                          <dd>{metricValue(field.label, field.value)}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </li>
+                ))}
+              </ul>
+              <p className={styles.warning}>{result.warning}</p>
+            </>
           )}
-          <p className={styles.warning}>{result.warning}</p>
-        </div>
-      )}
+        </AsyncBoundary>
+      </div>
     </section>
   );
 }

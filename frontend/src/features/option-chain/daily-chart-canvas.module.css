@@ -1,0 +1,29 @@
+.toolbar {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  align-items: center;
+}
+.toolbar select {
+  width: auto;
+  flex: 1 1 140px;
+  min-width: 0;
+}
+.status {
+  margin: var(--space-2) 0 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+.error {
+  margin: 0 0 var(--space-2);
+  color: var(--danger-text);
+  font-size: var(--text-sm);
+}
+.host {
+  height: 560px;
+  width: 100%;
+  min-width: 0;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+}

@@ -2,6 +2,8 @@
 /** Rule catalog contains no market data, generated results or execution permissions. */
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/components/ui/toast";
 import { strategyTemplates, type TemplateId } from "./strategy-templates";
 
 /** Present reproducible rules and route explicit configuration intent to the separate backtest workflow. */
@@ -11,8 +13,12 @@ export function StrategyLibraryScreen({
   onConfigure?: (id: TemplateId) => void;
 }) {
   const [selected, setSelected] = useState<TemplateId | null>(null);
+  const toast = useToast();
   return (
-    <section className="screen-stack" aria-label="Strategy template library">
+    <section
+      className="screen-stack strategy-library-screen"
+      aria-label="Strategy template library"
+    >
       <div className="environment">
         <div>
           <strong>Build from rules, validate with evidence</strong>
@@ -21,14 +27,14 @@ export function StrategyLibraryScreen({
             data. No profitability claims.
           </span>
         </div>
-        <span className="badge">3 rule templates</span>
+        <Badge tone="accent">3 rule templates</Badge>
       </div>
       <div className="screen-two-columns">
         {strategyTemplates.map((template) => (
           <article key={template.id} className="panel screen-card">
             <div className="screen-toolbar">
               <h2>{template.name}</h2>
-              <span className="badge">v1.0</span>
+              <Badge tone="neutral">v1.0</Badge>
             </div>
             <p>{template.category}</p>
             <p>
@@ -40,11 +46,18 @@ export function StrategyLibraryScreen({
             <div className="screen-toolbar">
               <p>Cash equity · daily bars · long only</p>
               <Button
-                onClick={() =>
-                  onConfigure
-                    ? onConfigure(template.id)
-                    : setSelected(template.id)
-                }
+                onClick={() => {
+                  if (onConfigure) {
+                    onConfigure(template.id);
+                    toast({
+                      tone: "info",
+                      title: "Opening Backtest Studio",
+                      description: `${template.name} loaded for configuration.`,
+                    });
+                  } else {
+                    setSelected(template.id);
+                  }
+                }}
               >
                 {onConfigure ? "Configure & backtest" : "Inspect parameters"}
               </Button>
@@ -61,7 +74,7 @@ export function StrategyLibraryScreen({
       </div>
       <details className="panel screen-card">
         <summary>Reference only · Hilega Milega (not runnable)</summary>
-        <span className="badge">Needs rule confirmation</span>
+        <Badge tone="warning">Needs rule confirmation</Badge>
         <p>
           A reproducible specification has not been supplied. This strategy
           cannot run yet.

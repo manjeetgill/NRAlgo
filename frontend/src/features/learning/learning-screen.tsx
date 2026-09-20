@@ -1,5 +1,6 @@
 /** Static technology guide. No account APIs or execution effects run on this screen. */
 import { Activity, Code2, Database, Zap } from "lucide-react";
+import { Card } from "@/components/ui/card";
 /** Explain real component boundaries without implying research can dispatch live orders. */
 export function LearningScreen() {
   return (
@@ -36,13 +37,13 @@ export function LearningScreen() {
       ].map(([Icon, label, title, description, file]) => {
         const Symbol = Icon as typeof Code2;
         return (
-          <article className="panel learning-card" key={String(title)}>
+          <Card className="learning-card" key={String(title)}>
             <Symbol size={23} />
             <span className="eyebrow">{String(label)}</span>
             <h3>{String(title)}</h3>
             <p>{String(description)}</p>
             <code>{String(file)}</code>
-          </article>
+          </Card>
         );
       })}
     </section>

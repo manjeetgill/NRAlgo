@@ -1,18 +1,27 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
+import { Field, Select } from "@/components/ui/field";
+import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
+import { EmptyState } from "@/components/ui/empty-state";
+import { SkeletonRows } from "@/components/ui/skeleton";
+import { useToast } from "@/components/ui/toast";
 import { requestApiJson } from "@/lib/api";
 import {
-  clubPortfolioRows,
-  completeTotal,
-  portfolioRegistrySchema,
-  portfolioSnapshotSchema,
-  type PortfolioDisplayRow,
-  type PortfolioKind,
+  portfolioContractLabel,
+  portfolioDashboardSchema,
+  type PortfolioAccount,
+  type PortfolioDashboard,
+  type PortfolioItem,
   type PortfolioProvider,
-  type PortfolioSnapshot,
 } from "./portfolio-model";
 import styles from "./portfolio-screen.module.css";
 
@@ -30,251 +39,236 @@ const money = (value: number | null) =>
         maximumFractionDigits: 2,
       }).format(value);
 
-/** Read-only connected-account portfolio with explicit single/all selection. */
+/** Durable portfolio dashboard; broker selection here never changes order routing. */
 export function PortfolioScreen({ csrf }: { csrf: string }) {
-  const [providers, setProviders] = useState<PortfolioProvider[]>([]);
-  const [selection, setSelection] = useState<"" | "all" | PortfolioProvider>(
-    "",
-  );
-  const [snapshots, setSnapshots] = useState<PortfolioSnapshot[]>([]);
-  const [registryLoading, setRegistryLoading] = useState(true);
-  const [loading, setLoading] = useState(false);
+  const toast = useToast();
+  const [dashboard, setDashboard] = useState<PortfolioDashboard | null>(null);
+  const [accountOptions, setAccountOptions] = useState<PortfolioAccount[]>([]);
+  const [selection, setSelection] = useState("all");
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [warnings, setWarnings] = useState<string[]>([]);
   const request = useRef<AbortController | null>(null);
+  const bootstrapped = useRef(false);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    request.current = controller;
-    void requestApiJson(
-      "/brokers",
-      "GET",
-      undefined,
-      undefined,
-      15000,
-      controller.signal,
-    )
-      .then((value) => {
-        const registry = portfolioRegistrySchema.parse(value);
+  /** Read a stored view, or explicitly synchronize the selected connected accounts. */
+  const loadDashboard = useCallback(
+    async (synchronize: boolean, selected = selection) => {
+      request.current?.abort();
+      const controller = new AbortController();
+      request.current = controller;
+      setLoading(true);
+      setError("");
+      try {
+        const brokerIds = selected === "all" ? undefined : [selected];
+        const value = synchronize
+          ? await requestApiJson(
+              "/portfolio/sync",
+              "POST",
+              brokerIds ? { brokerIds } : {},
+              csrf,
+              95000,
+              controller.signal,
+            )
+          : await requestApiJson(
+              `/portfolio/dashboard${brokerIds ? `?brokerId=${encodeURIComponent(selected)}` : ""}`,
+              "GET",
+              undefined,
+              undefined,
+              15000,
+              controller.signal,
+            );
         if (controller.signal.aborted) {
           return;
         }
-        const active = registry.brokers.find(
-          (broker) =>
-            broker.id === registry.activeBrokerId &&
-            broker.status === "connected",
-        );
-        setSelection(active?.provider ?? "");
-        setProviders(
-          registry.brokers
-            .filter((broker) => broker.status === "connected")
-            .map((broker) => broker.provider)
-            .sort((left, right) =>
-              providerLabels[left].localeCompare(providerLabels[right]),
-            ),
-        );
-      })
-      .catch((failure) => {
+        const parsed = portfolioDashboardSchema.parse(value);
+        setDashboard(parsed);
+        if (selected === "all") {
+          setAccountOptions(parsed.accounts);
+        }
+        // Existing connections created before durable portfolios were introduced
+        // receive their first snapshot without requiring a legacy Load button.
+        if (!synchronize && !parsed.accounts.length && !bootstrapped.current) {
+          bootstrapped.current = true;
+          await loadDashboard(true, "all");
+        }
+      } catch (failure) {
         if (!controller.signal.aborted) {
           setError(
             failure instanceof Error
               ? failure.message
-              : "Connected portfolios are unavailable.",
+              : "Portfolio data is unavailable.",
           );
         }
-      })
-      .finally(() => {
+      } finally {
         if (!controller.signal.aborted) {
-          setRegistryLoading(false);
+          setLoading(false);
         }
-      });
-    return () => controller.abort();
-  }, [csrf]);
-
-  const rows = useMemo(
-    () => ({
-      holdings: clubPortfolioRows(snapshots, "holdings"),
-      positions: clubPortfolioRows(snapshots, "positions"),
-    }),
-    [snapshots],
+      }
+    },
+    [csrf, selection],
   );
 
-  async function loadPortfolio() {
-    if (!selection) {
-      return;
-    }
-    request.current?.abort();
-    const controller = new AbortController();
-    request.current = controller;
-    const targets = selection === "all" ? providers : [selection];
-    setLoading(true);
-    setSnapshots([]);
-    setWarnings([]);
-    setError("");
-    try {
-      const results = await Promise.allSettled(
-        targets.map(async (provider) =>
-          portfolioSnapshotSchema.parse(
-            await requestApiJson(
-              `/portfolio/${provider}/refresh`,
-              "POST",
-              undefined,
-              csrf,
-              95000,
-              controller.signal,
-            ),
-          ),
-        ),
-      );
-      if (controller.signal.aborted) {
-        return;
-      }
-      const loaded: PortfolioSnapshot[] = [];
-      const failures: string[] = [];
-      results.forEach((result, index) => {
-        if (result.status === "fulfilled") {
-          loaded.push(result.value);
-          for (const kind of ["holdings", "positions"] as const) {
-            if (result.value[kind].error) {
-              failures.push(result.value[kind].error);
-            }
-          }
-        } else {
-          failures.push(
-            `${providerLabels[targets[index]!]}: ${
-              result.reason instanceof Error
-                ? result.reason.message
-                : "portfolio unavailable"
-            }`,
-          );
-        }
-      });
-      setSnapshots(loaded);
-      setWarnings(failures);
-      if (!loaded.length) {
-        setError("No selected portfolio could be loaded.");
-      }
-    } finally {
-      if (!controller.signal.aborted) {
-        setLoading(false);
-      }
-    }
-  }
+  /** Load stored snapshots when the screen or selected account changes. */
+  useEffect(() => {
+    void loadDashboard(false);
+    return () => request.current?.abort();
+  }, [loadDashboard]);
 
-  const expectedPortfolios = selection === "all" ? providers.length : 1;
-  const holdingsComplete =
-    snapshots.length === expectedPortfolios &&
-    snapshots.every(
-      (snapshot) =>
-        snapshot.holdings.rows !== null && snapshot.holdings.error === null,
-    );
-  const holdingsInvested = holdingsComplete
-    ? completeTotal(rows.holdings, "investedAmount")
-    : null;
-  const holdingsValue = holdingsComplete
-    ? completeTotal(rows.holdings, "currentValue")
-    : null;
-  const holdingPnl = holdingsComplete
-    ? completeTotal(rows.holdings, "pnl")
-    : null;
+  // The dashboard's `synchronization` field is only populated by a /portfolio/sync
+  // call (see loadDashboard above); surfacing it here gives the explicit "Refresh
+  // broker data" action feedback without altering that fetch logic at all.
+  const lastSyncRef = useRef<PortfolioDashboard["synchronization"]>(undefined);
+  useEffect(() => {
+    const sync = dashboard?.synchronization;
+    if (sync && sync !== lastSyncRef.current) {
+      if (sync.failures > 0) {
+        toast({
+          tone: sync.updated > 0 ? "info" : "error",
+          title: `Synced ${sync.updated} of ${sync.requested} accounts`,
+          description: `${sync.failures} account${sync.failures === 1 ? "" : "s"} failed to sync.`,
+        });
+      } else if (sync.requested > 0) {
+        toast({
+          tone: "success",
+          title: `Synced ${sync.updated} of ${sync.requested} accounts`,
+        });
+      }
+    }
+    lastSyncRef.current = sync;
+  }, [dashboard, toast]);
+
+  const holdings = useMemo(
+    () => dashboard?.items.filter((item) => item.kind === "holding") ?? [],
+    [dashboard],
+  );
+  const positions = useMemo(
+    () => dashboard?.items.filter((item) => item.kind === "position") ?? [],
+    [dashboard],
+  );
+  const warnings = useMemo(
+    () => dashboard?.accounts.flatMap((account) => account.warnings) ?? [],
+    [dashboard],
+  );
+
+  const showEmpty = !loading && !dashboard?.accounts.length && !error;
+  const showContent = Boolean(dashboard && dashboard.accounts.length > 0);
 
   return (
-    <section className={styles.screen} aria-label="Portfolio">
+    <section className={styles.screen} aria-label="Portfolio dashboard">
       <header className={styles.header}>
         <div>
+          <h1>Portfolio</h1>
           <p>
-            {selection === "all"
-              ? "Combined read-only totals across connected accounts."
-              : "Read-only holdings and positions for your selected account."}{" "}
-            Changing this view does not change your execution broker.
+            Consolidated broker snapshots. Portfolio selection does not change
+            the active broker used for live orders.
           </p>
         </div>
         <div className={styles.selector}>
-          <label>
-            Portfolio
-            <select
+          <Field label="Account" htmlFor="portfolio-account">
+            <Select
+              id="portfolio-account"
               value={selection}
-              disabled={registryLoading || loading || !providers.length}
-              onChange={(event) => {
-                setSelection(event.target.value as "all" | PortfolioProvider);
-                setSnapshots([]);
-                setWarnings([]);
-                setError("");
-              }}
+              disabled={loading || !accountOptions.length}
+              onChange={(event) => setSelection(event.target.value)}
             >
-              <option value="" disabled>
-                Reconnect or select your active broker in Settings
-              </option>
-              <option value="all" disabled={!providers.length}>
-                All connected portfolios
-              </option>
-              <optgroup label="Accounts">
-                {providers.map((provider) => (
-                  <option key={provider} value={provider}>
-                    {providerLabels[provider]}
-                  </option>
-                ))}
-              </optgroup>
-            </select>
-          </label>
-          <Button
-            disabled={
-              registryLoading || loading || !providers.length || !selection
-            }
-            onClick={() => void loadPortfolio()}
-          >
-            <RefreshCw size={14} />
-            {loading ? "Loading…" : snapshots.length ? "Refresh" : "Load"}
+              <option value="all">All portfolios</option>
+              {accountOptions.map((account) => (
+                <option key={account.brokerId} value={account.brokerId}>
+                  {account.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Button disabled={loading} onClick={() => void loadDashboard(true)}>
+            <RefreshCw size={14} className={loading ? styles.spinning : ""} />
+            {loading ? "Synchronizing…" : "Refresh broker data"}
           </Button>
         </div>
       </header>
 
-      {!registryLoading && !providers.length && (
-        <p className={styles.empty}>
-          <a href="#/brokers">Connect a broker</a> to view its holdings and
-          positions here.
-        </p>
-      )}
       {error && (
         <p className={styles.error} role="alert">
-          {error}
+          {error} Values, if shown, are the last successful snapshot.{" "}
+          <a href="#/brokers">Open broker connections</a>
         </p>
       )}
       {warnings.map((warning) => (
         <p className={styles.warning} role="status" key={warning}>
-          {warning} Any affected combined totals remain unavailable until every
-          selected book loads successfully.
+          {warning}
         </p>
       ))}
-      {!snapshots.length && providers.length > 0 && !error && (
-        <p className={styles.empty}>
-          Select one account or All connected portfolios, then load its latest
-          broker-reported snapshot.
-        </p>
+
+      {loading && !dashboard && <SkeletonRows rows={4} columns={4} />}
+
+      {showEmpty && (
+        <EmptyState
+          title="No portfolio yet"
+          description="Connect a broker to create its portfolio and first snapshot automatically."
+          action={
+            <a className={styles.emptyLink} href="#/brokers">
+              Connect a broker
+            </a>
+          }
+        />
       )}
-      {snapshots.length > 0 && (
+
+      {showContent && dashboard && (
         <>
+          <div className={styles.coverage}>
+            <strong>
+              {dashboard.coverage.updatedAccounts} of{" "}
+              {dashboard.coverage.totalAccounts} accounts updated
+            </strong>
+            <span>
+              {dashboard.coverage.completeAccounts ===
+              dashboard.coverage.totalAccounts
+                ? "Complete broker coverage"
+                : "Incomplete accounts are excluded from complete totals"}
+            </span>
+          </div>
           <div className={styles.metrics}>
-            <Metric label="Invested amount" value={money(holdingsInvested)} />
             <Metric
-              label="Current holding value"
-              value={money(holdingsValue)}
+              label="Account equity"
+              value={money(dashboard.summary.totalEquity)}
             />
             <Metric
-              label="Unrealized holding P&L"
-              value={money(holdingPnl)}
-              tone={holdingPnl}
+              label="Holdings value"
+              value={money(dashboard.summary.holdingsValue)}
             />
             <Metric
-              label="Portfolios loaded"
-              value={`${snapshots.length} of ${expectedPortfolios}`}
+              label="Open-position P&L"
+              value={money(dashboard.summary.positionsPnl)}
+              tone={dashboard.summary.positionsPnl}
+            />
+            <Metric
+              label="Cash balance"
+              value={money(dashboard.summary.cashBalance)}
+            />
+            <Metric
+              label="Available margin"
+              value={money(dashboard.summary.availableMargin)}
+            />
+            <Metric
+              label="Pledged holdings"
+              value={money(dashboard.summary.pledgedValue)}
+            />
+            <Metric
+              label="Collateral value"
+              value={money(dashboard.summary.collateralValue)}
+            />
+            <Metric
+              label="Used margin"
+              value={money(dashboard.summary.usedMargin)}
             />
           </div>
-          <PortfolioTable kind="holdings" rows={rows.holdings} />
-          <PortfolioTable kind="positions" rows={rows.positions} />
+          <PerformanceChart dashboard={dashboard} />
+          <PortfolioTable title="Holdings" rows={holdings} holdings />
+          <PortfolioTable title="Open positions" rows={positions} />
           <p className={styles.disclaimer}>
-            Values are broker-reported snapshots. This screen cannot submit,
-            modify or authorize an order.
+            Pledged value classifies holdings and is not added again to account
+            equity. Available margin is buying power, not cash. Values are
+            stored broker snapshots; this screen cannot place or authorize an
+            order.
           </p>
         </>
       )}
@@ -292,7 +286,7 @@ function Metric({
   tone?: number | null;
 }) {
   return (
-    <article>
+    <Card className={styles.metricCard} aria-label={label}>
       <span>{label}</span>
       <strong
         className={
@@ -301,94 +295,213 @@ function Metric({
       >
         {value}
       </strong>
-    </article>
+    </Card>
+  );
+}
+
+/** Compact SVG uses only complete daily points; gaps are never interpolated as real values. */
+function PerformanceChart({ dashboard }: { dashboard: PortfolioDashboard }) {
+  const points = dashboard.history
+    .filter((point) => point.totalEquity !== null)
+    .map((point) => ({ day: point.day, value: point.totalEquity! }));
+  if (points.length < 2) {
+    return (
+      <Card>
+        <CardTitle>Portfolio performance</CardTitle>
+        <CardDescription>
+          Performance history begins with the first complete daily snapshot.
+        </CardDescription>
+      </Card>
+    );
+  }
+  const values = points.map((point) => point.value);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = max - min || 1;
+  const polyline = points
+    .map((point, index) => {
+      const x = 12 + (index / (points.length - 1)) * 676;
+      const y = 148 - ((point.value - min) / span) * 116;
+      return `${x},${y}`;
+    })
+    .join(" ");
+  return (
+    <Card className={styles.chartCard}>
+      <CardHeader>
+        <div>
+          <CardTitle>Portfolio performance</CardTitle>
+          <CardDescription>
+            Complete daily account equity snapshots
+          </CardDescription>
+        </div>
+        <strong className={styles.chartValue}>
+          {money(points.at(-1)!.value)}
+        </strong>
+      </CardHeader>
+      <svg
+        viewBox="0 0 700 170"
+        role="img"
+        aria-label="Portfolio equity history"
+      >
+        <line x1="12" y1="148" x2="688" y2="148" />
+        <polyline points={polyline} />
+      </svg>
+      <div className={styles.chartAxis}>
+        <span>{points[0]!.day}</span>
+        <span>{points.at(-1)!.day}</span>
+      </div>
+    </Card>
   );
 }
 
 function PortfolioTable({
-  kind,
+  title,
   rows,
+  holdings = false,
 }: {
-  kind: PortfolioKind;
-  rows: PortfolioDisplayRow[];
+  title: string;
+  rows: PortfolioItem[];
+  holdings?: boolean;
 }) {
-  return (
-    <section className={styles.tableCard}>
-      <div className={styles.tableHeading}>
-        <div>
-          <h2>{kind === "holdings" ? "Holdings" : "Open positions"}</h2>
-          <p>{rows.length} clubbed instruments</p>
-        </div>
-      </div>
-      {!rows.length ? (
-        <p className={styles.tableEmpty}>No non-zero {kind} were returned.</p>
-      ) : (
-        <div className={styles.tableScroll}>
-          <table>
-            <thead>
-              <tr>
-                <th>Instrument</th>
-                <th>Portfolio</th>
-                <th>Qty</th>
-                {kind === "holdings" && <th>Pledged</th>}
-                {kind === "holdings" && <th>T1 / unsettled</th>}
-                <th>Average</th>
-                <th>Invested amount</th>
-                <th>LTP</th>
-                <th>Current value</th>
-                <th>Reported P&amp;L</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr
-                  key={`${kind}-${row.exchange}-${row.instrumentToken}-${row.product}-${row.quantity < 0 ? "short" : "long"}`}
-                >
-                  <td>
-                    <strong>{row.symbol}</strong>
-                    <small>
-                      {row.exchange} {row.product}
-                    </small>
-                  </td>
-                  <td>
-                    {row.providers
-                      .map((provider) => providerLabels[provider])
-                      .join(", ")}
-                  </td>
-                  <td>{row.quantity.toLocaleString("en-IN")}</td>
-                  {kind === "holdings" && (
-                    <td>
-                      {row.pledgedQuantity === null
-                        ? "Unavailable"
-                        : row.pledgedQuantity.toLocaleString("en-IN")}
-                    </td>
-                  )}
-                  {kind === "holdings" && (
-                    <td>
-                      {row.t1Quantity === null
-                        ? "Unavailable"
-                        : row.t1Quantity.toLocaleString("en-IN")}
-                    </td>
-                  )}
-                  <td>{money(row.averagePrice)}</td>
-                  <td>{money(row.investedAmount)}</td>
-                  <td>{money(row.markPrice)}</td>
-                  <td>{money(row.currentValue)}</td>
-                  <td
-                    className={
-                      row.pnl !== null && row.pnl < 0
-                        ? styles.loss
-                        : styles.gain
-                    }
-                  >
-                    {money(row.pnl)}
-                  </td>
-                </tr>
+  const columns = useMemo<DataTableColumn<PortfolioItem>[]>(() => {
+    const base: DataTableColumn<PortfolioItem>[] = [
+      {
+        key: "instrument",
+        header: "Instrument",
+        sortValue: (row) => portfolioContractLabel(row),
+        render: (row) => (
+          <details>
+            <summary className={styles.instrumentSummary}>
+              <strong>{portfolioContractLabel(row)}</strong>
+              <small className={styles.instrumentDetail}>
+                {row.exchange} {row.product}
+                {row.isin ? ` · ${row.isin}` : ""}
+              </small>
+            </summary>
+            <ul className={styles.breakdown}>
+              {row.accounts.map((account) => (
+                <li key={account.accountId}>
+                  {providerLabels[account.provider]} — {account.quantity} units
+                  · {money(account.currentValue)}
+                </li>
               ))}
-            </tbody>
-          </table>
+            </ul>
+          </details>
+        ),
+      },
+      {
+        key: "quantity",
+        header: "Qty",
+        align: "right",
+        sortValue: (row) => row.quantity,
+        render: (row) => <span className={styles.mono}>{row.quantity}</span>,
+      },
+    ];
+    if (holdings) {
+      base.push(
+        {
+          key: "pledged",
+          header: "Pledged",
+          align: "right",
+          sortValue: (row) => row.pledgedQuantity ?? -1,
+          render: (row) => (
+            <span className={styles.mono}>
+              {row.pledgedQuantity ?? "Unavailable"}
+            </span>
+          ),
+        },
+        {
+          key: "t1",
+          header: "T1",
+          align: "right",
+          sortValue: (row) => row.t1Quantity ?? -1,
+          render: (row) => (
+            <span className={styles.mono}>
+              {row.t1Quantity ?? "Unavailable"}
+            </span>
+          ),
+        },
+        {
+          key: "mtf",
+          header: "MTF",
+          align: "right",
+          sortValue: (row) => row.mtfQuantity ?? -1,
+          render: (row) => (
+            <span className={styles.mono}>
+              {row.mtfQuantity ?? "Unavailable"}
+            </span>
+          ),
+        },
+      );
+    }
+    base.push(
+      {
+        key: "average",
+        header: "Average",
+        align: "right",
+        sortValue: (row) => row.averagePrice ?? -Infinity,
+        render: (row) => (
+          <span className={styles.mono}>{money(row.averagePrice)}</span>
+        ),
+      },
+      {
+        key: "ltp",
+        header: "LTP",
+        align: "right",
+        sortValue: (row) => row.markPrice ?? -Infinity,
+        render: (row) => (
+          <span className={styles.mono}>{money(row.markPrice)}</span>
+        ),
+      },
+      {
+        key: "value",
+        header: "Current value",
+        align: "right",
+        sortValue: (row) => row.currentValue ?? -Infinity,
+        render: (row) => (
+          <span className={styles.mono}>{money(row.currentValue)}</span>
+        ),
+      },
+      {
+        key: "pnl",
+        header: "P&L",
+        align: "right",
+        sortValue: (row) => row.pnl ?? -Infinity,
+        render: (row) => (
+          <span
+            className={`${styles.mono} ${
+              typeof row.pnl !== "number"
+                ? ""
+                : row.pnl < 0
+                  ? styles.loss
+                  : styles.gain
+            }`}
+          >
+            {money(row.pnl)}
+          </span>
+        ),
+      },
+    );
+    return base;
+  }, [holdings]);
+
+  return (
+    <Card aria-label={title}>
+      <CardHeader>
+        <div>
+          <CardTitle>{title}</CardTitle>
+          <CardDescription>
+            {rows.length} consolidated instruments
+          </CardDescription>
         </div>
-      )}
-    </section>
+      </CardHeader>
+      <DataTable
+        columns={columns}
+        rows={rows}
+        rowKey={(row) => `${row.kind}:${row.canonicalKey}`}
+        emptyTitle={`No ${title.toLowerCase()}`}
+        emptyDescription={`No non-zero ${title.toLowerCase()} in this snapshot.`}
+      />
+    </Card>
   );
 }

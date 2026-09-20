@@ -18,7 +18,7 @@ import {
   resolveActiveBroker,
 } from "./broker-registry.js";
 import {
-  optionChainSessionOpen,
+  readBuilderSnapshot,
   readOptionChainSnapshot,
   saveOptionChainSnapshot,
   searchStoredOptionUnderlyings,
@@ -47,6 +47,18 @@ export function registerMarketDataRoutes(
   production: boolean,
   marketData: MarketDataProvider,
   savedSessions?: import("./broker-session-store.js").BrokerSessionStore,
+  onConnected?: (args: {
+    userId: string;
+    sessionHash: string;
+    brokerId: string;
+    accountBinding: string;
+  }) => Promise<void>,
+  zerodha?: Pick<
+    ReturnType<
+      typeof import("./zerodha-connection.js").createZerodhaConnection
+    >,
+    "optionSnapshot" | "isConnected"
+  >,
 ) {
   const catalog = marketData.instruments;
   const limit = rateLimit(30, 60000, (req) => req.res!.locals.session.user_id);
@@ -71,29 +83,30 @@ export function registerMarketDataRoutes(
     }
   >();
   const workspaceExperienceSchema = z.enum(["builder", "chain"]);
-  /** Use the active provider during market hours and durable snapshots otherwise. */
+  /** Prefer the active provider whenever its authenticated adapter is available,
+   * including after market close. Otherwise use durable snapshots for either
+   * current-chain screen; market hours alone never select a data source.
+   */
   async function resolveWorkspaceDataMode(
     experience: z.infer<typeof workspaceExperienceSchema> | undefined,
     session: { user_id: string; token_hash: string },
   ) {
-    if (
-      experience !== undefined &&
-      !(experience === "chain"
-        ? optionChainSessionOpen(Date.now())
-        : regularMarketSessionOpen(Date.now()))
-    ) {
-      return "historical" as const;
-    }
     const active = await store.transaction((query) =>
       resolveActiveBroker(query, session.user_id),
     );
     if (active.provider !== marketData.id) {
+      if (experience) {
+        return "historical" as const;
+      }
       fail(
         409,
         `The active broker (${active.provider}) has no configured market-data adapter.`,
       );
     }
     if (!marketData.isConnected(session.user_id, session.token_hash)) {
+      if (experience) {
+        return "historical" as const;
+      }
       fail(409, "Reconnect the active broker before loading live market data.");
     }
     return "live" as const;
@@ -129,6 +142,7 @@ export function registerMarketDataRoutes(
       ];
       fail(422, `[KOTAK_INPUT_INVALID] ${issues.join(". ")}.`);
     }
+    let portfolioWarning: string | null = null;
     const input = parsed.data!,
       session = res.locals.session;
     await reserveBrokerRequestBudget(store, session.user_id, production);
@@ -148,7 +162,7 @@ export function registerMarketDataRoutes(
           session.token_hash,
         );
         try {
-          await recordBrokerConnected(
+          const brokerId = await recordBrokerConnected(
             store,
             session.user_id,
             "kotak",
@@ -157,6 +171,19 @@ export function registerMarketDataRoutes(
           const saved = kotak.savedSession(session.user_id, session.token_hash);
           if (saved) {
             await savedSessions?.save(session, "kotak", saved.expires, saved);
+          }
+          try {
+            await onConnected?.({
+              userId: session.user_id,
+              sessionHash: session.token_hash,
+              brokerId,
+              accountBinding: brokerSession.accountBinding,
+            });
+          } catch {
+            // Authentication succeeded and remains usable. The failed first sync is
+            // visible in Portfolio and can be retried without reauthorizing.
+            portfolioWarning =
+              "Broker connected, but the first portfolio synchronization was unavailable.";
           }
         } catch (error) {
           kotak.disconnect(session.user_id);
@@ -172,7 +199,7 @@ export function registerMarketDataRoutes(
         );
       }
     });
-    res.json({ connected: true });
+    res.json({ connected: true, portfolioWarning });
   });
   app.delete("/api/brokers/kotak/connect", async (req, res) => {
     kotak.disconnect(res.locals.session.user_id);
@@ -192,6 +219,192 @@ export function registerMarketDataRoutes(
     });
   });
   /** Search explicit current NSE metadata only; no order or quote fan-out. Never accept a client URL. */
+  // Zerodha chain reads do not enter the Kotak feed or execution adapters.
+  // A failed quote read may replay only this owner's saved snapshot from this provider.
+  app.post(
+    ["/api/market/instruments", "/api/market/option-chain"],
+    async (req, res, next) => {
+      if (!["builder", "chain"].includes(req.body?.experience)) {
+        next();
+        return;
+      }
+      const session = res.locals.session;
+      const active = await store.transaction((query) =>
+        resolveActiveBroker(query, session.user_id),
+      );
+      if (active.provider !== "zerodha") {
+        next();
+        return;
+      }
+      const isChain = req.path.endsWith("option-chain");
+      const input = z
+        .object({
+          query: z.string().trim().toUpperCase().min(2).max(40),
+          underlying: z.string().trim().toUpperCase().min(2).max(40).optional(),
+          expiryDate: z.iso.date().optional(),
+          offset: z.number().int().min(0).max(250000).default(0),
+        })
+        .parse({
+          ...req.body,
+          query: isChain ? req.body.underlying : req.body.query,
+        });
+      try {
+        if (!zerodha) {
+          fail(409, "Zerodha quote reader is unavailable.");
+        }
+        const result = await requestCoordinator.runQueuedForUser(
+          session.user_id,
+          AbortSignal.timeout(60000),
+          async () => {
+            const value = await zerodha!.optionSnapshot(
+              session.user_id,
+              session.token_hash,
+              input,
+              () =>
+                reserveBrokerRequestBudget(store, session.user_id, production),
+            );
+            const current = await store.transaction((query) =>
+              resolveActiveBroker(query, session.user_id),
+            );
+            if (current.provider !== active.provider) {
+              fail(409, "Active broker changed; reload the chain.");
+            }
+            return value;
+          },
+        );
+        if (isChain && input.expiryDate && result.quotesUnavailable) {
+          const saved = await readBuilderSnapshot(store, {
+            userId: session.user_id,
+            provider: "zerodha",
+            underlying: input.underlying!,
+            expiryDate: input.expiryDate,
+            offset: input.offset,
+          });
+          if (
+            saved?.items.some(
+              (item) => typeof item.price === "number" && item.price > 0,
+            )
+          ) {
+            res.json({
+              ...saved,
+              expiries: result.expiries,
+              warning: `Zerodha quotes are unavailable; check the Kite app's market-data access. ${saved.warning}`,
+            });
+            return;
+          }
+        }
+        if (
+          isChain &&
+          input.expiryDate &&
+          result.items.some((item) => item.price !== null)
+        ) {
+          await saveOptionChainSnapshot(store, {
+            userId: session.user_id,
+            provider: "zerodha",
+            underlying: input.underlying!,
+            expiryDate: input.expiryDate,
+            offset: input.offset,
+            observedAt: result.observedAt,
+            chain: result,
+          });
+        }
+        res.json(result);
+      } catch (error) {
+        const current = await store.transaction((query) =>
+          resolveActiveBroker(query, session.user_id),
+        );
+        if (current.provider !== active.provider) {
+          throw error;
+        }
+        if (!isChain) {
+          const rows = (
+            await searchStoredOptionUnderlyings(
+              store,
+              session.user_id,
+              input.query,
+            )
+          ).map((underlying) => ({ underlying }));
+          if (!rows.length) {
+            throw error;
+          }
+          res.json({
+            items: [],
+            underlyings: rows.map((row) => row.underlying),
+            expiries: [],
+            total: rows.length,
+            nextOffset: null,
+            source: "zerodha",
+            dataMode: "historical",
+          });
+          return;
+        }
+        const stored = await readBuilderSnapshot(store, {
+          userId: session.user_id,
+          provider: "zerodha",
+          underlying: input.underlying!,
+          expiryDate: input.expiryDate,
+          offset: input.offset,
+        });
+        const expiries =
+          stored?.expiries
+            .filter((day) => day >= tradingDay(Date.now()))
+            .slice(0, 2) ?? [];
+        if (
+          !stored ||
+          !expiries.length ||
+          (input.expiryDate && !expiries.includes(input.expiryDate))
+        ) {
+          throw error;
+        }
+        res.json({
+          ...stored,
+          expiries,
+          warning: stored.warning,
+        });
+      }
+    },
+  );
+  /** Resolve the underlying independently from option premiums. Failure stays
+   * null because a derivative premium is never a valid substitute for spot.
+   */
+  async function loadUnderlyingPrice(
+    session: { user_id: string; token_hash: string },
+    underlying: string,
+  ) {
+    try {
+      if (!catalog.isFresh("cash")) {
+        await marketData.prepareInstruments(
+          { userId: session.user_id, sessionHash: session.token_hash },
+          "cash",
+          () => reserveBrokerRequestBudget(store, session.user_id, production),
+        );
+      }
+      const cash = catalog
+        .search({
+          market: "cash",
+          query: underlying,
+          underlying,
+          offset: 0,
+        })
+        .items.find((item) => item.symbol === underlying);
+      if (!cash) {
+        return null;
+      }
+      await reserveBrokerRequestBudget(store, session.user_id, production);
+      return (
+        (
+          await marketData.getQuoteSnapshots(
+            session.user_id,
+            session.token_hash,
+            [cash.instrument],
+            "nse_cm",
+          )
+        )[0]?.price ?? null
+      );
+    } catch {
+      return null;
+    }
+  }
   app.post("/api/market/instruments", async (req, res) => {
     const workspaceRequest = z
       .object({
@@ -267,8 +480,9 @@ export function registerMarketDataRoutes(
       },
     );
   });
-  /** Kotak-only current chain: master resolves tokens, one metered quote batch prices a page.
-   * No execution adapter participates. An empty expiry requests metadata only.
+  /** Active-provider current chain. Prefer a provider's native full-chain API;
+   * otherwise resolve exact master tokens and price one bounded page. No
+   * execution adapter participates. An empty expiry requests metadata only.
    */
   app.post("/api/market/option-chain", async (req, res) => {
     const input = z
@@ -284,124 +498,327 @@ export function registerMarketDataRoutes(
     const session = res.locals.session;
     const dataMode = await resolveWorkspaceDataMode(input.experience, session);
     if (dataMode === "historical") {
-      const result = await readOptionChainSnapshot(store, {
-        userId: session.user_id,
-        underlying: input.underlying,
-        expiryDate: input.expiryDate,
-        offset: input.offset,
-        asOf: input.asOf,
-        closingOnly: input.experience === "chain",
-      });
+      const active =
+        input.experience === "builder"
+          ? await store.transaction((query) =>
+              resolveActiveBroker(query, session.user_id),
+            )
+          : null;
+      const result = active
+        ? await readBuilderSnapshot(store, {
+            userId: session.user_id,
+            provider: active.provider,
+            underlying: input.underlying,
+            expiryDate: input.expiryDate,
+            offset: input.offset,
+          })
+        : await readOptionChainSnapshot(store, {
+            userId: session.user_id,
+            underlying: input.underlying,
+            expiryDate: input.expiryDate,
+            offset: input.offset,
+            asOf: input.asOf,
+            closingOnly: input.experience === "chain",
+          });
       if (!result) {
-        fail(
+        return fail(
           404,
           input.experience === "chain"
             ? "No imported closing option-chain data exists for this selection. Import NSE F&O bhavcopy data; equity/index history cannot supply option premiums."
-            : "No stored broker option-chain snapshot exists for this selection. Connect the active broker during market hours to capture real prices first.",
+            : "No stored option-chain data exists for this scrip. Import its F&O option data or capture its broker chain during market hours. Cash-price history cannot supply option premiums.",
         );
       }
-      res.json(result);
+      if (input.experience === "builder") {
+        const expiries = result.expiries
+          .filter((day) => day >= tradingDay(Date.now()))
+          .slice(0, 2);
+        if (
+          !expiries.length ||
+          (input.expiryDate && !expiries.includes(input.expiryDate))
+        ) {
+          fail(
+            404,
+            "No saved unexpired chain is available. Reconnect the active broker and refresh quotes.",
+          );
+        }
+        res.json({
+          ...result,
+          expiries,
+          warning:
+            ("warning" in result ? result.warning : undefined) ??
+            "Broker disconnected. Showing a saved snapshot; prices are not live.",
+        });
+      } else {
+        res.json(result);
+      }
       return;
     }
     if (!marketData.isConnected(session.user_id, session.token_hash)) {
       fail(409, "Connect the selected market-data provider first.");
     }
-    await requestCoordinator.runExclusiveForUser(session.user_id, async () => {
-      if (!catalog.isFresh("options")) {
-        try {
-          await marketData.prepareInstruments(
-            { userId: session.user_id, sessionHash: session.token_hash },
-            "options",
-            () =>
-              reserveBrokerRequestBudget(store, session.user_id, production),
-          );
-        } catch {
-          fail(
-            502,
-            "Provider option instrument master unavailable. No alternative data was substituted.",
-          );
-        }
+    try {
+      await requestCoordinator.runExclusiveForUser(
+        session.user_id,
+        async () => {
+          if (!catalog.isFresh("options")) {
+            try {
+              await marketData.prepareInstruments(
+                { userId: session.user_id, sessionHash: session.token_hash },
+                "options",
+                () =>
+                  reserveBrokerRequestBudget(
+                    store,
+                    session.user_id,
+                    production,
+                  ),
+              );
+            } catch {
+              fail(
+                502,
+                "Provider option instrument master unavailable. No alternative data was substituted.",
+              );
+            }
+          }
+          const result = catalog.search({
+            market: "options",
+            query: input.underlying,
+            underlying: input.underlying,
+            expiryDate: input.expiryDate,
+            offset: input.offset,
+          });
+          if (marketData.getOptionExpiries) {
+            try {
+              await reserveBrokerRequestBudget(
+                store,
+                session.user_id,
+                production,
+              );
+              result.expiries = await marketData.getOptionExpiries(
+                session.user_id,
+                session.token_hash,
+                input.underlying,
+              );
+            } catch {
+              // A current validated master remains a safe metadata fallback.
+              // Prices still fail closed if both native-chain and quotes fail.
+            }
+          }
+          if (input.experience === "builder") {
+            result.expiries = result.expiries
+              .filter((day) => day >= tradingDay(Date.now()))
+              .slice(0, 2);
+            if (
+              input.expiryDate &&
+              !result.expiries.includes(input.expiryDate)
+            ) {
+              fail(422, "Choose the current or next available expiry.");
+            }
+          }
+          if (!marketData.isConnected(session.user_id, session.token_hash)) {
+            fail(
+              409,
+              "Market-data provider disconnected during chain discovery.",
+            );
+          }
+          if (!input.expiryDate) {
+            res.json({
+              ...result,
+              items: [],
+              source: marketData.id,
+              receivedAt: Date.now(),
+              dataMode:
+                input.experience === "builder" &&
+                !regularMarketSessionOpen(Date.now())
+                  ? "historical"
+                  : "live",
+            });
+            return;
+          }
+          if (input.expiryDate < tradingDay(Date.now())) {
+            fail(422, "Choose a current, unexpired option contract.");
+          }
+          if (marketData.getOptionChain && input.offset === 0) {
+            try {
+              await reserveBrokerRequestBudget(
+                store,
+                session.user_id,
+                production,
+              );
+              const nativeChain = await marketData.getOptionChain(
+                session.user_id,
+                session.token_hash,
+                {
+                  underlying: input.underlying,
+                  expiryDate: input.expiryDate,
+                  count: 100,
+                },
+              );
+              const marketClosed =
+                input.experience === "builder" &&
+                !regularMarketSessionOpen(Date.now());
+              const response = {
+                underlyings: result.underlyings,
+                expiries: result.expiries,
+                items: nativeChain.items,
+                total: nativeChain.total,
+                nextOffset: null,
+                source: marketData.id,
+                receivedAt: Date.now(),
+                observedAt: nativeChain.observedAt,
+                underlyingPrice:
+                  input.experience === "builder"
+                    ? await loadUnderlyingPrice(session, input.underlying)
+                    : null,
+                dataMode: marketClosed
+                  ? ("historical" as const)
+                  : ("live" as const),
+                warning: marketClosed
+                  ? `Market closed. ${nativeChain.warning ?? "Broker snapshot fetched now; exchange trade freshness is unverified."}`
+                  : nativeChain.warning,
+              };
+              await saveOptionChainSnapshot(store, {
+                userId: session.user_id,
+                provider: marketData.id,
+                underlying: input.underlying,
+                expiryDate: input.expiryDate,
+                offset: input.offset,
+                observedAt: response.observedAt,
+                chain: response,
+              });
+              res.json(response);
+              return;
+            } catch {
+              // Providers may temporarily withdraw the native endpoint. Continue
+              // through the exact-contract quote path instead of fabricating data.
+            }
+          }
+          if (!result.items.length) {
+            res.json({
+              ...result,
+              source: marketData.id,
+              receivedAt: Date.now(),
+            });
+            return;
+          }
+          await reserveBrokerRequestBudget(store, session.user_id, production);
+          let quotes;
+          try {
+            quotes = await marketData.getQuoteSnapshots(
+              session.user_id,
+              session.token_hash,
+              result.items.map((item) => item.instrument),
+            );
+          } catch {
+            if (input.experience === "builder") {
+              const stored = await readBuilderSnapshot(store, {
+                userId: session.user_id,
+                provider: marketData.id,
+                underlying: input.underlying,
+                expiryDate: input.expiryDate,
+                offset: input.offset,
+              });
+              if (stored) {
+                res.json({
+                  ...stored,
+                  expiries: result.expiries,
+                  warning: stored.warning,
+                });
+                return;
+              }
+            }
+            // Discovery remains useful when an illiquid quote batch is unavailable.
+            // Return exact master contracts with unknown prices; the shared feed can price them.
+            res.json({
+              ...result,
+              items: result.items.map((item) => ({
+                ...item,
+                price: null,
+                bid: null,
+                ask: null,
+                openInterest: null,
+                stale: true,
+              })),
+              source: marketData.id,
+              receivedAt: Date.now(),
+              warning:
+                "Initial quotes unavailable; waiting for streamed prices. No prices were substituted.",
+            });
+            return;
+          }
+          // Stock spot is a separate cash instrument; never derive it from an option premium.
+          const underlyingPrice =
+            input.experience === "builder"
+              ? await loadUnderlyingPrice(session, input.underlying)
+              : null;
+          const response = {
+            ...result,
+            items: result.items.map((item, index) => ({
+              ...item,
+              ...quotes[index],
+            })),
+            source: marketData.id,
+            receivedAt: Date.now(),
+            dataMode:
+              input.experience === "builder" &&
+              !regularMarketSessionOpen(Date.now())
+                ? ("historical" as const)
+                : ("live" as const),
+            observedAt: Date.now(),
+            underlyingPrice,
+            ...(input.experience === "builder" &&
+            !regularMarketSessionOpen(Date.now())
+              ? {
+                  warning:
+                    "Market closed. Broker snapshot fetched now; exchange trade freshness is unverified.",
+                }
+              : {}),
+          };
+          await saveOptionChainSnapshot(store, {
+            userId: session.user_id,
+            provider: marketData.id,
+            underlying: input.underlying,
+            expiryDate: input.expiryDate,
+            offset: input.offset,
+            observedAt: response.observedAt,
+            chain: response,
+          });
+          res.json(response);
+        },
+      );
+    } catch (error) {
+      if (input.experience !== "builder" || res.headersSent) {
+        throw error;
       }
-      const result = catalog.search({
-        market: "options",
-        query: input.underlying,
-        underlying: input.underlying,
-        expiryDate: input.expiryDate,
-        offset: input.offset,
-      });
-      if (!marketData.isConnected(session.user_id, session.token_hash)) {
-        fail(409, "Market-data provider disconnected during chain discovery.");
+      const active = await store.transaction((query) =>
+        resolveActiveBroker(query, session.user_id),
+      );
+      if (active.provider !== marketData.id) {
+        throw error;
       }
-      if (!input.expiryDate) {
-        res.json({
-          ...result,
-          items: [],
-          source: marketData.id,
-          receivedAt: Date.now(),
-        });
-        return;
-      }
-      if (input.expiryDate < tradingDay(Date.now())) {
-        fail(422, "Choose a current, unexpired option contract.");
-      }
-      if (!result.items.length) {
-        res.json({
-          ...result,
-          source: marketData.id,
-          receivedAt: Date.now(),
-        });
-        return;
-      }
-      await reserveBrokerRequestBudget(store, session.user_id, production);
-      let quotes;
-      try {
-        quotes = await marketData.getQuoteSnapshots(
-          session.user_id,
-          session.token_hash,
-          result.items.map((item) => item.instrument),
-        );
-      } catch {
-        // Discovery remains useful when an illiquid quote batch is unavailable.
-        // Return exact master contracts with unknown prices; the shared feed can price them.
-        res.json({
-          ...result,
-          items: result.items.map((item) => ({
-            ...item,
-            price: null,
-            bid: null,
-            ask: null,
-            openInterest: null,
-            stale: true,
-          })),
-          source: marketData.id,
-          receivedAt: Date.now(),
-          warning:
-            "Initial quotes unavailable; waiting for streamed prices. No prices were substituted.",
-        });
-        return;
-      }
-      const response = {
-        ...result,
-        items: result.items.map((item, index) => ({
-          ...item,
-          ...quotes[index],
-        })),
-        source: marketData.id,
-        receivedAt: Date.now(),
-        dataMode: "live" as const,
-        observedAt: Date.now(),
-      };
-      await saveOptionChainSnapshot(store, {
+      const saved = await readBuilderSnapshot(store, {
         userId: session.user_id,
-        provider: marketData.id,
+        provider: active.provider,
         underlying: input.underlying,
         expiryDate: input.expiryDate,
         offset: input.offset,
-        observedAt: response.observedAt,
-        chain: response,
       });
-      res.json(response);
-    });
+      const expiries =
+        saved?.expiries
+          .filter((day) => day >= tradingDay(Date.now()))
+          .slice(0, 2) ?? [];
+      if (
+        !saved ||
+        !expiries.length ||
+        (input.expiryDate && !expiries.includes(input.expiryDate))
+      ) {
+        throw error;
+      }
+      res.json({
+        ...saved,
+        expiries,
+        warning: saved.warning,
+      });
+    }
   });
   /** Live monitoring reads only funds and open positions. Order/trade history is intentionally
    * excluded: positions are marked from their exact Kotak option tokens instead. */

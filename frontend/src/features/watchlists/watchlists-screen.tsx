@@ -9,6 +9,11 @@ import {
   type StoredInstrument,
 } from "@/components/stored-instrument-picker";
 import { Button } from "@/components/ui/button";
+import { Select, Input } from "@/components/ui/field";
+import { AsyncBoundary } from "@/components/ui/async-boundary";
+import { SkeletonRows } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/ui/empty-state";
+import { useToast } from "@/components/ui/toast";
 import styles from "./watchlists.module.css";
 const Chart = dynamic(
   () => import("@/features/option-chain/contract-price-chart"),
@@ -46,6 +51,7 @@ export function WatchlistsScreen({ csrf }: { csrf: string }) {
   const [listVisible, setListVisible] = useState(true);
   const mounted = useRef(false);
   const pending = useRef(false);
+  const toast = useToast();
   const active = lists.find((list) => list.id === activeId) ?? lists[0];
   useEffect(() => {
     mounted.current = true;
@@ -89,6 +95,7 @@ export function WatchlistsScreen({ csrf }: { csrf: string }) {
     method: "POST" | "DELETE",
     body: unknown,
     next?: Item,
+    successMessage?: string,
   ) {
     if (pending.current) {
       return;
@@ -128,6 +135,9 @@ export function WatchlistsScreen({ csrf }: { csrf: string }) {
       ) {
         setSelected(null);
       }
+      if (successMessage) {
+        toast({ tone: "success", title: successMessage });
+      }
     } catch (cause) {
       if (mounted.current) {
         setError(
@@ -148,6 +158,7 @@ export function WatchlistsScreen({ csrf }: { csrf: string }) {
         "POST",
         { instrumentId: item.id },
         item,
+        `${item.symbol} added to ${active.name}`,
       );
     }
   }
@@ -172,7 +183,7 @@ export function WatchlistsScreen({ csrf }: { csrf: string }) {
         <div className={styles.toolbar}>
           <label className={styles.selector}>
             Watchlist
-            <select
+            <Select
               aria-label="Select watchlist"
               disabled={busy || loading}
               value={active?.id ?? ""}
@@ -191,7 +202,7 @@ export function WatchlistsScreen({ csrf }: { csrf: string }) {
                   {list.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
           <Button
             variant="secondary"
@@ -206,10 +217,16 @@ export function WatchlistsScreen({ csrf }: { csrf: string }) {
             className={styles.toolbar}
             onSubmit={(event) => {
               event.preventDefault();
-              void mutate("/watchlists", "POST", { name: name.trim() });
+              void mutate(
+                "/watchlists",
+                "POST",
+                { name: name.trim() },
+                undefined,
+                `Watchlist "${name.trim()}" created`,
+              );
             }}
           >
-            <input
+            <Input
               aria-label="New watchlist name"
               placeholder="Watchlist name"
               value={name}
@@ -239,51 +256,62 @@ export function WatchlistsScreen({ csrf }: { csrf: string }) {
             />
           </div>
         )}
-        {loading && <p role="status">Loading watchlists…</p>}
         {error && (
-          <p role="alert" className="error">
+          <p role="alert" className={styles.error}>
             {error}
           </p>
         )}
-        <ul className={styles.items} aria-label="Watchlist scrips">
-          {active?.items.map((item) => (
-            <li
-              key={item.id ?? item.symbol}
-              className={
-                selected?.id === item.id && selected?.symbol === item.symbol
-                  ? styles.selected
-                  : ""
-              }
-            >
-              <button
-                className={styles.scrip}
-                aria-pressed={
+        <AsyncBoundary
+          status={loading ? "loading" : "success"}
+          skeleton={
+            <div style={{ padding: 12 }}>
+              <SkeletonRows rows={4} columns={1} />
+            </div>
+          }
+          isEmpty={!loading && (active?.items.length ?? 0) === 0}
+          emptyTitle="No scrips yet"
+          emptyDescription="Add a scrip to get started."
+        >
+          <ul className={styles.items} aria-label="Watchlist scrips">
+            {active?.items.map((item) => (
+              <li
+                key={item.id ?? item.symbol}
+                className={
                   selected?.id === item.id && selected?.symbol === item.symbol
-                }
-                onClick={() => setSelected(item)}
-              >
-                <strong>{item.symbol}</strong>
-                <small>{item.name}</small>
-              </button>
-              <button
-                className={styles.remove}
-                aria-label={`Remove ${item.symbol} from watchlist`}
-                disabled={busy}
-                onClick={() =>
-                  void mutate(`/watchlists/${active.id}/items`, "DELETE", {
-                    id: item.id,
-                    symbol: item.symbol,
-                  })
+                    ? styles.selected
+                    : ""
                 }
               >
-                ×
-              </button>
-            </li>
-          ))}
-        </ul>
-        {!loading && active?.items.length === 0 && (
-          <p className={styles.empty}>Add a scrip to get started.</p>
-        )}
+                <button
+                  className={styles.scrip}
+                  aria-pressed={
+                    selected?.id === item.id && selected?.symbol === item.symbol
+                  }
+                  onClick={() => setSelected(item)}
+                >
+                  <strong>{item.symbol}</strong>
+                  <small>{item.name}</small>
+                </button>
+                <button
+                  className={styles.remove}
+                  aria-label={`Remove ${item.symbol} from watchlist`}
+                  disabled={busy}
+                  onClick={() =>
+                    void mutate(
+                      `/watchlists/${active.id}/items`,
+                      "DELETE",
+                      { id: item.id, symbol: item.symbol },
+                      undefined,
+                      `${item.symbol} removed from ${active.name}`,
+                    )
+                  }
+                >
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+        </AsyncBoundary>
         {active && !active.is_default && (
           <div className={styles.footer}>
             {deleting ? (
@@ -293,7 +321,13 @@ export function WatchlistsScreen({ csrf }: { csrf: string }) {
                   variant="danger"
                   disabled={busy}
                   onClick={() =>
-                    void mutate(`/watchlists/${active.id}`, "DELETE", undefined)
+                    void mutate(
+                      `/watchlists/${active.id}`,
+                      "DELETE",
+                      undefined,
+                      undefined,
+                      `Watchlist "${active.name}" deleted`,
+                    )
                   }
                 >
                   Delete list
@@ -318,11 +352,14 @@ export function WatchlistsScreen({ csrf }: { csrf: string }) {
         {selected?.id ? (
           <Chart key={selected.id} eodId={selected.id} />
         ) : (
-          <div className={styles.empty}>
-            {selected
-              ? `Stored history for ${selected.symbol} is not available yet. Search and add it after importing data.`
-              : "Select a scrip to open its chart."}
-          </div>
+          <EmptyState
+            title={selected ? "No stored history" : "Select a scrip"}
+            description={
+              selected
+                ? `Stored history for ${selected.symbol} is not available yet. Search and add it after importing data.`
+                : "Select a scrip to open its chart."
+            }
+          />
         )}
       </div>
     </section>
