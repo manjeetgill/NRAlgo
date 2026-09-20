@@ -53,6 +53,7 @@ import {
   registerTradingViewWebhookReceiver,
 } from "./tradingview-routes.js";
 import { HistoricalCandleStore } from "./historical-candle-store.js";
+import { OptionCandleStore } from "./option-candle-store.js";
 import {
   recordBrokerConnected,
   recordBrokerDisconnected,
@@ -144,6 +145,7 @@ export function createApiApplication(
   const calculationClient =
     injectedCalculationClient || new CalculationClient(env);
   const history = new HistoricalCandleStore(store);
+  const optionHistory = new OptionCandleStore(store);
   const calculationRunner = new CalculationJobRunner(
     store,
     calculationClient,
@@ -1071,6 +1073,7 @@ export function createApiApplication(
   registerMarketDataRoutes(
     app,
     store,
+    optionHistory,
     brokerAccess,
     kotakClient,
     production,

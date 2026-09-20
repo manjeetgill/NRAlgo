@@ -318,52 +318,29 @@ export async function readOptionEodExpiries(
   });
 }
 
-/** Read one paged historical chain. Missing bid/ask is explicit because bhavcopy is EOD OHLC. */
-export async function readOptionEodChain(
-  store: Store,
-  input: {
-    underlying: string;
-    expiryDate: string;
-    offset: number;
-    asOf?: string;
-  },
+export type OptionEodChainRow = {
+  id: string;
+  option_right: "call" | "put";
+  strike_price: number;
+  close: number;
+  settlement: number | null;
+  volume: number | null;
+  open_interest: number | null;
+  lot_size: number | null;
+  underlying_price: number | null;
+  source: string;
+  total: number;
+};
+
+/** Shape paged EOD chain rows into the historical option-chain response contract.
+ * Shared by the PostgreSQL read path below and OptionCandleStore's Parquet path so
+ * the two storage engines can never drift on output shape. */
+export function shapeOptionEodChain(
+  rows: OptionEodChainRow[],
+  centre: { below: number; spot: number | null } | undefined,
+  metadata: { day: string; expiries: string[] },
+  input: { underlying: string; expiryDate: string; offset: number },
 ) {
-  const metadata = await readOptionEodExpiries(store, input);
-  if (!metadata || !metadata.expiries.includes(input.expiryDate)) {
-    return null;
-  }
-  // Historical strike grids are irregular. Count real contracts below spot;
-  // extrapolating the first two strikes can place the ATM page thousands away.
-  const [centre] = await store.transaction((query) =>
-    query<{ below: number; spot: number | null }>(
-      `SELECT COUNT(*) FILTER (WHERE i.strike_price<c.underlying_price)::int AS below,
-       MAX(c.underlying_price) FILTER (WHERE c.underlying_price>0) AS spot
-       FROM option_eod_instruments i JOIN option_eod_candles c ON c.instrument_id=i.id
-       WHERE i.underlying=$1 AND i.expiry_date=$2::date AND c.day=$3::date`,
-      [input.underlying, input.expiryDate, metadata.day],
-    ),
-  );
-  const rows = await store.transaction((query) =>
-    query<{
-      id: string;
-      option_right: "call" | "put";
-      strike_price: number;
-      close: number;
-      settlement: number | null;
-      volume: number | null;
-      open_interest: number | null;
-      lot_size: number | null;
-      underlying_price: number | null;
-      source: string;
-      total: number;
-    }>(
-      `SELECT i.id,i.option_right,i.strike_price,c.close,c.settlement,c.volume,c.open_interest,c.lot_size,c.underlying_price,c.source,COUNT(*) OVER()::int AS total
-       FROM option_eod_instruments i JOIN option_eod_candles c ON c.instrument_id=i.id
-       WHERE i.underlying=$1 AND i.expiry_date=$2::date AND c.day=$3::date
-       ORDER BY i.strike_price,i.option_right LIMIT 50 OFFSET $4`,
-      [input.underlying, input.expiryDate, metadata.day, input.offset],
-    ),
-  );
   const total = Number(rows[0]?.total ?? 0);
   const observedAt = Date.parse(`${metadata.day}T15:30:00+05:30`);
   return {
@@ -417,4 +394,43 @@ export async function readOptionEodChain(
     warning:
       "End-of-day exchange observations; bid/ask depth and intraday movement are unavailable.",
   };
+}
+
+/** Read one paged historical chain from PostgreSQL. Missing bid/ask is explicit
+ * because bhavcopy is EOD OHLC. Prefer OptionCandleStore.readChain, which uses
+ * this as its fallback when no Parquet archive is published. */
+export async function readOptionEodChain(
+  store: Store,
+  input: {
+    underlying: string;
+    expiryDate: string;
+    offset: number;
+    asOf?: string;
+  },
+) {
+  const metadata = await readOptionEodExpiries(store, input);
+  if (!metadata || !metadata.expiries.includes(input.expiryDate)) {
+    return null;
+  }
+  // Historical strike grids are irregular. Count real contracts below spot;
+  // extrapolating the first two strikes can place the ATM page thousands away.
+  const [centre] = await store.transaction((query) =>
+    query<{ below: number; spot: number | null }>(
+      `SELECT COUNT(*) FILTER (WHERE i.strike_price<c.underlying_price)::int AS below,
+       MAX(c.underlying_price) FILTER (WHERE c.underlying_price>0) AS spot
+       FROM option_eod_instruments i JOIN option_eod_candles c ON c.instrument_id=i.id
+       WHERE i.underlying=$1 AND i.expiry_date=$2::date AND c.day=$3::date`,
+      [input.underlying, input.expiryDate, metadata.day],
+    ),
+  );
+  const rows = await store.transaction((query) =>
+    query<OptionEodChainRow>(
+      `SELECT i.id,i.option_right,i.strike_price,c.close,c.settlement,c.volume,c.open_interest,c.lot_size,c.underlying_price,c.source,COUNT(*) OVER()::int AS total
+       FROM option_eod_instruments i JOIN option_eod_candles c ON c.instrument_id=i.id
+       WHERE i.underlying=$1 AND i.expiry_date=$2::date AND c.day=$3::date
+       ORDER BY i.strike_price,i.option_right LIMIT 50 OFFSET $4`,
+      [input.underlying, input.expiryDate, metadata.day, input.offset],
+    ),
+  );
+  return shapeOptionEodChain(rows, centre, metadata, input);
 }

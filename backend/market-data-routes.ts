@@ -2,6 +2,7 @@
 import type { Express } from "express";
 import { z } from "zod";
 import type { Store } from "./database.js";
+import type { OptionCandleStore } from "./option-candle-store.js";
 import type { BrokerRequestCoordinator } from "./broker-data-access.js";
 import type { MarketDataProvider } from "./market-data-provider.js";
 import {
@@ -33,6 +34,7 @@ import {
 export function registerMarketDataRoutes(
   app: Express,
   store: Store,
+  optionHistory: OptionCandleStore,
   requestCoordinator: BrokerRequestCoordinator,
   kotak: Pick<
     KotakMarketDataClient,
@@ -272,7 +274,7 @@ export function registerMarketDataRoutes(
           },
         );
         if (isChain && input.expiryDate && result.quotesUnavailable) {
-          const saved = await readBuilderSnapshot(store, {
+          const saved = await readBuilderSnapshot(optionHistory, {
             userId: session.user_id,
             provider: "zerodha",
             underlying: input.underlying!,
@@ -337,7 +339,7 @@ export function registerMarketDataRoutes(
           });
           return;
         }
-        const stored = await readBuilderSnapshot(store, {
+        const stored = await readBuilderSnapshot(optionHistory, {
           userId: session.user_id,
           provider: "zerodha",
           underlying: input.underlying!,
@@ -504,14 +506,14 @@ export function registerMarketDataRoutes(
             )
           : null;
       const result = active
-        ? await readBuilderSnapshot(store, {
+        ? await readBuilderSnapshot(optionHistory, {
             userId: session.user_id,
             provider: active.provider,
             underlying: input.underlying,
             expiryDate: input.expiryDate,
             offset: input.offset,
           })
-        : await readOptionChainSnapshot(store, {
+        : await readOptionChainSnapshot(optionHistory, {
             userId: session.user_id,
             underlying: input.underlying,
             expiryDate: input.expiryDate,
@@ -709,7 +711,7 @@ export function registerMarketDataRoutes(
             );
           } catch {
             if (input.experience === "builder") {
-              const stored = await readBuilderSnapshot(store, {
+              const stored = await readBuilderSnapshot(optionHistory, {
                 userId: session.user_id,
                 provider: marketData.id,
                 underlying: input.underlying,
@@ -794,7 +796,7 @@ export function registerMarketDataRoutes(
       if (active.provider !== marketData.id) {
         throw error;
       }
-      const saved = await readBuilderSnapshot(store, {
+      const saved = await readBuilderSnapshot(optionHistory, {
         userId: session.user_id,
         provider: active.provider,
         underlying: input.underlying,

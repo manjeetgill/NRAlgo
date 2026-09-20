@@ -8,10 +8,7 @@
  */
 import { z } from "zod";
 import type { Store } from "./database.js";
-import {
-  readOptionEodChain,
-  readOptionEodExpiries,
-} from "./stored-market-data.js";
+import type { OptionCandleStore } from "./option-candle-store.js";
 
 const storedChainSchema = z
   .object({
@@ -29,7 +26,7 @@ const storedChainSchema = z
  * No other broker's tokens are substituted and expired contracts are excluded.
  */
 export async function readBuilderSnapshot(
-  store: Store,
+  history: OptionCandleStore,
   input: {
     userId: string;
     provider: string;
@@ -42,7 +39,7 @@ export async function readBuilderSnapshot(
   if (input.expiryDate && input.expiryDate < today) {
     return null;
   }
-  const broker = await readOptionChainSnapshot(store, input);
+  const broker = await readOptionChainSnapshot(history, input);
   const validBroker =
     broker &&
     (!input.expiryDate ||
@@ -51,7 +48,7 @@ export async function readBuilderSnapshot(
       ));
   const result = validBroker
     ? broker
-    : await readOptionChainSnapshot(store, {
+    : await readOptionChainSnapshot(history, {
         userId: input.userId,
         underlying: input.underlying,
         expiryDate: input.expiryDate,
@@ -148,7 +145,7 @@ export async function searchStoredOptionUnderlyings(
 
 /** Read expiry metadata and one exact stored page as it existed at the requested replay cutoff. */
 export async function readOptionChainSnapshot(
-  store: Store,
+  history: OptionCandleStore,
   input: {
     userId: string;
     provider?: string;
@@ -168,13 +165,13 @@ export async function readOptionChainSnapshot(
     }
     const cutoffDay = input.asOf ?? now.toISOString().slice(0, 10);
     if (input.expiryDate) {
-      return readOptionEodChain(store, {
+      return history.readChain({
         ...input,
         expiryDate: input.expiryDate,
         asOf: cutoffDay,
       });
     }
-    const metadata = await readOptionEodExpiries(store, {
+    const metadata = await history.readExpiries({
       underlying: input.underlying,
       asOf: cutoffDay,
     });
@@ -195,7 +192,7 @@ export async function readOptionChainSnapshot(
     };
   }
   const cutoff = replayCutoff(input.asOf);
-  const stored = await store.transaction(async (query) => {
+  const stored = await history.transaction(async (query) => {
     const expiries = await query<{
       expiry_date: string;
       observed_at: number;
@@ -282,7 +279,7 @@ export async function readOptionChainSnapshot(
   if (input.expiryDate) {
     return (
       stored ??
-      readOptionEodChain(store, {
+      history.readChain({
         underlying: input.underlying,
         expiryDate: input.expiryDate,
         offset: input.offset,
@@ -290,7 +287,7 @@ export async function readOptionChainSnapshot(
       })
     );
   }
-  const eod = await readOptionEodExpiries(store, {
+  const eod = await history.readExpiries({
     underlying: input.underlying,
     asOf: input.asOf,
   });
