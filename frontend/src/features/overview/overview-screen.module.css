@@ -62,14 +62,15 @@
   padding: 9px 12px;
   color: var(--ink);
 }
-/* Informational execution-readiness banner; no trading controls are styled as actions here. */
+/* Server capability is informational, not an incident; amber is reserved for unmet checks. */
 .banner {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 20px;
-  background: #fff5df;
-  color: #8a570d;
+  background: #eef3ff;
+  color: #294474;
+  border: 1px solid #d4dff5;
   border-radius: 9px;
   padding: 18px 20px;
 }
@@ -84,7 +85,6 @@
   margin-top: 5px;
   line-height: 1.6;
 }
-.banner button,
 .cardHeading button,
 .checklist button {
   display: inline-flex;
@@ -399,22 +399,66 @@
 }
 .checklist li {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 9px;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--muted);
 }
 .checklist li > span {
   flex: 1;
+  min-width: 120px;
 }
-.checklist strong {
-  font-size: 10px;
-  font-weight: 600;
+.checklist li > svg {
+  flex-shrink: 0;
+}
+/* Every color is paired with a written state; unknown checks never look verified. */
+.checklist .readinessBadge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: #eef1f5;
+  color: #48566b;
+  font-size: 11px;
+  font-weight: 650;
+}
+.readinessBadge[data-tone="ready"] {
+  background: #e7f5ed;
+  color: #19613c;
+}
+.readinessBadge[data-tone="attention"] {
+  background: #fff2d9;
+  color: #805000;
 }
 .checklist button {
   color: var(--blue);
   font-size: 11px;
   padding: 0;
+}
+.screen .banner .readinessAction,
+.screen .checklist .readinessAction {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  gap: 6px;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid #c5d0e2;
+  border-radius: 8px;
+  background: #fff;
+  color: #244caa;
+  font-size: 12px;
+  white-space: normal;
+}
+.screen .readinessAction:hover {
+  background: #e5edff;
+  border-color: #8ba4d4;
+}
+.checklist .readinessAction {
+  margin-left: auto;
 }
 .readinessNote {
   color: var(--muted);

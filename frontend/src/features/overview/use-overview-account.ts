@@ -19,6 +19,8 @@ export function useOverviewAccount(
   const [live, setLive] = useState<AccountSnapshot | null>(null);
   const [connected, setConnected] = useState<boolean | null>(null);
   const [mfaEnabled, setMfaEnabled] = useState<boolean | null>(null);
+  const [mfaLoading, setMfaLoading] = useState(true);
+  const [mfaRevision, setMfaRevision] = useState(0);
   const [loading, setLoading] = useState(false),
     [error, setError] = useState("");
   const [feedMessage, setFeedMessage] = useState("Snapshot prices");
@@ -27,10 +29,48 @@ export function useOverviewAccount(
   // Keep the fetched book separate from tick-derived state so price renders never resubscribe.
   const liveSnapshot = useRef<AccountSnapshot | null>(null);
   const liveSnapshotAt = live?.capturedAt;
+  /** MFA belongs to the app session, not the selected broker. Cancel old reads on
+   * logout/unmount; a failed or malformed response must never imply MFA is disabled. */
+  useEffect(() => {
+    const controller = new AbortController();
+    setMfaEnabled(null);
+    setMfaLoading(true);
+    void requestApiJson(
+      "/auth/mfa",
+      "GET",
+      undefined,
+      undefined,
+      15000,
+      controller.signal,
+    )
+      .then((result) => {
+        if (!controller.signal.aborted) {
+          setMfaEnabled(
+            typeof result?.enabled === "boolean" ? result.enabled : null,
+          );
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setMfaEnabled(null);
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setMfaLoading(false);
+        }
+      });
+    return () => controller.abort();
+  }, [csrf, mfaRevision]);
+
+  /** Retry only the read-only security check; never refresh or authorize a broker. */
+  function refreshMfaStatus() {
+    setMfaRevision((revision) => revision + 1);
+  }
   /** Serialize snapshot reads. Dependencies bind requests to the chosen adapter/session;
    * generation checks discard late results, and failures preserve the last known snapshot. */
   const loadAccountSnapshot = useCallback(
-    /** Load readiness independently, then only the configured account's funds/positions.
+    /** Load only the configured account's connection status and funds/positions.
      * This callback handles its own rejection so event handlers can safely invoke it with void. */
     async () => {
       if (!broker) {
@@ -45,28 +85,10 @@ export function useOverviewAccount(
         return;
       }
       inFlight.current = true;
-      // A new explicit read also supersedes any slower readiness promise from the last refresh.
+      // A new explicit read supersedes any slower account request from the last refresh.
       const version = ++generation.current;
       setLoading(true);
       setError("");
-      // GET /auth/mfa reads readiness only; no enrollment, authorization or broker mutation.
-      void requestApiJson("/auth/mfa")
-        .then(
-          /** Publish readiness only for the session that initiated this request. */
-          (result) => {
-            if (version === generation.current) {
-              setMfaEnabled(result.enabled === true);
-            }
-          },
-        )
-        .catch(
-          /** A failed readiness read is unknown, not evidence that MFA is disabled. */
-          () => {
-            if (version === generation.current) {
-              setMfaEnabled(null);
-            }
-          },
-        );
       try {
         const result = await loadOverviewSnapshot(broker, csrf);
         if (version !== generation.current) {
@@ -115,11 +137,10 @@ export function useOverviewAccount(
     setLive(null);
     liveSnapshot.current = null;
     setConnected(null);
-    setMfaEnabled(null);
     void loadAccountSnapshot();
     // Capture the ref container, not its value: later manual refreshes must also be invalidated.
     const requestGeneration = generation;
-    /** Invalidate outstanding promises without changing shared broker connections. */
+    /** Invalidate outstanding account requests without changing shared broker connections. */
     return () => {
       requestGeneration.current++;
     };
@@ -223,6 +244,8 @@ export function useOverviewAccount(
     live,
     connected,
     mfaEnabled,
+    mfaLoading,
+    refreshMfaStatus,
     loading,
     error,
     feedMessage,

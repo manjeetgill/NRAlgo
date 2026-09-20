@@ -25,6 +25,7 @@ import { useOverviewAccount } from "@/features/overview/use-overview-account";
 import { NseMarketIntelligence } from "@/features/overview/nse-market-intelligence";
 import { orderAuditEvents } from "@/features/activity/audit-model";
 import styles from "@/features/overview/overview-screen.module.css";
+import { Button } from "@/components/ui/button";
 
 /** Overview is a read-only orientation screen. Every action either loads account data
  * or navigates to a dedicated workflow; no broker execution permissions are changed here. */
@@ -182,17 +183,24 @@ export function OverviewScreen({
             <LockKeyhole size={15} />
             {workspace.live_configured
               ? "Live execution requires explicit authorization"
-              : "Live trading is locked"}
+              : "Live trading is disabled by server configuration"}
           </strong>
           <p>
             {workspace.live_configured
               ? "Review your risk limits and arm live trading in its dedicated screen. Viewing this dashboard never enables orders."
-              : "View your broker account and market data. Live execution is disabled on this server."}
+              : "Research and account viewing remain available. The server operator must enable live execution before you can authorize trading; MFA or connecting a broker alone will not unlock it."}
           </p>
         </div>
-        <button onClick={onNavigateTo("Account & security")}>
-          Review security <ArrowRight size={14} />
-        </button>
+        <Button
+          variant="secondary"
+          className={styles.readinessAction}
+          onClick={onNavigateTo("Live trading")}
+        >
+          {workspace.live_configured
+            ? "Review live controls"
+            : "View execution requirements"}{" "}
+          <ArrowRight size={14} />
+        </Button>
       </section>
 
       {/* Headline values come from the selected account snapshot, never fabricated constants. */}
@@ -543,37 +551,101 @@ export function OverviewScreen({
               </button>
             </div>
           </section>
-          <section className={styles.card}>
-            <h2>Before you go live</h2>
+          <section className={styles.card} aria-labelledby="readiness-title">
+            <h2 id="readiness-title">Before you go live</h2>
             <ul className={styles.checklist}>
+              <li>
+                <LockKeyhole size={17} />
+                <span>Server capability</span>
+                <strong
+                  className={styles.readinessBadge}
+                  data-tone={workspace.live_configured ? "ready" : "neutral"}
+                >
+                  {workspace.live_configured ? "Available" : "Disabled"}
+                </strong>
+              </li>
               <li>
                 <ShieldCheck size={17} />
                 <span>Authenticator MFA</span>
-                <strong>
-                  {account.mfaEnabled === null
-                    ? "Unknown"
-                    : account.mfaEnabled
-                      ? "Enabled"
-                      : "Required"}
+                <strong
+                  className={styles.readinessBadge}
+                  data-tone={
+                    account.mfaLoading
+                      ? "neutral"
+                      : account.mfaEnabled
+                        ? "ready"
+                        : "attention"
+                  }
+                  role="status"
+                >
+                  {account.mfaLoading
+                    ? "Checking…"
+                    : account.mfaEnabled === null
+                      ? "Unavailable"
+                      : account.mfaEnabled
+                        ? "Enabled"
+                        : "Required"}
                 </strong>
+                {!account.mfaLoading && account.mfaEnabled === null && (
+                  <Button
+                    variant="secondary"
+                    className={styles.readinessAction}
+                    onClick={account.refreshMfaStatus}
+                    aria-label="Retry MFA status check"
+                  >
+                    Retry
+                  </Button>
+                )}
+                {account.mfaEnabled === false && (
+                  <Button
+                    variant="secondary"
+                    className={styles.readinessAction}
+                    onClick={onNavigateTo("Account & security")}
+                  >
+                    Set up MFA <ArrowRight size={12} />
+                  </Button>
+                )}
               </li>
               <li>
                 <Radio size={17} />
                 <span>Broker session</span>
-                <strong>
-                  {account.connected === null
+                <strong
+                  className={styles.readinessBadge}
+                  data-tone={
+                    registry.loading || account.connected === null
+                      ? "neutral"
+                      : account.connected
+                        ? "ready"
+                        : "attention"
+                  }
+                >
+                  {registry.loading || account.connected === null
                     ? "Checking"
                     : account.connected
                       ? "Connected"
                       : "Required"}
                 </strong>
+                {!registry.loading && account.connected === false && (
+                  <Button
+                    variant="secondary"
+                    className={styles.readinessAction}
+                    onClick={onNavigateTo("Brokers")}
+                  >
+                    Connect <ArrowRight size={12} />
+                  </Button>
+                )}
               </li>
               <li>
                 <Check size={17} />
                 <span>Risk limits &amp; authorization</span>
-                <button onClick={onNavigateTo("Live trading")}>
-                  Review <ArrowRight size={12} />
-                </button>
+                <Button
+                  variant="secondary"
+                  className={styles.readinessAction}
+                  onClick={onNavigateTo("Live trading")}
+                >
+                  {workspace.live_configured ? "Review" : "Requirements"}{" "}
+                  <ArrowRight size={12} />
+                </Button>
               </li>
             </ul>
             <p className={styles.readinessNote}>
