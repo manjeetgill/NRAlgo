@@ -1,13 +1,7 @@
 "use client";
 /** Application login/setup view. Credentials stay in the form and are never persisted by the UI. */
 import { useState, type FormEvent } from "react";
-import {
-  Activity,
-  ArrowRight,
-  Code2,
-  ShieldCheck,
-  LockKeyhole,
-} from "lucide-react";
+import { Activity, ArrowRight, ShieldCheck, LockKeyhole } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { AuthStatus } from "@/features/workspace/workspace-types";
 /** Render account policy; the session hook owns transport, cancellation and error handling. */
@@ -30,6 +24,7 @@ export function AuthScreen({
   onClearError: () => void;
 }) {
   const [registering, setRegistering] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   /** Read credentials only on explicit submit; clear the password field after the attempt. */
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -39,6 +34,7 @@ export function AuthScreen({
       await onAuthenticate(data, registering);
     } finally {
       form.reset();
+      setShowPassword(false);
     }
   }
   return (
@@ -58,12 +54,12 @@ export function AuthScreen({
             Trade with clarity.
           </h1>
           <p>
-            A home for your trading ideas—from the first line of JavaScript to
-            your next trading decision.
+            Research strategies, review your accounts, and prepare your next
+            trading decision in one private workspace.
           </p>
           <div className="auth-pills">
             <span>
-              <Code2 size={15} /> JavaScript powered
+              <Activity size={15} /> Strategy research
             </span>
             <span>
               <ShieldCheck size={15} /> Controlled execution
@@ -110,18 +106,34 @@ export function AuthScreen({
                 Password
                 <input
                   name="password"
-                  type="password"
+                  id="sign-in-password"
+                  type={showPassword ? "text" : "password"}
                   autoComplete={
                     auth.setup_required || registering
                       ? "new-password"
                       : "current-password"
                   }
-                  minLength={12}
+                  minLength={
+                    auth.setup_required || registering ? 12 : undefined
+                  }
                   maxLength={128}
                   required
-                  placeholder="At least 12 characters"
+                  placeholder={
+                    auth.setup_required || registering
+                      ? "At least 12 characters"
+                      : "Enter your password"
+                  }
                 />
               </label>
+              <Button
+                type="button"
+                variant="secondary"
+                aria-controls="sign-in-password"
+                aria-pressed={showPassword}
+                onClick={() => setShowPassword(!showPassword)}
+              >
+                {showPassword ? "Hide password" : "Show password"}
+              </Button>
               {auth.setup_required && auth.setup_token_required && (
                 <label>
                   Setup token
@@ -163,6 +175,7 @@ export function AuthScreen({
                   variant="secondary"
                   onClick={() => {
                     setRegistering(!registering);
+                    setShowPassword(false);
                     onClearError();
                   }}
                 >
@@ -174,7 +187,7 @@ export function AuthScreen({
             </form>
           ) : (
             <Button onClick={() => void onRefresh()} variant="secondary">
-              {error ? "Retry connection" : "Connecting to Node.js…"}
+              {error ? "Retry connection" : "Connecting securely…"}
             </Button>
           )}
           <div className="auth-note">

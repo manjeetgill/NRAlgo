@@ -231,9 +231,9 @@ export function AccountScreen({
                 : "Not enabled"}
           </h2>
           <p>
-            Required for broker connections on the cloud server. Add NRIAlgo to
-            your authenticator app by scanning the QR code or entering the setup
-            key (time-based, 6 digits).
+            {mfaEnabled
+              ? "Your authenticator is set up. Keep it available when changing your live broker or authorizing live trading. Never share its codes."
+              : "Add NRIAlgo to your authenticator app using the private QR code or setup key. You will confirm setup with a 6-digit code."}
           </p>
           {enrollmentUri && (
             <div>
@@ -261,44 +261,63 @@ export function AccountScreen({
               <small>Keep this private. Setup expires after 10 minutes.</small>
             </label>
           )}
-          <form onSubmit={updateMfa}>
-            {!enrollmentSecret && (
-              <label>
-                Current password
-                <input
-                  type="password"
-                  name="password"
-                  autoComplete="current-password"
-                  required
-                />
-              </label>
+          <details open={mfaEnabled !== true}>
+            <summary>
+              {mfaEnabled
+                ? "Manage two-factor authentication"
+                : "Set up two-factor authentication"}
+            </summary>
+            {mfaEnabled && (
+              <p>
+                Disabling MFA removes this protection and can prevent broker
+                authorization. Your current password and a fresh code are
+                required.
+              </p>
             )}
-            {(enrollmentSecret || mfaEnabled) && (
-              <label>
-                {mfaEnabled
-                  ? "Fresh authenticator or unused recovery code"
-                  : "6-digit authenticator code"}
-                <input
-                  name="token"
-                  autoComplete="one-time-code"
-                  required
-                  maxLength={32}
-                />
-              </label>
-            )}
-            <Button
-              disabled={busy || mfaEnabled === null}
-              value={
-                enrollmentSecret ? "confirm" : mfaEnabled ? "disable" : "setup"
-              }
-            >
-              {enrollmentSecret
-                ? "Verify & enable MFA"
-                : mfaEnabled
-                  ? "Disable MFA"
-                  : "Set up authenticator"}
-            </Button>
-          </form>
+            <form onSubmit={updateMfa}>
+              {!enrollmentSecret && (
+                <label>
+                  Current password
+                  <input
+                    type="password"
+                    name="password"
+                    autoComplete="current-password"
+                    required
+                  />
+                </label>
+              )}
+              {(enrollmentSecret || mfaEnabled) && (
+                <label>
+                  {mfaEnabled
+                    ? "Fresh authenticator or unused recovery code"
+                    : "6-digit authenticator code"}
+                  <input
+                    name="token"
+                    autoComplete="one-time-code"
+                    required
+                    maxLength={32}
+                  />
+                </label>
+              )}
+              <Button
+                variant={mfaEnabled ? "danger" : "primary"}
+                disabled={busy || mfaEnabled === null}
+                value={
+                  enrollmentSecret
+                    ? "confirm"
+                    : mfaEnabled
+                      ? "disable"
+                      : "setup"
+                }
+              >
+                {enrollmentSecret
+                  ? "Verify & enable MFA"
+                  : mfaEnabled
+                    ? "Disable MFA"
+                    : "Set up authenticator"}
+              </Button>
+            </form>
+          </details>
           {!!recoveryCodes.length && (
             <div role="status">
               <h4>Recovery codes — shown once</h4>
