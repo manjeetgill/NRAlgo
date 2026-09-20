@@ -58,19 +58,19 @@ export function StrategyLibraryScreen({
             )}
           </article>
         ))}
-        <article className="panel screen-card">
-          <h2>Hilega Milega reference</h2>
-          <span className="badge">Needs rule confirmation</span>
-          <p>
-            A reproducible specification has not been supplied. This strategy
-            cannot run yet.
-          </p>
-          <p>
-            Required: indicator periods and sources, crossover sequence, swing
-            definition, entry timing, short rules, stops and exits.
-          </p>
-        </article>
       </div>
+      <details className="panel screen-card">
+        <summary>Reference only · Hilega Milega (not runnable)</summary>
+        <span className="badge">Needs rule confirmation</span>
+        <p>
+          A reproducible specification has not been supplied. This strategy
+          cannot run yet.
+        </p>
+        <p>
+          Required: indicator periods and sources, crossover sequence, swing
+          definition, entry timing, short rules, stops and exits.
+        </p>
+      </details>
       <article className="panel screen-card">
         <h2>Strategy workflow</h2>
         <p>
@@ -78,8 +78,7 @@ export function StrategyLibraryScreen({
           results → separately authorize execution.
         </p>
         <p>
-          AI rule extraction and automatic strategy deployment are not
-          connected. Research does not grant permission to submit broker orders.
+          Backtests are research, not live deployment or order authorization.
         </p>
       </article>
     </section>
