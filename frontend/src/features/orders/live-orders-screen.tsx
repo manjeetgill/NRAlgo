@@ -32,7 +32,8 @@ export function LiveOrdersScreen() {
       {snapshot?.reason && <p role="status">{snapshot.reason}</p>}
       {snapshot && !Array.isArray(snapshot.orders) && (
         <p>
-          Order history is unavailable. Open Live positions to review execution
+          Order history is unavailable.{" "}
+          <a href="#/live-trading">Open Live positions</a> to review execution
           readiness.
         </p>
       )}
@@ -41,6 +42,13 @@ export function LiveOrdersScreen() {
       )}
       {snapshot?.orders && (
         <OrderRecordsTable
+          brokerLabel={
+            snapshot.provider === "kotak"
+              ? "Kotak Neo"
+              : snapshot.provider === "zerodha"
+                ? "Zerodha Kite"
+                : undefined
+          }
           records={snapshot.orders.map((order) => ({
             id: order.id,
             instrument: order.intent.instrument,
@@ -72,6 +80,7 @@ export interface LiveOrderRecord {
 }
 
 export interface LiveOrdersSnapshot {
+  provider?: string;
   enabled: boolean;
   reason?: string;
   orders?: LiveOrderRecord[];

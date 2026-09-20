@@ -17,7 +17,13 @@ export interface OrderRecord {
   createdAt?: number;
 }
 /** Filter/export the same records; a native dialog preserves keyboard focus and never submits an order. */
-export function OrderRecordsTable({ records }: { records: OrderRecord[] }) {
+export function OrderRecordsTable({
+  records,
+  brokerLabel = "Broker not reported",
+}: {
+  records: OrderRecord[];
+  brokerLabel?: string;
+}) {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
   const [selected, setSelected] = useState<OrderRecord | null>(null);
@@ -28,11 +34,11 @@ export function OrderRecordsTable({ records }: { records: OrderRecord[] }) {
       records.filter(
         (order) =>
           (status === "all" || order.state === status) &&
-          `${order.id} ${order.brokerOrderId ?? ""} ${order.instrument} Kotak`
+          `${order.id} ${order.brokerOrderId ?? ""} ${order.instrument} ${brokerLabel}`
             .toLowerCase()
             .includes(search.trim().toLowerCase()),
       ),
-    [records, search, status],
+    [records, search, status, brokerLabel],
   );
   /** Export only the filtered book; unknown values remain empty and text cannot become a spreadsheet formula. */
   function exportRecords() {
@@ -54,7 +60,7 @@ export function OrderRecordsTable({ records }: { records: OrderRecord[] }) {
         ...filtered.map((order) => [
           order.id,
           "live",
-          "Kotak",
+          brokerLabel,
           order.instrument,
           order.side,
           order.quantity,
@@ -97,7 +103,7 @@ export function OrderRecordsTable({ records }: { records: OrderRecord[] }) {
           disabled={!filtered.length}
           onClick={exportRecords}
         >
-          Export CSV
+          Export filtered orders
         </Button>
       </div>
       <div className="table-scroll">
@@ -117,7 +123,7 @@ export function OrderRecordsTable({ records }: { records: OrderRecord[] }) {
           <tbody>
             {filtered.map((order) => (
               <tr key={order.id}>
-                <td>live · Kotak</td>
+                <td>live · {brokerLabel}</td>
                 <td>
                   {order.instrument}
                   <small>{order.id}</small>
@@ -170,7 +176,7 @@ export function OrderRecordsTable({ records }: { records: OrderRecord[] }) {
             <dt>Order ID</dt>
             <dd>{selected.id}</dd>
             <dt>Account domain</dt>
-            <dd>live · Kotak</dd>
+            <dd>live · {brokerLabel}</dd>
             <dt>Instrument</dt>
             <dd>{selected.instrument}</dd>
             <dt>Requested / filled units</dt>
