@@ -6,6 +6,8 @@
     "node": ">=22.13.0"
   },
   "scripts": {
+    "test": "node --import tsx --test tests/*.test.mjs",
+    "test:coverage": "node --import tsx --test --experimental-test-coverage tests/*.test.mjs",
     "check:production": "node --env-file=.env --env-file=.env.release scripts/check-production-environment.mjs",
     "preflight:commit": "node scripts/preflight-commit.mjs",
     "hooks:install": "git config core.hooksPath .githooks",
@@ -21,7 +23,7 @@
     "historical:retire-postgres": "node --env-file-if-exists=.env --import tsx scripts/retire-postgres-eod-candles.mjs --confirm-retire-eod-candles",
     "typecheck": "tsc --noEmit",
     "build:backend": "tsc",
-    "check": "npm run lint && npm run typecheck && npm --prefix frontend run typecheck",
+    "check": "npm run lint && npm run typecheck && npm --prefix frontend run typecheck && npm test",
     "build": "npm run build:backend && npm --prefix frontend run build"
   },
   "dependencies": {

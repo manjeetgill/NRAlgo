@@ -44,7 +44,7 @@ const profile = z.object({
 });
 
 /** Factory never shares authenticated SDK instances between users or exposes raw SDK responses. */
-function createZerodhaSdk(
+export function createZerodhaSdk(
   credentials: z.infer<typeof appCredentials>,
   factory: (key: string) => Client = (key) =>
     new KiteConnect({ api_key: key, debug: false, timeout: 10000 }),

@@ -101,7 +101,7 @@ async function recordLiveEvent(
 /** Validate identity and monotonic broker progress; a terminal order cannot become open again.
  * A broker cancellation may carry additional fills, but cumulative fills cannot decrease.
  */
-function validateBrokerProgress(
+export function validateBrokerProgress(
   intent: OrderIntent,
   current: BrokerOrder | undefined,
   next: BrokerOrder,

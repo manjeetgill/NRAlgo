@@ -45,7 +45,9 @@ The hook checks out the Git index into a disposable temporary directory. It inst
 
 GitHub Actions runs this preflight separately for each incoming commit in a push or pull request, with the failing revision in the job name. A new branch with no previous SHA checks its tip; pull requests check the full base-to-head range. Large pushes above the matrix limit must be split. Existing historical commits can be checked explicitly with the command above. Configure required CI checks/branch protection in GitHub to prevent bypass; local hooks are not distributed Git policy.
 
-Automated test files, fixtures, browser-test dependencies and the obsolete specification acceptance register were removed at the owner's request. Build validation does **not** replace behavioral, broker integration, security or regression tests. Python syntax checks do not prove its dependencies install or calculations are correct. Exercise relevant screens and failure paths before release.
+Run `npm test` for the offline safety regression suite, or `npm run test:coverage` for Node's coverage report. Tests use synthetic fixtures and injected broker clients; they require no credentials, app server or database and place no live orders. They cover pre-trade risk boundaries, the complete broker-order transition matrix, submission ownership/authorization gates, Kotak execution validation and Zerodha SDK account isolation/error redaction. CI runs the suite on pushes and pull requests and gates release publishing on success.
+
+These unit tests do not certify live trading: database concurrency, crash recovery, reconciliation under real broker failures, browser flows and Python calculations still need integration coverage. Coverage output includes imported modules and is diagnostic, not a claim of full application coverage. Existing isolated PostgreSQL checks in `scripts/verify-broker-sessions.mjs` are separate from the default suite. Build validation and Python syntax checks alone do not prove behavior or calculation correctness.
 
 ## Code map
 
