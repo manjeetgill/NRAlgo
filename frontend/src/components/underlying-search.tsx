@@ -44,7 +44,14 @@ export function UnderlyingSearch({
           controller.signal,
         );
         if (!controller.signal.aborted) {
-          setMatches(result.underlyings);
+          setMatches(
+            [...result.underlyings].sort(
+              (left: string, right: string) =>
+                Number(right === query.trim().toUpperCase()) -
+                  Number(left === query.trim().toUpperCase()) ||
+                left.localeCompare(right),
+            ),
+          );
           setError(
             result.underlyings.length
               ? ""

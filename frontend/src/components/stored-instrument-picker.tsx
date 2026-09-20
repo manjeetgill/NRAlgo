@@ -1,6 +1,6 @@
 "use client";
 /** Search and select exact instruments that have stored daily candles; no broker is required. */
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { requestApiJson } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import {
@@ -26,6 +26,20 @@ export function StoredInstrumentPicker({
   const [selectedId, setSelectedId] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const listId = useId();
+  const searchInput = useRef<HTMLInputElement>(null);
+  const ranked = [...(result?.items ?? [])].sort((left, right) => {
+    const rank = (symbol: string) =>
+      symbol.toUpperCase() === query.trim().toUpperCase()
+        ? 0
+        : symbol.toUpperCase().startsWith(query.trim().toUpperCase())
+          ? 1
+          : 2;
+    return (
+      rank(left.symbol) - rank(right.symbol) ||
+      left.symbol.localeCompare(right.symbol)
+    );
+  });
 
   /** Search only after a short pause; an obsolete query is aborted before it can update results. */
   useEffect(() => {
@@ -87,6 +101,20 @@ export function StoredInstrumentPicker({
       <label>
         Search stored NSE scrips or indices
         <input
+          ref={searchInput}
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded={Boolean(result?.items.length && !busy && !selectedId)}
+          aria-controls={listId}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowDown") {
+              event.preventDefault();
+              document
+                .getElementById(listId)
+                ?.querySelector<HTMLButtonElement>("button:not(:disabled)")
+                ?.focus();
+            }
+          }}
           value={query}
           maxLength={60}
           disabled={disabled}
@@ -109,15 +137,59 @@ export function StoredInstrumentPicker({
           {error}
         </p>
       )}
-      {result && !busy && (
+      {selectedId && (
+        <div className="screen-toolbar">
+          <p role="status">
+            Selected:{" "}
+            {result?.items.find((item) => item.id === selectedId)?.symbol ??
+              query}
+          </p>
+          <Button
+            variant="secondary"
+            disabled={disabled}
+            onClick={() => {
+              setSelectedId("");
+              onClear();
+              searchInput.current?.focus();
+            }}
+          >
+            Change instrument
+          </Button>
+        </div>
+      )}
+      {result && !busy && !selectedId && (
         <>
           {result.items.length ? (
             <div
               className="stored-instrument-results"
+              id={listId}
               role="listbox"
               aria-label="Stored instrument matches"
+              onKeyDown={(event) => {
+                if (!["ArrowDown", "ArrowUp", "Escape"].includes(event.key)) {
+                  return;
+                }
+                event.preventDefault();
+                if (event.key === "Escape") {
+                  searchInput.current?.focus();
+                  return;
+                }
+                const choices = [
+                  ...event.currentTarget.querySelectorAll<HTMLButtonElement>(
+                    "button:not(:disabled)",
+                  ),
+                ];
+                const index = choices.indexOf(
+                  document.activeElement as HTMLButtonElement,
+                );
+                choices[
+                  (index +
+                    (event.key === "ArrowDown" ? 1 : choices.length - 1)) %
+                    choices.length
+                ]?.focus();
+              }}
             >
-              {result.items.map(
+              {ranked.map(
                 /** Bind selection to the stable stored instrument ID and advertised coverage. */ (
                   item,
                 ) => (
@@ -130,6 +202,7 @@ export function StoredInstrumentPicker({
                     onClick={() => {
                       setSelectedId(item.id);
                       onSelect(item);
+                      searchInput.current?.focus();
                     }}
                   >
                     {item.symbol} · {item.kind} {item.series} · {item.first_day}{" "}
