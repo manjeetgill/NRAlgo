@@ -643,7 +643,7 @@ function ZerodhaConnectionCard({ csrf }: { csrf: string }) {
                 required
                 minLength={8}
                 maxLength={64}
-                pattern="[A-Za-z0-9_-]+"
+                pattern="[A-Za-z0-9_\-]+"
                 autoCapitalize="none"
                 autoCorrect="off"
                 spellCheck={false}

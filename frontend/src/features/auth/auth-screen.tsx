@@ -98,7 +98,7 @@ export function AuthScreen({
                   required
                   minLength={3}
                   maxLength={80}
-                  pattern="[a-zA-Z0-9_.@-]+"
+                  pattern="[a-zA-Z0-9_.@\-]+"
                   placeholder="Your username"
                 />
               </label>

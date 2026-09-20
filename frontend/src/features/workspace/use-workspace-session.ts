@@ -197,7 +197,35 @@ export function useWorkspaceSession() {
       if (mounted.current) {
         setWorkspace(null);
       }
-      await onRefresh();
+      // Fetch the sign-in policy directly instead of calling onRefresh(): a fresh
+      // /workspace probe right after logout always answers 401/SESSION_EXPIRED, which
+      // would otherwise trip the shared expiry listener and show its alarming message
+      // for what is actually an intentional, successful sign-out.
+      const request = readGate.current.begin();
+      try {
+        const policy = parseAuthStatus(
+          await requestApiJson(
+            "/auth/status",
+            "GET",
+            undefined,
+            undefined,
+            15000,
+            request.signal,
+          ),
+        );
+        if (mounted.current && request.isCurrent()) {
+          setAuth(policy);
+          setError("");
+        }
+      } catch (failure) {
+        if (mounted.current && request.isCurrent() && !request.signal.aborted) {
+          setError(
+            failure instanceof Error
+              ? failure.message
+              : "Sign-in policy unavailable.",
+          );
+        }
+      }
     } catch (cause) {
       if (mounted.current) {
         setError(
@@ -212,7 +240,7 @@ export function useWorkspaceSession() {
         setBusy(false);
       }
     }
-  }, [workspace, onRefresh]);
+  }, [workspace]);
 
   /** Clear a presentation error without changing account state. */
   const onClearError = useCallback(() => setError(""), []);
