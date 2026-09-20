@@ -6,6 +6,7 @@
 import { randomUUID } from "node:crypto";
 import type { Query, Store } from "../database.js";
 import { resolveActiveBroker } from "../broker-registry.js";
+import { tradingDay } from "../market-contracts.js";
 import {
   brokerOrderSchema,
   brokerSnapshotSchema,
@@ -22,7 +23,7 @@ import {
   type OrderState,
   type RiskLimits,
 } from "./contracts.js";
-import { evaluateLiveRisk } from "./risk.js";
+import { evaluateLiveRisk, RiskLimitError } from "./risk.js";
 import {
   spreadPlanSchema,
   boundedExposureLimit,
@@ -497,7 +498,8 @@ export class LiveExecutionService {
               [this.accountId, orderId],
             );
             const otherPending = otherOrders.filter(
-              (order) => !terminalStates.has(order.state),
+              (order) =>
+                order.state !== "bound" && !terminalStates.has(order.state),
             );
             const outstandingUnits: Record<string, number> = {};
             for (const pending of otherPending) {
@@ -591,14 +593,23 @@ export class LiveExecutionService {
               orderId,
               state,
             ]);
-            await this.latchHalt(
-              query,
-              state === "unknown"
-                ? "Submission outcome unknown; reconcile before any new order"
-                : state === "blocked"
-                  ? "Pre-dispatch session/state check failed"
-                  : "Broker rejected submission",
-            );
+            if (!dispatchStarted && error instanceof RiskLimitError) {
+              await recordLiveEvent(
+                query,
+                this.accountId,
+                "risk_blocked",
+                error.message,
+              );
+            } else {
+              await this.latchHalt(
+                query,
+                state === "unknown"
+                  ? "Submission outcome unknown; reconcile before any new order"
+                  : state === "blocked"
+                    ? "Pre-dispatch session/state check failed"
+                    : "Broker rejected submission",
+              );
+            }
           }
         }
         await recordLiveEvent(query, this.accountId, "submission", orderId);
@@ -608,7 +619,10 @@ export class LiveExecutionService {
           ])
         )[0];
       });
-      if (["unknown", "blocked", "rejected"].includes(submitted.state)) {
+      if (
+        ["unknown", "rejected"].includes(submitted.state) ||
+        (submitted.state === "blocked" && (await this.status()).halted)
+      ) {
         await this.cancelRestingOrders();
       }
       return submitted;
@@ -755,7 +769,11 @@ export class LiveExecutionService {
       }
       const ids = new Set<string>(),
         keys = new Set<string>();
-      const expectedPositions: Record<string, number> = {};
+      // Advance only from the last clean baseline. Subtract fills already included
+      // in that snapshot, not mutable local acknowledgements (which may be newer).
+      const expectedPositions: Record<string, number> = {
+        ...previous?.positions,
+      };
       for (const observed of snapshot.orders) {
         if (
           ids.has(observed.brokerOrderId) ||
@@ -792,11 +810,21 @@ export class LiveExecutionService {
         }
         expectedPositions[observed.instrument] =
           (expectedPositions[observed.instrument] || 0) +
-          (observed.side === "buy" ? 1 : -1) * observed.filledQuantity;
+          (observed.side === "buy" ? 1 : -1) *
+            (observed.filledQuantity -
+              (previous?.orders.find(
+                (order) => order.brokerOrderId === observed.brokerOrderId,
+              )?.filledQuantity ?? 0));
       }
       for (const order of orders) {
         if (
           !keys.has(order.intent_key) &&
+          // DAY books omit older terminal orders; unresolved outcomes never expire.
+          !(
+            terminalStates.has(order.state) &&
+            tradingDay(Number(order.created_at)) <
+              tradingDay(snapshot.capturedAt)
+          ) &&
           [
             "submitting",
             "unknown",
@@ -832,19 +860,20 @@ export class LiveExecutionService {
         reason = "Broker accounting basis changed";
       }
       if (previous && snapshot.fundsBasis === "cash-ledger") {
-        const previousCash = previous.orders.reduce(
-          (sum, order) => sum + (order.cashDeltaPaise ?? 0),
-          0,
-        );
-        const currentCash = snapshot.orders.reduce(
-          (sum, order) => sum + (order.cashDeltaPaise ?? 0),
+        const cashChange = snapshot.orders.reduce(
+          (sum, order) =>
+            sum +
+            (order.cashDeltaPaise ?? 0) -
+            (previous.orders.find(
+              (prior) => prior.brokerOrderId === order.brokerOrderId,
+            )?.cashDeltaPaise ?? 0),
           0,
         );
         if (
           Math.abs(
             snapshot.cashBalancePaise! -
               previous.cashBalancePaise! -
-              (currentCash - previousCash),
+              cashChange,
           ) > limits.fundsDriftTolerancePaise
         ) {
           reason = "Broker funds drift";

@@ -105,8 +105,9 @@ export interface LimitQuote {
   observedAt: number;
 }
 
-/** Only adapters know broker auth/codes/rate limits. Snapshot must include complete order/trade
- * history for this execution account, positions, funds and session health. Unprovable order
+/** Only adapters know broker auth/codes/rate limits. Snapshot must include the complete current-day
+ * order book, carried + intraday net positions, funds and session health. Older unresolved
+ * local orders still require explicit reconciliation. Unprovable order
  * correlation is a hard failure, never a guessed match by symbol/quantity/time.
  * Implementations must honor abort signals; aborting cannot undo an accepted order.
  */

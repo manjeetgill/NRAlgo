@@ -321,8 +321,8 @@ export class KotakLiveAdapter implements ExecutionBrokerAdapter {
     let gross = 0;
     for (const row of rows(positionRaw)) {
       const instrument = identity(row);
-      // These are exchange units, not lots. Carry-forward positions cannot be silently
-      // adopted by a day-order ledger; reconciliation will halt on the unmatched quantity.
+      // These are exchange units, not lots. Reconciliation carries the last clean
+      // baseline forward; previously untracked overnight quantities still halt.
       const quantity =
         units(row.cfBuyQty) +
         units(row.flBuyQty) -

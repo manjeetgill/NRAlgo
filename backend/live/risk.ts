@@ -20,6 +20,10 @@ export interface RiskContext {
   ordersLastMinute: number;
   now: number;
 }
+/** An individual intent exceeds a business limit; no broker dispatch has occurred.
+ * Stale state and breached account loss limits remain ordinary safety failures.
+ */
+export class RiskLimitError extends Error {}
 /** Reject missing/stale state, losses, exhausted funds, gross exposure, position and rate limits.
  * Opposing pending orders do not net against each other: either can fill independently.
  */
@@ -61,12 +65,12 @@ export function evaluateLiveRisk(
       intent.quantity + (context.outstandingUnits[intent.instrument] || 0) >
         Math.abs(position)
     ) {
-      throw new Error(
+      throw new RiskLimitError(
         "Reduce-only quantity exceeds unreserved broker position",
       );
     }
     if (context.ordersLastMinute >= limits.maxOrdersPerMinute) {
-      throw new Error("Order rate limit reached");
+      throw new RiskLimitError("Order rate limit reached");
     }
     return 0;
   }
@@ -77,19 +81,19 @@ export function evaluateLiveRisk(
       snapshot.grossExposurePaise + context.reservedPaise + reservation,
     )
   ) {
-    throw new Error("Order notional exceeds safe arithmetic");
+    throw new RiskLimitError("Order notional exceeds safe arithmetic");
   }
   if (
     context.reservedPaise + reservation > limits.maxReservedPaise ||
     context.reservedPaise + reservation > snapshot.availablePaise
   ) {
-    throw new Error("Capital reservation limit reached");
+    throw new RiskLimitError("Capital reservation limit reached");
   }
   if (
     snapshot.grossExposurePaise + context.reservedPaise + reservation >
     limits.maxGrossExposurePaise
   ) {
-    throw new Error("Gross exposure limit reached");
+    throw new RiskLimitError("Gross exposure limit reached");
   }
   if (
     Math.abs(snapshot.positions[intent.instrument] || 0) +
@@ -97,10 +101,10 @@ export function evaluateLiveRisk(
       intent.quantity >
     limits.maxPositionUnits
   ) {
-    throw new Error("Position limit reached");
+    throw new RiskLimitError("Position limit reached");
   }
   if (context.ordersLastMinute >= limits.maxOrdersPerMinute) {
-    throw new Error("Order rate limit reached");
+    throw new RiskLimitError("Order rate limit reached");
   }
   return reservation;
 }
