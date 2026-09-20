@@ -16,43 +16,33 @@ export function StrategiesScreen({
   const library = useStrategyLibrary(csrf);
   const [search, setSearch] = useState("");
   const [market, setMarket] = useState("all");
-  const [status, setStatus] = useState("All");
   /** Recompute displayed rows only when the library or filters change. */
   const filtered = useMemo(
     () =>
       library.strategies.filter(
         (strategy) =>
-          (status === "All" || status === "Saved") &&
           (market === "all" || strategy.definition.market === market) &&
           `${strategy.definition.name} ${strategy.definition.legs.map((leg) => leg.stockCode).join(" ")}`
             .toLowerCase()
             .includes(search.trim().toLowerCase()),
       ),
-    [library.strategies, search, market, status],
+    [library.strategies, search, market],
   );
   return (
     <section aria-label="Saved strategies" className="screen-stack">
       <PageActions>
-        <Button onClick={() => onOpenStrategy("", "cash")}>New strategy</Button>
+        <Button onClick={() => onOpenStrategy("", "cash")}>
+          New cash strategy
+        </Button>
+        <Button
+          variant="secondary"
+          onClick={() => onOpenStrategy("", "options")}
+        >
+          Build option spread
+        </Button>
       </PageActions>
       <div className="panel screen-card">
         <div className="screen-toolbar strategy-toolbar">
-          <div
-            className="screen-filters"
-            role="group"
-            aria-label="Strategy status filter"
-          >
-            {["All", "Running", "Stopped", "Draft", "Saved"].map((value) => (
-              <Button
-                key={value}
-                variant={status === value ? "primary" : "secondary"}
-                aria-pressed={status === value}
-                onClick={() => setStatus(value)}
-              >
-                {value}
-              </Button>
-            ))}
-          </div>
           <label>
             Search strategies
             <input
@@ -100,7 +90,6 @@ export function StrategiesScreen({
                   <th>Underlying</th>
                   <th>Mode</th>
                   <th>Status</th>
-                  <th>P&amp;L</th>
                   <th>Action</th>
                 </tr>
               </thead>
@@ -125,7 +114,6 @@ export function StrategiesScreen({
                     <td>
                       <span className="badge">Saved</span>
                     </td>
-                    <td title="Available only in a completed backtest">—</td>
                     <td>
                       <Button
                         variant="ghost"
@@ -136,21 +124,19 @@ export function StrategiesScreen({
                           )
                         }
                       >
-                        Open →
+                        Open research →
                       </Button>
                     </td>
                   </tr>
                 ))}
                 {!filtered.length && (
                   <tr>
-                    <td colSpan={6}>
+                    <td colSpan={5}>
                       {library.error
                         ? "Saved strategies could not be loaded. This is not a confirmed empty library; retry the request."
-                        : status !== "All" && status !== "Saved"
-                          ? `${status} strategies are unavailable: this workspace stores research definitions, not deployed strategies. Unsaved drafts remain in their editor.`
-                          : search || market !== "all"
-                            ? "No strategies match these filters."
-                            : "No saved strategies yet. Create a strategy to begin."}
+                        : search || market !== "all"
+                          ? "No strategies match these filters."
+                          : "No saved strategies yet. Create a strategy to begin."}
                     </td>
                   </tr>
                 )}
@@ -163,22 +149,10 @@ export function StrategiesScreen({
           Returns are available only in completed historical reports.
         </p>
       </div>
-      <div className="screen-two-columns">
-        <article className="panel screen-card">
-          <h2>Saved, not deployed</h2>
-          <p>
-            Research definitions never start live trading. Each backtest retains
-            the definition used for that run.
-          </p>
-        </article>
-        <article className="panel screen-card">
-          <h2>You stay in control</h2>
-          <p>
-            Creating or editing a strategy does not change broker positions.
-            Live orders require separate risk checks and confirmation.
-          </p>
-        </article>
-      </div>
+      <p className="muted">
+        Saved definitions are research, not deployed strategies. Live orders
+        require separate authorization.
+      </p>
     </section>
   );
 }
