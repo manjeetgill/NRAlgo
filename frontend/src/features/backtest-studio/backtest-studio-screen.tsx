@@ -64,8 +64,64 @@ export function BacktestStudioScreen({
   );
   /** Create a durable Python job; the hook owns polling, cancellation and result validation. */
   function onRun() {
+    if (runBlocked) {
+      return;
+    }
     void run(settings);
   }
+  // Match the engine's warm-up requirement without calculating strategy results in React.
+  const requiredBars = Math.max(
+    60,
+    (templateId === "rsi"
+      ? settings.first + 1
+      : Math.max(settings.first, settings.second)) + 2,
+  );
+  const parameterError =
+    !Number.isInteger(settings.first) ||
+    !Number.isInteger(settings.second) ||
+    settings.first < 2 ||
+    settings.first > 500 ||
+    settings.second < 2 ||
+    settings.second > 500
+      ? "Use whole-number indicator parameters between 2 and 500."
+      : templateId === "ema" && settings.first >= settings.second
+        ? "Fast EMA must be shorter than slow EMA."
+        : templateId === "rsi" &&
+            (settings.second <= 30 || settings.second >= 100)
+          ? "Exit RSI must be above 30 and below 100."
+          : ![
+                settings.capital,
+                settings.allocation,
+                settings.stop,
+                settings.target,
+                settings.fee,
+                settings.slippage,
+              ].every(Number.isFinite) ||
+              settings.capital < 100 ||
+              settings.capital > 10000000 ||
+              settings.allocation <= 0 ||
+              settings.allocation > 100 ||
+              settings.stop <= 0 ||
+              settings.stop >= 100 ||
+              settings.target <= 0 ||
+              settings.target > 1000 ||
+              settings.fee < 0 ||
+              settings.fee > 10000 ||
+              settings.slippage < 0 ||
+              settings.slippage > 500
+            ? "Check capital (₹100–1 crore), allocation (0–100%), stop (0–100%), target (0–1,000%), fee (₹0–10,000), and slippage (0–500 bps). Zero allocation, stop and target are not allowed."
+            : "";
+  const runBlocked =
+    parameterError ||
+    (!instrument
+      ? "Choose a stored instrument to begin."
+      : loading
+        ? "Wait for history to finish loading."
+        : !bars.length
+          ? "Choose a date range and load stored history."
+          : bars.length < requiredBars
+            ? `Load at least ${requiredBars} candles for these parameters; ${bars.length} are available in this range.`
+            : "");
   const fields: [keyof Omit<BacktestSettings, "template">, string][] = [
     ["first", template.first],
     ["second", template.second],
@@ -105,7 +161,7 @@ export function BacktestStudioScreen({
         </div>
       </div>
       <section className="panel screen-card">
-        <h2>Stored historical data</h2>
+        <h2>1. Instrument and date range</h2>
         <StoredInstrumentPicker
           disabled={running}
           onClear={() => {
@@ -115,15 +171,21 @@ export function BacktestStudioScreen({
           onSelect={(selected) => {
             clearDataset();
             setInstrument(selected);
-            setFrom(selected.first_day);
+            const latestYear = new Date(
+              Date.parse(selected.last_day) - 365 * 86400000,
+            )
+              .toISOString()
+              .slice(0, 10);
+            setFrom(
+              latestYear < selected.first_day ? selected.first_day : latestYear,
+            );
             setTo(selected.last_day);
-            void loadHistory(selected, selected.first_day, selected.last_day);
           }}
         />
         <p>
           Selected:{" "}
           {instrument
-            ? `${instrument.symbol} · ${instrument.kind} · ${instrument.id}`
+            ? `${instrument.symbol} · ${instrument.kind} · available ${instrument.first_day} to ${instrument.last_day}`
             : "Choose a cash instrument above"}
         </p>
         <div className="research-fields">
@@ -131,6 +193,7 @@ export function BacktestStudioScreen({
             From (IST)
             <input
               type="date"
+              disabled={running}
               value={from}
               min={instrument?.first_day}
               max={to || instrument?.last_day}
@@ -144,6 +207,7 @@ export function BacktestStudioScreen({
             To (IST)
             <input
               type="date"
+              disabled={running}
               value={to}
               min={from || instrument?.first_day}
               max={instrument?.last_day}
@@ -155,7 +219,9 @@ export function BacktestStudioScreen({
           </label>
         </div>
         <Button
-          disabled={!instrument || loading || running || !from || !to}
+          disabled={
+            !instrument || loading || running || !from || !to || from > to
+          }
           onClick={() => {
             if (instrument) {
               void loadHistory(instrument, from, to);
@@ -176,7 +242,7 @@ export function BacktestStudioScreen({
         )}
       </section>
       <section className="panel screen-card">
-        <h2>Rules and parameters</h2>
+        <h2>2. Rules and assumptions</h2>
         <p>
           {template.entry} {template.exit}
         </p>
@@ -186,6 +252,7 @@ export function BacktestStudioScreen({
               {label}
               <input
                 type="number"
+                disabled={running}
                 step={key === "first" || key === "second" ? "1" : "0.01"}
                 value={settings[key]}
                 onChange={(event) => {
@@ -200,8 +267,12 @@ export function BacktestStudioScreen({
           ))}
         </div>
         <div className="screen-toolbar">
-          <Button disabled={!bars.length || loading || running} onClick={onRun}>
-            {running ? `Calculating… ${progress}%` : "Run Python backtest"}
+          <Button
+            aria-describedby="backtest-readiness"
+            disabled={Boolean(runBlocked) || running}
+            onClick={onRun}
+          >
+            {running ? `Calculating… ${progress}%` : "Run backtest"}
           </Button>
           {running && (
             <Button variant="secondary" onClick={cancelJob}>
@@ -209,10 +280,15 @@ export function BacktestStudioScreen({
             </Button>
           )}
         </div>
-        <p>
-          Node selects the stored dataset again for the durable Python job. No
-          broker credentials or order capability are sent to the calculation
-          service.
+        <p id="backtest-readiness" role="status">
+          {running
+            ? "Calculation in progress. You can cancel this calculation below."
+            : runBlocked ||
+              "Ready to run on stored data. This never places a broker order."}
+        </p>
+        <p className="muted">
+          Slippage models a worse fill price. 5 basis points = 0.05% per fill;
+          fees apply to both entry and exit.
         </p>
         {loading && <p role="status">Validating historical data…</p>}
         {error && (
