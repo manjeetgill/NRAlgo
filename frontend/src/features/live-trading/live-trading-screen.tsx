@@ -5,17 +5,28 @@ import { LiveOrderTicket } from "./live-order-ticket";
 import { Button } from "@/components/ui/button";
 import { useOverviewAccount } from "@/features/overview/use-overview-account";
 import { brokerAccountAdapters } from "@/features/overview/providers/broker-account-adapters";
+import { useBrokerRegistry } from "@/features/brokers/broker-hooks";
 import {
   formatAccountMoney,
   type AccountPosition,
 } from "@/features/overview/account-model";
 /** No order is placed or account armed by opening this screen. */
 export function LiveTradingScreen({ csrf }: { csrf: string }) {
-  const broker = brokerAccountAdapters[0];
+  const registry = useBrokerRegistry(csrf);
+  const activeBroker = registry.brokers.find(
+    (item) => item.id === registry.activeBrokerId,
+  );
+  // Never substitute another broker when the selected account expires or cannot be verified.
+  const broker =
+    !registry.error && activeBroker?.status === "connected"
+      ? (brokerAccountAdapters.find(
+          (item) => item.id === activeBroker.provider,
+        ) ?? null)
+      : null;
   const account = useOverviewAccount(broker, csrf);
   const [selected, setSelected] = useState<AccountPosition | null>(null);
   const reviewDialog = useRef<HTMLDialogElement>(null);
-  const controls = useRef<HTMLDetailsElement>(null);
+  const controls = useRef<HTMLDivElement>(null);
   /** Inspect exposure only; no close order, broker reconciliation or account arming happens here. */
   function reviewPosition(position: AccountPosition) {
     setSelected(position);
@@ -32,6 +43,16 @@ export function LiveTradingScreen({ csrf }: { csrf: string }) {
           </span>
         </div>
       </div>
+      {registry.error && <p role="alert">{registry.error}</p>}
+      <p className="account-context">
+        Execution account:{" "}
+        {activeBroker?.provider.toUpperCase() ?? "Not selected"} ·{" "}
+        {registry.loading
+          ? "Checking connection…"
+          : (activeBroker?.status ?? "Not connected")}
+        . Viewing positions does not change this selection.{" "}
+        <a href="#/brokers">Manage broker connections</a>
+      </p>
       <div className="research-summary">
         <div>
           <span>Open position P&amp;L</span>
@@ -46,20 +67,27 @@ export function LiveTradingScreen({ csrf }: { csrf: string }) {
           <strong>{account.live?.positions?.length ?? "—"}</strong>
         </div>
       </div>
+      {/* Safety controls remain visible instead of hiding the halt action inside a disclosure. */}
+      <div ref={controls} className="panel screen-card">
+        <LiveOrderTicket
+          key={`${registry.activeBrokerId}:${activeBroker?.status}`}
+          csrf={csrf}
+        />
+      </div>
       <section className="panel screen-card">
         <div className="screen-toolbar">
           <div>
             <h2>Positions</h2>
             <p>
-              {broker.name} ·{" "}
+              {broker?.name ?? "No connected execution account"} ·{" "}
               {account.live
-                ? `${new Date(account.live.capturedAt).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" })} IST snapshot`
+                ? `${new Date(account.live.capturedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST snapshot`
                 : "Snapshot not loaded"}
             </p>
           </div>
           <Button
             variant="secondary"
-            disabled={account.loading}
+            disabled={account.loading || !broker}
             onClick={() => void account.loadAccountSnapshot()}
           >
             Refresh position snapshot
@@ -70,7 +98,10 @@ export function LiveTradingScreen({ csrf }: { csrf: string }) {
           <p role="alert">{account.error} Retained values may be stale.</p>
         )}
         {account.connected === false && (
-          <p>Connect your broker under Broker connections to load positions.</p>
+          <p>
+            <a href="#/brokers">Connect or select a broker</a> to load
+            positions.
+          </p>
         )}
         {account.live?.warnings.map((warning) => (
           <p key={warning} role="status">
@@ -102,7 +133,7 @@ export function LiveTradingScreen({ csrf }: { csrf: string }) {
                       variant="ghost"
                       onClick={() => reviewPosition(position)}
                     >
-                      Review exit
+                      View position
                     </Button>
                   </td>
                 </tr>
@@ -123,10 +154,6 @@ export function LiveTradingScreen({ csrf }: { csrf: string }) {
           is broker buying power, not a cash ledger.
         </p>
       </section>
-      <details ref={controls} className="panel screen-card">
-        <summary>Review live execution controls</summary>
-        <LiveOrderTicket csrf={csrf} />
-      </details>
       <section className="panel screen-card">
         <h2>Position safety</h2>
         <p>
@@ -134,10 +161,10 @@ export function LiveTradingScreen({ csrf }: { csrf: string }) {
           cancellation of app-owned orders; it does not close positions. Use the
           broker platform to manage external positions or emergencies.
         </p>
-        <Button variant="secondary" disabled>
-          Flatten all unavailable
-        </Button>
-        <p>A verified multi-position exit workflow is not implemented.</p>
+        <p>
+          To close multiple or externally managed positions, use your broker
+          platform. This app does not offer a bulk exit.
+        </p>
       </section>
       <dialog
         ref={reviewDialog}
@@ -145,7 +172,7 @@ export function LiveTradingScreen({ csrf }: { csrf: string }) {
         aria-labelledby="review-exit-title"
       >
         <div className="screen-toolbar">
-          <h2 id="review-exit-title">Review position exit</h2>
+          <h2 id="review-exit-title">Position details</h2>
           <Button
             variant="secondary"
             onClick={() => reviewDialog.current?.close()}
@@ -169,7 +196,6 @@ export function LiveTradingScreen({ csrf }: { csrf: string }) {
               onClick={() => {
                 reviewDialog.current?.close();
                 if (controls.current) {
-                  controls.current.open = true;
                   controls.current.scrollIntoView({
                     behavior: "smooth",
                     block: "start",
@@ -177,7 +203,7 @@ export function LiveTradingScreen({ csrf }: { csrf: string }) {
                 }
               }}
             >
-              Open guarded order ticket
+              Review execution controls
             </Button>
           </>
         )}

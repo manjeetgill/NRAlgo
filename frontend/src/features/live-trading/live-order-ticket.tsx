@@ -179,15 +179,15 @@ export function LiveOrderTicket({
           first, then requests cancellation of non-terminal broker orders.
         </p>
         {configured && status?.enabled && (
-          <Button variant="secondary" onClick={handleLiveTradingDisable}>
+          <Button variant="danger" onClick={handleLiveTradingDisable}>
             Disable live trading + cancel pending orders
           </Button>
         )}
       </fieldset>
       <p>
-        Use a dedicated, initially flat trading account with an empty order
-        book. Manual orders, carried positions or unknown outcomes halt
-        execution. Every live order requires explicit authorization.
+        Use a dedicated trading account. Only reconciled, app-tracked exposure
+        can be managed here; unexplained positions or unknown order outcomes
+        require review. Every live order requires explicit authorization.
       </p>
       <p>
         Funds use the active broker&apos;s available buying power, not a settled
