@@ -13,6 +13,7 @@ import { PayoffGraph } from "./payoff-graph";
 import styles from "./options-builder.module.css";
 import { requestApiJson } from "@/lib/api";
 import { storedInstrumentSearchSchema } from "@/lib/stored-market-data";
+import { useUnsavedResearchWarning } from "@/features/workspace/workspace-views";
 
 type EditorLeg = {
   id: string;
@@ -88,6 +89,7 @@ export function OptionsPayoffBuilder({
   const [rate, setRate] = useState("7");
   const [dividend, setDividend] = useState("0");
   const [legs, setLegs] = useState<EditorLeg[]>([]);
+  useUnsavedResearchWarning(legs.length > 0);
   useEffect(() => {
     onSelectionChange?.(
       legs

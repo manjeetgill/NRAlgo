@@ -126,6 +126,8 @@ export function WorkspaceContent({
   onConfigureTemplate,
   spreadDraft,
   onAddSpreadLeg,
+  spreadContext,
+  onOpenBuilder,
 }: {
   page: WorkspacePage;
   workspace: WorkspaceSnapshot;
@@ -138,6 +140,18 @@ export function WorkspaceContent({
   onConfigureTemplate: (id: TemplateId) => void;
   spreadDraft?: ResearchDraft;
   onAddSpreadLeg: (contract: ChainContract, side: "buy" | "sell") => string;
+  spreadContext?: {
+    underlying: string;
+    expiry?: string;
+    day?: string;
+    spot?: number;
+  };
+  onOpenBuilder: (selection: {
+    underlying: string;
+    expiry?: string;
+    day?: string;
+    spot?: number;
+  }) => void;
 }) {
   switch (page) {
     case "Overview":
@@ -182,6 +196,7 @@ export function WorkspaceContent({
         <SpreadBuilderScreen
           csrf={workspace.csrf}
           draft={spreadDraft}
+          initialSelection={spreadContext}
           onAddLeg={onAddSpreadLeg}
         />
       );
@@ -191,7 +206,7 @@ export function WorkspaceContent({
           csrf={workspace.csrf}
           legCount={spreadDraft?.definition.legs.length ?? 0}
           onAddLeg={onAddSpreadLeg}
-          onOpenBuilder={() => onNavigate("Spread builder")}
+          onOpenBuilder={onOpenBuilder}
         />
       );
     case "Orders & trades":

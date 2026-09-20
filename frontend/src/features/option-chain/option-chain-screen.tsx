@@ -22,9 +22,19 @@ export function OptionChainScreen({
   csrf: string;
   legCount: number;
   onAddLeg: (contract: ChainContract, side: "buy" | "sell") => string;
-  onOpenBuilder: () => void;
+  onOpenBuilder: (selection: {
+    underlying: string;
+    expiry?: string;
+    day?: string;
+    spot?: number;
+  }) => void;
 }) {
   const [underlying, setUnderlying] = useState("NIFTY");
+  const [reference, setReference] = useState<{
+    spot: number;
+    expiry?: string;
+    day?: string;
+  } | null>(null);
   const [chartOpen, setChartOpen] = useState(false);
   const [essentialColumns, setEssentialColumns] = useState(true);
   /** Choose a compact initial view on phones; the user's column choice then stays in control. */
@@ -72,11 +82,12 @@ export function OptionChainScreen({
                 ? underlying
                 : "stock"
             }
-            onChange={(event) =>
+            onChange={(event) => {
+              setReference(null);
               setUnderlying(
                 event.target.value === "stock" ? "" : event.target.value,
-              )
-            }
+              );
+            }}
           >
             {["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "NIFTYNXT50"].map(
               (symbol) => (
@@ -86,7 +97,11 @@ export function OptionChainScreen({
             <option value="stock">Search stock…</option>
           </select>
         </label>
-        <Button variant="secondary" onClick={onOpenBuilder}>
+        <Button
+          variant="secondary"
+          disabled={!underlying}
+          onClick={() => onOpenBuilder({ underlying, ...reference })}
+        >
           Build payoff ({legCount})
         </Button>
         <label>
@@ -126,7 +141,10 @@ export function OptionChainScreen({
         <UnderlyingSearch
           csrf={csrf}
           selected={underlying}
-          onSelect={setUnderlying}
+          onSelect={(symbol) => {
+            setReference(null);
+            setUnderlying(symbol);
+          }}
         />
       )}
       {underlying && feed.error && (
@@ -140,6 +158,7 @@ export function OptionChainScreen({
           selectedUnderlying={underlying}
           experience="chain"
           onDataMode={setDataMode}
+          onReferenceData={setReference}
           csrf={csrf}
           ticks={dataMode === "live" ? feed.ticks : []}
           onAddLeg={onAddLeg}

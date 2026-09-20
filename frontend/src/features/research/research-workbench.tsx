@@ -9,6 +9,7 @@ import { requestApiJson } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { OptionChainPicker } from "@/components/option-chain-picker";
 import { StoredInstrumentPicker } from "@/components/stored-instrument-picker";
+import { useUnsavedResearchWarning } from "@/features/workspace/workspace-views";
 import {
   usePayoffCalculation,
   type PayoffCalculationInput,
@@ -123,6 +124,7 @@ export function ResearchWorkbench({
   onExploreOptionChain?: () => void;
 }) {
   const draftAtMount = useRef(draft);
+  const [edited, setEdited] = useState(false);
   const [definition, setDefinition] = useState<Definition>(() =>
       structuredClone(
         draft?.definition ?? createResearchDefinition(initialMarket),
@@ -163,6 +165,7 @@ export function ResearchWorkbench({
     [clock, setClock] = useState(Date.now());
   const [kotakPolling, setKotakPolling] = useState(false);
   const actionPending = useRef(false);
+  useUnsavedResearchWarning(edited && !strategyId);
   const tradeLogDialog = useRef<HTMLDialogElement>(null);
   /** Kotak live preview is explicit, bounded REST polling, not a claimed socket stream.
    * Stop on hidden tab, navigation, editing or failure; never start an order worker.
@@ -289,6 +292,7 @@ export function ResearchWorkbench({
   }, [playing, run, cursor]);
   /** Any edit invalidates fetched quote identity and the saved ID before another run or draft. */
   function edit(next: Definition) {
+    setEdited(true);
     // A late saved-library response must not overwrite a newer user edit.
     draftAtMount.current = { definition: next, savedId: "" };
     if (initialMarket === "options") {

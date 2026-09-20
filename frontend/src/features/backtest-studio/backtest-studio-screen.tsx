@@ -1,8 +1,11 @@
 "use client";
 /** Stored historical workbench. No broker login, uploaded/generated prices or execution side effects. */
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { PageActions } from "@/features/workspace/workspace-views";
+import {
+  PageActions,
+  useUnsavedResearchWarning,
+} from "@/features/workspace/workspace-views";
 import {
   strategyTemplates,
   type TemplateId,
@@ -53,6 +56,12 @@ export function BacktestStudioScreen({
     cancelJob,
     invalidateReport,
   } = useDailyBacktest(csrf);
+  const initialSettings = useRef(settings);
+  useUnsavedResearchWarning(
+    Boolean(instrument || from || to) ||
+      running ||
+      JSON.stringify(settings) !== JSON.stringify(initialSettings.current),
+  );
   /** Create a durable Python job; the hook owns polling, cancellation and result validation. */
   function onRun() {
     void run(settings);

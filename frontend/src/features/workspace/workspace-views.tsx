@@ -10,6 +10,35 @@ import { CircleHelp, Maximize, Play, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { WorkspacePage } from "./workspace-types";
 
+/** Keep unsaved research in the current editor unless the user explicitly chooses to leave.
+ * No drafts or credentials are written to browser storage, and leaving never submits a job. */
+export function useUnsavedResearchWarning(dirty: boolean) {
+  useEffect(() => {
+    if (!dirty) {
+      return;
+    }
+    const beforeNavigate = (event: Event) => {
+      if (
+        !window.confirm(
+          "Leave this research screen? Unsaved inputs and displayed results will be discarded. Cancel to keep editing.",
+        )
+      ) {
+        event.preventDefault();
+      }
+    };
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("workspace-before-navigate", beforeNavigate);
+    window.addEventListener("beforeunload", beforeUnload);
+    return () => {
+      window.removeEventListener("workspace-before-navigate", beforeNavigate);
+      window.removeEventListener("beforeunload", beforeUnload);
+    };
+  }, [dirty]);
+}
+
 /** A screen owns its commands; the shell supplies their common heading position. */
 export function PageActions({ children }: { children: ReactNode }) {
   const [target, setTarget] = useState<HTMLElement | null>(null);

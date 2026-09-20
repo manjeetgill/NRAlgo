@@ -45,6 +45,7 @@ export function WorkspaceShell({
   onSignOut: () => Promise<void>;
 }) {
   const [requestedPage, setPage] = useState<WorkspacePage>("Overview");
+  const currentPage = useRef<WorkspacePage>("Overview");
   const [openSection, setOpenSection] = useState("");
   const [tourStep, setTourStep] = useState<number | null>(null);
   const [helpRequest, setHelpRequest] = useState(0);
@@ -58,6 +59,12 @@ export function WorkspaceShell({
   const [researchStrategyId, setResearchStrategyId] = useState("");
   const [templateId, setTemplateId] = useState<TemplateId>("ema");
   const [spreadDraft, setSpreadDraft] = useState<ResearchDraft>();
+  const [spreadContext, setSpreadContext] = useState<{
+    underlying: string;
+    expiry?: string;
+    day?: string;
+    spot?: number;
+  }>();
   const tour = workspaceTour;
   const page = requestedPage;
   const sections = workspaceSections;
@@ -124,15 +131,40 @@ export function WorkspaceShell({
   }, [openSection]);
   /** Stable navigation callback lets independent screens own their effects. */
   const onNavigate = useCallback((destination: WorkspacePage) => {
+    if (
+      destination !== currentPage.current &&
+      !window.dispatchEvent(
+        new Event("workspace-before-navigate", { cancelable: true }),
+      )
+    ) {
+      return false;
+    }
+    currentPage.current = destination;
     setPage(destination);
     setOpenSection("");
     window.location.hash = getWorkspacePageHash(destination);
+    return true;
   }, []);
   /** Restore deep links and browser history; unknown or hidden destinations fail back to Overview. */
   useEffect(() => {
     function restoreLocation() {
-      const destination = resolveWorkspacePage(window.location.hash);
-      setPage(destination ?? "Overview");
+      const destination =
+        resolveWorkspacePage(window.location.hash) ?? "Overview";
+      if (
+        destination !== currentPage.current &&
+        !window.dispatchEvent(
+          new Event("workspace-before-navigate", { cancelable: true }),
+        )
+      ) {
+        window.history.replaceState(
+          null,
+          "",
+          getWorkspacePageHash(currentPage.current),
+        );
+        return;
+      }
+      currentPage.current = destination;
+      setPage(destination);
       setOpenSection("");
     }
     function closeOnEscape(event: KeyboardEvent) {
@@ -155,11 +187,16 @@ export function WorkspaceShell({
   /** Pass a saved identity in memory; research data remains owner-checked by the API. */
   const onOpenStrategy = useCallback(
     (id: string, market: "cash" | "options") => {
+      if (
+        !onNavigate(market === "options" ? "Spread builder" : "Strategy lab")
+      ) {
+        return;
+      }
       setResearchStrategyId(id);
       if (market === "options") {
         setSpreadDraft(undefined);
+        setSpreadContext(undefined);
       }
-      onNavigate(market === "options" ? "Spread builder" : "Strategy lab");
     },
     [onNavigate],
   );
@@ -177,6 +214,15 @@ export function WorkspaceShell({
         return "A spread supports at most four legs. Remove one in the builder first.";
       }
       const option = contract.option;
+      if (
+        spreadLegs.some(
+          (leg) =>
+            leg.stockCode !== contract.symbol ||
+            leg.expiryDate !== option.expiryDate,
+        )
+      ) {
+        return "Start a new spread before adding a different underlying or expiry.";
+      }
       if (
         spreadLegs.some(
           (leg) =>
@@ -220,6 +266,10 @@ export function WorkspaceShell({
             : []),
         ],
       });
+      setSpreadContext({
+        underlying: contract.symbol,
+        expiry: option.expiryDate,
+      });
       setResearchStrategyId("");
       onNavigate("Spread builder");
       return "";
@@ -229,14 +279,18 @@ export function WorkspaceShell({
   /** Template selection changes research parameters only, not broker execution state. */
   const onConfigureTemplate = useCallback(
     (id: TemplateId) => {
+      if (!onNavigate("Backtest studio")) {
+        return;
+      }
       setTemplateId(id);
-      onNavigate("Backtest studio");
     },
     [onNavigate],
   );
   function visitTourStep(index: number) {
+    if (!onNavigate(tour[index].page)) {
+      return;
+    }
     setTourStep(index);
-    onNavigate(tour[index].page);
   }
   return (
     <div className="app-shell">
@@ -466,6 +520,27 @@ export function WorkspaceShell({
               templateId={templateId}
               onConfigureTemplate={onConfigureTemplate}
               spreadDraft={spreadDraft}
+              spreadContext={spreadContext}
+              onOpenBuilder={(selection) => {
+                if (
+                  spreadDraft?.definition.legs.some(
+                    (leg) =>
+                      leg.stockCode !== selection.underlying ||
+                      (selection.expiry && leg.expiryDate !== selection.expiry),
+                  )
+                ) {
+                  if (
+                    !window.confirm(
+                      "Start a new spread with this underlying and expiry? The existing chain-selected draft will be cleared.",
+                    )
+                  ) {
+                    return;
+                  }
+                  setSpreadDraft(undefined);
+                }
+                setSpreadContext(selection);
+                onNavigate("Spread builder");
+              }}
               onAddSpreadLeg={onAddSpreadLeg}
             />
           </ScreenErrorBoundary>

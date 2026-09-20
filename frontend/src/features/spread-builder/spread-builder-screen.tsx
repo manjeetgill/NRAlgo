@@ -19,18 +19,31 @@ export function SpreadBuilderScreen({
   csrf,
   draft,
   onAddLeg,
+  initialSelection,
 }: {
   csrf: string;
   draft?: ResearchDraft;
   onAddLeg: (contract: ChainContract, side: "buy" | "sell") => string;
+  initialSelection?: {
+    underlying: string;
+    expiry?: string;
+    day?: string;
+    spot?: number;
+  };
 }) {
-  const [underlying, setUnderlying] = useState("");
+  const [underlying, setUnderlying] = useState(
+    initialSelection?.underlying ?? draft?.definition.legs[0]?.stockCode ?? "",
+  );
   const [dataMode, setDataMode] = useState<"live" | "historical">("historical");
   const [selectedLegs, setSelectedLegs] = useState<PayoffSelection[]>([]);
   const [reference, setReference] = useState<{
     spot: number;
     day?: string;
-  } | null>(null);
+  } | null>(
+    initialSelection?.spot
+      ? { spot: initialSelection.spot, day: initialSelection.day }
+      : null,
+  );
   const onReferenceData = useCallback(
     (value: { spot: number; day?: string }) => setReference(value),
     [],
@@ -50,6 +63,15 @@ export function SpreadBuilderScreen({
             <Button
               variant="secondary"
               onClick={() => {
+                if (
+                  !window.dispatchEvent(
+                    new Event("workspace-before-navigate", {
+                      cancelable: true,
+                    }),
+                  )
+                ) {
+                  return;
+                }
                 setUnderlying("");
                 setReference(null);
               }}
@@ -58,15 +80,32 @@ export function SpreadBuilderScreen({
             </Button>
           </div>
         ) : (
-          <UnderlyingSearch
-            csrf={csrf}
-            selected={underlying}
-            onSelect={(symbol) => {
-              setReference(null);
-              setUnderlying(symbol);
-            }}
-            experience="builder"
-          />
+          <div className="screen-stack">
+            <div
+              className="screen-toolbar"
+              role="group"
+              aria-label="Quick index selection"
+            >
+              {["NIFTY", "BANKNIFTY", "FINNIFTY"].map((symbol) => (
+                <Button
+                  key={symbol}
+                  variant="secondary"
+                  onClick={() => setUnderlying(symbol)}
+                >
+                  {symbol}
+                </Button>
+              ))}
+            </div>
+            <UnderlyingSearch
+              csrf={csrf}
+              selected={underlying}
+              onSelect={(symbol) => {
+                setReference(null);
+                setUnderlying(symbol);
+              }}
+              experience="builder"
+            />
+          </div>
         )}
       </section>
       {underlying && (
@@ -80,6 +119,16 @@ export function SpreadBuilderScreen({
             <LiveOptionChain
               key={underlying}
               selectedUnderlying={underlying}
+              initialExpiry={
+                underlying === initialSelection?.underlying
+                  ? initialSelection.expiry
+                  : undefined
+              }
+              asOf={
+                underlying === initialSelection?.underlying
+                  ? initialSelection.day
+                  : undefined
+              }
               csrf={csrf}
               ticks={feed.ticks}
               onAddLeg={onAddLeg}

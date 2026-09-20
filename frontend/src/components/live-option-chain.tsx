@@ -102,6 +102,7 @@ export function LiveOptionChain({
   onTrade,
   analytics = false,
   essentialColumns = false,
+  initialExpiry,
 }: {
   csrf: string;
   ticks: LiveTick[];
@@ -119,10 +120,15 @@ export function LiveOptionChain({
   experience?: "builder" | "chain";
   asOf?: string;
   onDataMode?: (mode: "live" | "historical") => void;
-  onReferenceData?: (reference: { spot: number; day?: string }) => void;
+  onReferenceData?: (reference: {
+    spot: number;
+    day?: string;
+    expiry?: string;
+  }) => void;
   onTrade?: (contract: ChainContract, side: "buy" | "sell") => void;
   analytics?: boolean;
   essentialColumns?: boolean;
+  initialExpiry?: string;
 }) {
   const detailDialog = useRef<HTMLDialogElement>(null);
   const [selectedToken, setSelectedToken] = useState("");
@@ -262,7 +268,11 @@ export function LiveOptionChain({
           return;
         }
         setExpiries(result.expiries);
-        setExpiry(result.expiries[0] || "");
+        setExpiry(
+          initialExpiry && result.expiries.includes(initialExpiry)
+            ? initialExpiry
+            : result.expiries[0] || "",
+        );
         setSourceInfo({
           source: result.source,
           dataMode: result.dataMode,
@@ -292,7 +302,7 @@ export function LiveOptionChain({
     return () => {
       generation.current = current + 1;
     };
-  }, [underlying, read, workspaceBody, onDataMode]);
+  }, [underlying, read, workspaceBody, onDataMode, initialExpiry]);
 
   /** Load one strike page and subscribe its contracts; cleanup invalidates results without stopping the shared feed. */
   useEffect(() => {
@@ -410,6 +420,7 @@ export function LiveOptionChain({
           onReferenceData?.({
             spot: result.underlyingPrice,
             day: result.sessionDay,
+            expiry,
           });
         }
         if (result.items.length && result.dataMode !== "historical") {
