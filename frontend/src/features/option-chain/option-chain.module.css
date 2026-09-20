@@ -70,6 +70,17 @@
   border-spacing: 0;
   font-size: 12px;
 }
+/* Essential mode uses a real three-column table, not a clipped desktop table. */
+.workspace :global(.analytics-chain table.chain-essentials) {
+  min-width: 0;
+  table-layout: fixed;
+}
+.workspace :global(.chain-essentials .chain-price-button) {
+  min-height: 44px;
+  width: 100%;
+  color: #244caa;
+  font-weight: 650;
+}
 .workspace :global(.analytics-chain td),
 .workspace :global(.analytics-chain th) {
   padding: 6px 5px;

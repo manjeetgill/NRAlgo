@@ -101,6 +101,7 @@ export function LiveOptionChain({
   onReferenceData,
   onTrade,
   analytics = false,
+  essentialColumns = false,
 }: {
   csrf: string;
   ticks: LiveTick[];
@@ -121,6 +122,7 @@ export function LiveOptionChain({
   onReferenceData?: (reference: { spot: number; day?: string }) => void;
   onTrade?: (contract: ChainContract, side: "buy" | "sell") => void;
   analytics?: boolean;
+  essentialColumns?: boolean;
 }) {
   const detailDialog = useRef<HTMLDialogElement>(null);
   const [selectedToken, setSelectedToken] = useState("");
@@ -497,12 +499,12 @@ export function LiveOptionChain({
         title={item?.symbol}
       >
         {item ? (
-          compact ? (
+          compact && !analytics ? (
             <span className="chain-price-static">{amount(item.price)}</span>
           ) : (
             <button
               className="chain-price-button"
-              aria-label={`Inspect ${item.symbol} ${item.option?.strikePrice} ${right}`}
+              aria-label={`Inspect ${item.symbol} ${item.option?.expiryDate} ${item.option?.strikePrice} ${right}`}
               onClick={() => {
                 setSelectedToken(item.instrument);
                 setDraftError("");
@@ -515,7 +517,7 @@ export function LiveOptionChain({
         ) : (
           "—"
         )}
-        {!current && (
+        {!current && sourceInfo.dataMode !== "historical" && (
           <small>
             {!item ? "—" : item.tickAt || item.stale ? "Stale" : "Snapshot"}
           </small>
@@ -545,6 +547,10 @@ export function LiveOptionChain({
     const vega = greekCell("Vega", greek?.vega, 2);
     const theta = greekCell("Theta", greek?.theta, 2);
     const delta = greekCell("Delta", greek?.delta, 3);
+    // The essential view keeps both premiums and the strike visible; details retain actions and analytics.
+    if (analytics && essentialColumns) {
+      return mark;
+    }
     if (analytics) {
       const actions = (
         <td className="chain-trade-actions">
@@ -552,7 +558,7 @@ export function LiveOptionChain({
             <>
               <button
                 type="button"
-                aria-label={`Buy ${item.symbol}`}
+                aria-label={`Review buy ${item.symbol} ${item.option?.expiryDate} ${item.option?.strikePrice} ${right}`}
                 disabled={sourceInfo.dataMode === "historical" || !onTrade}
                 onClick={() => onTrade?.(item, "buy")}
               >
@@ -560,7 +566,7 @@ export function LiveOptionChain({
               </button>
               <button
                 type="button"
-                aria-label={`Sell ${item.symbol}`}
+                aria-label={`Review sell ${item.symbol} ${item.option?.expiryDate} ${item.option?.strikePrice} ${right}`}
                 disabled={sourceInfo.dataMode === "historical" || !onTrade}
                 onClick={() => onTrade?.(item, "sell")}
               >
@@ -845,6 +851,27 @@ export function LiveOptionChain({
               </div>
             )}
             <p>Adding a leg opens research. It does not place an order.</p>
+            {onTrade && sourceInfo.dataMode === "live" && (
+              <div className="screen-toolbar">
+                <Button
+                  onClick={() => {
+                    detailDialog.current?.close();
+                    onTrade(selected, "buy");
+                  }}
+                >
+                  Review buy order
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    detailDialog.current?.close();
+                    onTrade(selected, "sell");
+                  }}
+                >
+                  Review sell order
+                </Button>
+              </div>
+            )}
           </>
         ) : (
           <p>This contract is no longer in the current chain selection.</p>
@@ -970,11 +997,13 @@ export function LiveOptionChain({
         className="table-wrap chain-scroll"
         onScroll={(event) => loadMoreContracts(event.currentTarget)}
       >
-        <table>
+        <table className={essentialColumns ? "chain-essentials" : undefined}>
           <thead>
             <tr>
               <th
-                colSpan={analytics ? 8 : compact ? 2 : 6}
+                colSpan={
+                  analytics ? (essentialColumns ? 1 : 8) : compact ? 2 : 6
+                }
                 className="chain-call-heading"
               >
                 CALLS
@@ -982,16 +1011,23 @@ export function LiveOptionChain({
               <th rowSpan={2} className="chain-strike">
                 Strike
               </th>
-              {analytics && <th rowSpan={2}>PCR</th>}
+              {analytics && !essentialColumns && <th rowSpan={2}>PCR</th>}
               <th
-                colSpan={analytics ? 7 : compact ? 2 : 6}
+                colSpan={
+                  analytics ? (essentialColumns ? 1 : 7) : compact ? 2 : 6
+                }
                 className="chain-put-heading"
               >
                 PUTS
               </th>
             </tr>
             <tr>
-              {analytics ? (
+              {analytics && essentialColumns ? (
+                <>
+                  <th>Call premium ₹</th>
+                  <th>Put premium ₹</th>
+                </>
+              ) : analytics ? (
                 <>
                   {[
                     "Gamma",
@@ -1047,7 +1083,7 @@ export function LiveOptionChain({
                   <th className="chain-strike">
                     {strike.toLocaleString("en-IN")}
                   </th>
-                  {analytics && (
+                  {analytics && !essentialColumns && (
                     <td>
                       {pair.call?.openInterest !== null &&
                       pair.call?.openInterest !== undefined &&

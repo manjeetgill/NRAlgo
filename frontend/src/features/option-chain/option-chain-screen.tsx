@@ -26,6 +26,12 @@ export function OptionChainScreen({
 }) {
   const [underlying, setUnderlying] = useState("NIFTY");
   const [chartOpen, setChartOpen] = useState(false);
+  const [essentialColumns, setEssentialColumns] = useState(true);
+  /** Choose a compact initial view on phones; the user's column choice then stays in control. */
+  useEffect(
+    () => setEssentialColumns(window.matchMedia("(max-width: 760px)").matches),
+    [],
+  );
   const [dataMode, setDataMode] = useState<"live" | "historical" | null>(null);
   const feed = useMarketFeed(csrf, Boolean(underlying) && dataMode === "live");
   const brokers = useBrokerRegistry(csrf, null);
@@ -81,8 +87,20 @@ export function OptionChainScreen({
           </select>
         </label>
         <Button variant="secondary" onClick={onOpenBuilder}>
-          Builder ({legCount})
+          Build payoff ({legCount})
         </Button>
+        <label>
+          Columns
+          <select
+            value={essentialColumns ? "essential" : "all"}
+            onChange={(event) =>
+              setEssentialColumns(event.target.value === "essential")
+            }
+          >
+            <option value="essential">Premiums & strike</option>
+            <option value="all">All columns & Greeks</option>
+          </select>
+        </label>
         <div className={styles.broker}>
           <span>
             For live trading:{" "}
@@ -94,6 +112,14 @@ export function OptionChainScreen({
         </div>
       </div>
       {brokers.error && <p role="alert">{brokers.error}</p>}
+      <p className={styles.notes}>
+        Select a premium to inspect the contract or add a payoff leg.{" "}
+        {dataMode === "historical"
+          ? "Historical snapshot: live order review is unavailable."
+          : activeBroker?.status !== "connected"
+            ? "Connect your execution broker to review live orders."
+            : "B / S opens order review; it never submits immediately."}
+      </p>
       {!["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "NIFTYNXT50"].includes(
         underlying,
       ) && (
@@ -119,6 +145,7 @@ export function OptionChainScreen({
           onAddLeg={onAddLeg}
           compact
           analytics
+          essentialColumns={essentialColumns}
           onTrade={
             activeBroker?.status === "connected" && dataMode === "live"
               ? (contract, side) => setOrder({ contract, side })
@@ -130,7 +157,8 @@ export function OptionChainScreen({
         <summary>Data & order information</summary>
         <p>
           B / S opens live order review; selecting a row never submits an order.
-          Greeks and IV are shown only when supplied by the source.
+          IV and Greeks are calculated from available premiums and are not
+          guaranteed executable values.
         </p>
       </details>
       {!underlying && (
