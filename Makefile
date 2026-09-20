@@ -38,11 +38,15 @@ status:
 	$(COMPOSE) ps
 
 # Builds are explicit and local; this target never deploys or contacts a real broker.
-.PHONY: recovery-images recovery-check
+.PHONY: recovery-images recovery-check sync-market-data
 recovery-images:
 	docker build --target backend -t nraialgo-recovery-backend:local .
 	docker build --target calculation -t nraialgo-recovery-calculation:local .
 	docker build --target web -t nraialgo-recovery-web:local .
 	docker build --target backup -t nraialgo-recovery-backup:local .
+	docker build --target market-data -t nraialgo-recovery-market-data:local .
 recovery-check:
 	node scripts/staging-recovery.mjs
+sync-market-data:
+	$(MAKE) preflight
+	$(COMPOSE) --profile maintenance run --rm --no-deps market-data

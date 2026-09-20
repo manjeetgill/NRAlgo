@@ -36,6 +36,106 @@ export interface CatalogInstrument {
     lotSize: number;
   };
 }
+/** Kite's instrument_token (not exchange_token) identifies contracts. Only NSE EQ and NFO CE/PE are executable. */
+export function parseZerodhaInstruments(
+  market: "cash" | "options",
+  raw: unknown,
+): CatalogInstrument[] {
+  // Ignore out-of-scope rows before requiring executable lot/tick/expiry fields (indices have no tradable tick).
+  const supported = z
+    .array(z.record(z.string(), z.unknown()))
+    .min(1)
+    .max(250000)
+    .parse(raw)
+    .filter((row) =>
+      market === "cash"
+        ? row.exchange === "NSE" &&
+          row.segment === "NSE" &&
+          row.instrument_type === "EQ"
+        : row.exchange === "NFO" &&
+          row.segment === "NFO-OPT" &&
+          ["CE", "PE"].includes(String(row.instrument_type)),
+    );
+  const rows = z
+    .array(
+      z.object({
+        instrument_token: z.coerce.number().int().positive().safe(),
+        tradingsymbol: z.string().min(1).max(120),
+        name: z.string(),
+        exchange: z.string(),
+        segment: z.string(),
+        instrument_type: z.string(),
+        lot_size: z.number().int().positive().max(10000),
+        tick_size: z.number().positive(),
+        expiry: z.union([z.string(), z.date()]),
+        strike: z.number().nonnegative(),
+      }),
+    )
+    .min(1)
+    .max(250000)
+    .parse(supported);
+  const seen = new Set<string>();
+  return rows.flatMap((row) => {
+    if (
+      market === "cash"
+        ? row.exchange !== "NSE" ||
+          row.segment !== "NSE" ||
+          row.instrument_type !== "EQ"
+        : row.exchange !== "NFO" ||
+          row.segment !== "NFO-OPT" ||
+          !["CE", "PE"].includes(row.instrument_type)
+    ) {
+      return [];
+    }
+    const tickPaise = Math.round(row.tick_size * 100);
+    if (
+      !Number.isSafeInteger(tickPaise) ||
+      tickPaise <= 0 ||
+      Math.abs(row.tick_size * 100 - tickPaise) > 0.0001
+    ) {
+      throw new Error("Invalid Kite tick size");
+    }
+    const masterToken = `zerodha:${market}:${row.instrument_token}`;
+    if (seen.has(masterToken)) {
+      throw new Error("Duplicate Kite instrument");
+    }
+    seen.add(masterToken);
+    const expiryDate =
+      row.expiry instanceof Date
+        ? tradingDay(row.expiry.getTime())
+        : row.expiry.slice(0, 10);
+    if (
+      market === "options" &&
+      (!z.iso.date().safeParse(expiryDate).success || row.strike <= 0)
+    ) {
+      throw new Error("Invalid Kite option contract");
+    }
+    return [
+      {
+        masterToken,
+        instrument: String(row.instrument_token),
+        symbol: market === "cash" ? row.tradingsymbol : row.name,
+        name: row.tradingsymbol,
+        market,
+        lotSize: row.lot_size,
+        tickPaise,
+        ...(market === "options"
+          ? {
+              option: {
+                expiryDate,
+                strikePrice: row.strike,
+                right:
+                  row.instrument_type === "CE"
+                    ? ("call" as const)
+                    : ("put" as const),
+                lotSize: row.lot_size,
+              },
+            }
+          : {}),
+      },
+    ];
+  });
+}
 /** Reject redirects, credentials, query strings, lookalike hosts and non-master paths. */
 export function validateKotakMasterUrl(
   value: unknown,
@@ -263,15 +363,20 @@ export class InstrumentCatalog {
       : undefined;
   }
   /** Check master freshness before resolving contracts; stale metadata cannot authorize execution. */
-  public isFresh(broker: MarketDataBroker, market: "cash" | "options") {
+  public isFresh(
+    broker: MarketDataBroker | "zerodha",
+    market: "cash" | "options",
+  ) {
     return Boolean(this.current(`${broker}:${market}`));
   }
   /** Live execution never trusts client-supplied symbols, tick sizes or lot sizes. */
   public resolveLive(masterToken: string) {
-    const match = /^kotak:(cash|options):[1-9]\d{0,14}$/.exec(masterToken);
+    const match = /^(kotak|zerodha):(cash|options):[1-9]\d{0,14}$/.exec(
+      masterToken,
+    );
     const row =
       match &&
-      this.current(`kotak:${match[1]}`)?.rows.find(
+      this.current(`${match[1]}:${match[2]}`)?.rows.find(
         (r) => r.masterToken === masterToken,
       );
     if (
@@ -280,10 +385,36 @@ export class InstrumentCatalog {
       (row.option && row.option.expiryDate < tradingDay(Date.now()))
     ) {
       throw new Error(
-        "Reload Kotak master; a current contract with a verified tick size is required",
+        "Reload the broker master; a current contract with a verified tick size is required",
       );
     }
     return row;
+  }
+  /** Cache only public, validated Kite metadata; session/credentials remain in the caller. */
+  public async loadZerodha(
+    market: "cash" | "options",
+    read: () => Promise<unknown>,
+  ) {
+    if (this.isFresh("zerodha", market)) {
+      return;
+    }
+    const key = `zerodha:${market}`;
+    if (this.pending.has(key)) {
+      return this.pending.get(key);
+    }
+    const work = (async () => {
+      const rows = parseZerodhaInstruments(market, await read());
+      if (!rows.length) {
+        throw new Error("No supported Kite contracts");
+      }
+      this.cache.set(key, { rows, fetchedAt: Date.now() });
+    })();
+    this.pending.set(key, work);
+    try {
+      await work;
+    } finally {
+      this.pending.delete(key);
+    }
   }
   /** Single-flight downloads prevent simultaneous searches from multiplying large public fetches. */
   public async load(
@@ -314,7 +445,7 @@ export class InstrumentCatalog {
     }
   }
   /** Return bounded pages plus expiry facets; master listings do not imply executable quotes. */
-  public search(broker: MarketDataBroker, input: InstrumentSearch) {
+  public search(broker: MarketDataBroker | "zerodha", input: InstrumentSearch) {
     const data = this.current(`${broker}:${input.market}`);
     if (!data) {
       throw new Error("Reload instrument search; master cache expired.");

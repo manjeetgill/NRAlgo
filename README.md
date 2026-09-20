@@ -43,22 +43,22 @@ Signing out ends the app session; do not assume the app can continue managing li
 
 Routes below are appended to the app origin, for example `http://localhost:3000/#/spread-builder`.
 
-| Menu | Screen | Route | Main purpose |
-| --- | --- | --- | --- |
-| Overview | Overview | `/#/overview` | Account summary, disclosures and readiness |
-| Strategies | Strategies | `/#/strategies` | Find and reopen saved research definitions |
-| Strategies | Strategy library | `/#/strategy-library` | Review signal rules and configure a backtest |
-| Strategies | Algo lab | `/#/algo-lab` | Save and test daily cash-basket research |
-| Strategies | Spread builder | `/#/spread-builder` | Build option legs and calculate payoff scenarios |
-| Backtesting | Backtest studio | `/#/backtest-studio` | Run daily EMA, RSI or breakout backtests |
-| Markets | Watchlists | `/#/watchlists` | Organize stored instruments and inspect charts |
-| Markets | Portfolio | `/#/portfolio` | Read one or consolidated broker portfolios |
-| Markets | Option chain | `/#/option-chain` | Inspect contracts, Greeks and research/order handoff |
-| Trading | Orders & trades | `/#/orders` | Inspect app-managed orders and acknowledged fills |
-| Trading | Live positions | `/#/live-positions` | Monitor tracked exposure and execution controls |
-| Settings | Broker connections | `/#/brokers` | Authorize, verify, disconnect and select brokers |
-| Settings | Account & security | `/#/security` | MFA, password and app sessions |
-| Settings | Audit log | `/#/audit` | Filter, inspect and export recorded events |
+| Menu        | Screen             | Route                 | Main purpose                                         |
+| ----------- | ------------------ | --------------------- | ---------------------------------------------------- |
+| Overview    | Overview           | `/#/overview`         | Account summary, disclosures and readiness           |
+| Strategies  | Strategies         | `/#/strategies`       | Find and reopen saved research definitions           |
+| Strategies  | Strategy library   | `/#/strategy-library` | Review signal rules and configure a backtest         |
+| Strategies  | Algo lab           | `/#/algo-lab`         | Save and test daily cash-basket research             |
+| Strategies  | Spread builder     | `/#/spread-builder`   | Build option legs and calculate payoff scenarios     |
+| Backtesting | Backtest studio    | `/#/backtest-studio`  | Run daily EMA, RSI or breakout backtests             |
+| Markets     | Watchlists         | `/#/watchlists`       | Organize stored instruments and inspect charts       |
+| Markets     | Portfolio          | `/#/portfolio`        | Read one or consolidated broker portfolios           |
+| Markets     | Option chain       | `/#/option-chain`     | Inspect contracts, Greeks and research/order handoff |
+| Trading     | Orders & trades    | `/#/orders`           | Inspect app-managed orders and acknowledged fills    |
+| Trading     | Live positions     | `/#/live-positions`   | Monitor tracked exposure and execution controls      |
+| Settings    | Broker connections | `/#/brokers`          | Authorize, verify, disconnect and select brokers     |
+| Settings    | Account & security | `/#/security`         | MFA, password and app sessions                       |
+| Settings    | Audit log          | `/#/audit`            | Filter, inspect and export recorded events           |
 
 Expand a grouped sidebar menu to choose a screen. The header also offers theme selection, full screen, account access, help and the product tour. Browser Back/Forward and fragment bookmarks identify screens, not saved form state. Read unsaved-change warnings before leaving an editor.
 
@@ -226,7 +226,20 @@ This is read-only portfolio reporting. It does not rebalance or transfer positio
 5. Use **Verify Zerodha session** and confirm the account/expiry shown.
 6. Account reports are read-only. The builder also has a bounded instrument-master/quote-snapshot adapter; quote access depends on the Kite app's permission. This is not a Zerodha streaming or order-execution adapter.
 
-Some broker-card text still says Zerodha market-data screens are not integrated. That wording predates the builder snapshot adapter; it must not be interpreted as live-stream or order-execution support. A successful login/profile read does not establish that quote access is allowed.
+Zerodha builder snapshots are not a live chart stream. Guarded order execution is a separate capability described under Broker and order safety; it uses fresh server-side depth, not builder snapshot premiums. A successful login/profile read does not establish that quote access or live authorization is available.
+
+**ICICI Direct Breeze**
+
+1. Create a Breeze application in ICICI Direct and register the deployment's static IP where required by ICICI.
+2. Generate the daily Breeze session key, then enter the API key, secret key and session key under **Settings → Broker connections**.
+3. A successful connection registers the irreversible account binding and requests NSE/NFO holdings, positions and funds for the first portfolio snapshot.
+4. The app caps the session at the next India-time midnight or the app-login expiry, whichever is earlier. Login and restart restoration must pass a signed, read-only Breeze funds request before the connection is published. No renewal is inferred from a successful verification; reconnect with a fresh session key when needed. Connecting never enables live orders.
+5. Breeze currently documents NSE/NFO only. BSE and MCX are not exposed by Breeze, so MCX positions cannot appear through this adapter and are labelled unsupported rather than treated as an empty book.
+
+ICICI disconnect immediately invalidates pending verification and existing readers, then
+finishes ordered encrypted-session/registry cleanup. Late network replies cannot reconnect
+the account. The daily login key is excluded from saved app credentials; broker tokens remain
+inside the encrypted session store. Signed verification follows the [official Breeze SDK](https://github.com/Idirect-Tech/Breeze-Python-SDK/blob/main/breeze_connect/breeze_connect.py).
 
 **Changing the active live broker**
 
@@ -306,46 +319,46 @@ The UI is a view of recorded events, not proof that every external broker action
 
 ## Data labels and calculation terms
 
-| Term | Meaning in this app |
-| --- | --- |
-| Live | Provider-supported current data; still inspect timestamps and connection health |
-| Snapshot | An observation captured at a stated time, not a continuously updating stream |
-| NSE closing data | Stored exchange end-of-day values for the displayed session; not intraday executable prices |
-| Spot | Underlying reference price, not the option premium |
-| Premium | Entered/observed price per option unit; total premium depends on units |
-| Lot size / lots / units | Exchange units per lot / chosen lot count / their product |
-| IV | Volatility input or estimate, depending on screen; not guaranteed future volatility |
-| Expiry payoff | Outcome at expiration calculated from strikes, sides, units and entered premiums |
-| Target-date P&L | Model estimate before expiry using time, volatility and other assumptions |
-| Delta / gamma / theta / vega | Model sensitivities, not account limits or guaranteed moves |
-| Net debit / credit | Premium paid / received for the research basket, not broker margin |
-| Reconciliation | Comparing tracked execution with broker books; discrepancies can block trading |
-| Armed / enabled | Temporary explicit execution permission, separate from broker connection |
-| Halted / unknown | A state requiring investigation, not an invitation to retry submissions |
+| Term                         | Meaning in this app                                                                         |
+| ---------------------------- | ------------------------------------------------------------------------------------------- |
+| Live                         | Provider-supported current data; still inspect timestamps and connection health             |
+| Snapshot                     | An observation captured at a stated time, not a continuously updating stream                |
+| NSE closing data             | Stored exchange end-of-day values for the displayed session; not intraday executable prices |
+| Spot                         | Underlying reference price, not the option premium                                          |
+| Premium                      | Entered/observed price per option unit; total premium depends on units                      |
+| Lot size / lots / units      | Exchange units per lot / chosen lot count / their product                                   |
+| IV                           | Volatility input or estimate, depending on screen; not guaranteed future volatility         |
+| Expiry payoff                | Outcome at expiration calculated from strikes, sides, units and entered premiums            |
+| Target-date P&L              | Model estimate before expiry using time, volatility and other assumptions                   |
+| Delta / gamma / theta / vega | Model sensitivities, not account limits or guaranteed moves                                 |
+| Net debit / credit           | Premium paid / received for the research basket, not broker margin                          |
+| Reconciliation               | Comparing tracked execution with broker books; discrepancies can block trading              |
+| Armed / enabled              | Temporary explicit execution permission, separate from broker connection                    |
+| Halted / unknown             | A state requiring investigation, not an invitation to retry submissions                     |
 
 Dates tied to exchange sessions use IST. Daily candles, option closing observations, broker portfolio snapshots and manually entered premiums are separate datasets. Importing one does not automatically populate the others.
 
 ## Troubleshooting
 
-| Symptom | Safe checks and next step |
-| --- | --- |
-| App will not open | Confirm the local launcher is running and port 3000 is ready. Check terminal errors. Do not launch duplicate stacks or terminate unrelated processes blindly. |
-| Stuck on Loading screen after a restart | Wait for frontend readiness, then reload once. A stale client chunk can need a reload; persistent failure needs browser/server error inspection. Unsaved drafts may be lost. |
-| Search shows no scrips | Type at least two characters, select the right catalog and check provider/import availability. Cash history is not an option master. |
-| Builder has contracts but no premiums | Check source/warning and broker quote permissions. A working account login does not guarantee market-data access. Use an explicitly labelled valid closing snapshot for research, never a guessed live price. |
-| Zerodha quote-access warning | Check the configured Kite app's market-data entitlement and account authorization. The app cannot grant provider permissions. Repeated refreshes will not fix a permission denial. |
-| Only old closing data appears | Inspect its date. The app does not automatically fetch a new closing archive through Refresh quotes; the operator must update stored data. |
-| Expiry or stock absent | Only listed/imported contracts are available. Check exact symbol and nearest unexpired dates; do not invent a contract or use another broker's token. |
-| Add leg rejected | Check duplicate contract, maximum 12 legs, verified lot size and common underlying/expiry. Start a new spread only if discarding the current one is intended. |
-| Payoff absent | Add/enable a valid leg; check positive spot/strike, premium, units, dates and target range. Read the calculation error. Then check private calculator readiness. |
-| Payoff is nonzero at unchanged spot | Default/editor IV is not fitted to the premium. Compare expiry payoff separately from target-date model value. |
-| Backtest Run disabled | Load history, fix parameter validation, provide enough warm-up candles and read the readiness explanation. Server live mode can pause heavy research. |
-| Calculation service unavailable/busy | Check port 8010 locally and `/api/ready`; inspect bounded worker errors. Do not add unlimited workers or retry large jobs repeatedly. |
-| Portfolio missing/partial | Verify each broker session and the section-specific refresh status. Missing funds/holdings do not equal zero. |
-| MFA code rejected | Check automatic phone time, correct NRIAlgo account and whether that code was already consumed. Wait for a fresh code or use an unused recovery code; respect lockout. |
-| Broker connected but order controls unavailable | Verify execution support, active selection, server flags, MFA, risk limits, reconciliation and temporary authorization. Connection alone is insufficient. |
-| Order unknown or reconcile halted | Stop new submissions. Inspect broker books and server diagnostics; resolve uncertainty without deleting audit rows or resetting state blindly. |
-| Cancel/disable clicked but position remains | Cancellation concerns pending orders, not filled exposure. Check broker confirmation and manage any intended exit explicitly. |
+| Symptom                                         | Safe checks and next step                                                                                                                                                                                     |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| App will not open                               | Confirm the local launcher is running and port 3000 is ready. Check terminal errors. Do not launch duplicate stacks or terminate unrelated processes blindly.                                                 |
+| Stuck on Loading screen after a restart         | Wait for frontend readiness, then reload once. A stale client chunk can need a reload; persistent failure needs browser/server error inspection. Unsaved drafts may be lost.                                  |
+| Search shows no scrips                          | Type at least two characters, select the right catalog and check provider/import availability. Cash history is not an option master.                                                                          |
+| Builder has contracts but no premiums           | Check source/warning and broker quote permissions. A working account login does not guarantee market-data access. Use an explicitly labelled valid closing snapshot for research, never a guessed live price. |
+| Zerodha quote-access warning                    | Check the configured Kite app's market-data entitlement and account authorization. The app cannot grant provider permissions. Repeated refreshes will not fix a permission denial.                            |
+| Only old closing data appears                   | Inspect its date. The app does not automatically fetch a new closing archive through Refresh quotes; the operator must update stored data.                                                                    |
+| Expiry or stock absent                          | Only listed/imported contracts are available. Check exact symbol and nearest unexpired dates; do not invent a contract or use another broker's token.                                                         |
+| Add leg rejected                                | Check duplicate contract, maximum 12 legs, verified lot size and common underlying/expiry. Start a new spread only if discarding the current one is intended.                                                 |
+| Payoff absent                                   | Add/enable a valid leg; check positive spot/strike, premium, units, dates and target range. Read the calculation error. Then check private calculator readiness.                                              |
+| Payoff is nonzero at unchanged spot             | Default/editor IV is not fitted to the premium. Compare expiry payoff separately from target-date model value.                                                                                                |
+| Backtest Run disabled                           | Load history, fix parameter validation, provide enough warm-up candles and read the readiness explanation. Server live mode can pause heavy research.                                                         |
+| Calculation service unavailable/busy            | Check port 8010 locally and `/api/ready`; inspect bounded worker errors. Do not add unlimited workers or retry large jobs repeatedly.                                                                         |
+| Portfolio missing/partial                       | Verify each broker session and the section-specific refresh status. Missing funds/holdings do not equal zero.                                                                                                 |
+| MFA code rejected                               | Check automatic phone time, correct NRIAlgo account and whether that code was already consumed. Wait for a fresh code or use an unused recovery code; respect lockout.                                        |
+| Broker connected but order controls unavailable | Verify execution support, active selection, server flags, MFA, risk limits, reconciliation and temporary authorization. Connection alone is insufficient.                                                     |
+| Order unknown or reconcile halted               | Stop new submissions. Inspect broker books and server diagnostics; resolve uncertainty without deleting audit rows or resetting state blindly.                                                                |
+| Cancel/disable clicked but position remains     | Cancellation concerns pending orders, not filled exposure. Check broker confirmation and manage any intended exit explicitly.                                                                                 |
 
 When reporting a bug, include screen/route, exact steps, expected versus actual behavior, source/date labels, sanitized error/request ID and whether the data was live or a snapshot. Remove passwords, account identifiers, setup keys, OTPs, tokens and private portfolio details from screenshots/logs. Never attach `.env` or a database dump to a public issue.
 
@@ -378,20 +391,20 @@ For cash/index history, inspect `scripts/import-local-eod.mjs` usage and its exp
 
 Run this with live execution disabled. Use disposable research drafts; do not change the active broker, revoke sessions or submit orders merely to test navigation.
 
-| Check | Expected result |
-| --- | --- |
-| Sign in and open each sidebar section | Correct breadcrumb/screen, no blank page or endless loading |
-| Overview with an unavailable account section | Explicit unavailable/partial message, not a fabricated zero |
-| Builder → NIFTY → current expiry → add one leg | Premium, lot size, spot/date and payoff present |
-| Builder → clear test draft → RELIANCE → next expiry | Stock contracts load if covered; expiry and premiums update |
-| Change lots, disable/re-enable a test leg, choose scenario table | Quantity/results respond; no broker order is created |
-| Invalid target price or insufficient backtest warm-up | Actionable validation rather than a generic success |
-| Library template → Backtest studio → load stored history | Exact instrument, dates, candle count and assumptions shown |
-| Algo lab save/reopen a disposable definition | Saved inputs preserved; unsaved-change choice respected |
-| Watchlist row → chart | Correct stored instrument and coverage; missing volume/history disclosed |
-| Portfolio/Orders with unsupported or disconnected provider | Honest unavailable/stale status and useful navigation |
-| Audit filters and event dialog | Matching visible events; clear/close/Escape work |
-| Open and close security/broker forms without submission | No unintended connection, credential or permission changes |
+| Check                                                            | Expected result                                                          |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| Sign in and open each sidebar section                            | Correct breadcrumb/screen, no blank page or endless loading              |
+| Overview with an unavailable account section                     | Explicit unavailable/partial message, not a fabricated zero              |
+| Builder → NIFTY → current expiry → add one leg                   | Premium, lot size, spot/date and payoff present                          |
+| Builder → clear test draft → RELIANCE → next expiry              | Stock contracts load if covered; expiry and premiums update              |
+| Change lots, disable/re-enable a test leg, choose scenario table | Quantity/results respond; no broker order is created                     |
+| Invalid target price or insufficient backtest warm-up            | Actionable validation rather than a generic success                      |
+| Library template → Backtest studio → load stored history         | Exact instrument, dates, candle count and assumptions shown              |
+| Algo lab save/reopen a disposable definition                     | Saved inputs preserved; unsaved-change choice respected                  |
+| Watchlist row → chart                                            | Correct stored instrument and coverage; missing volume/history disclosed |
+| Portfolio/Orders with unsupported or disconnected provider       | Honest unavailable/stale status and useful navigation                    |
+| Audit filters and event dialog                                   | Matching visible events; clear/close/Escape work                         |
+| Open and close security/broker forms without submission          | No unintended connection, credential or permission changes               |
 
 Separately, an operator must perform the deployment/recovery checks below. A UI smoke pass cannot establish broker fill behavior, numerical correctness for every strategy, backup recoverability or production security.
 
@@ -448,39 +461,39 @@ Modules document their responsibility at the relevant component, class or functi
 
 Consolidated frontend modules have explicit owners: `features/overview/account-model.ts` holds shared account contracts and display valuation; `lib/stored-market-data.ts` validates stored instruments and daily reads; `features/workspace/workspace-views.tsx` groups reusable page commands, error containment and help. Snapshot validation stays private to `use-workspace-session.ts`. Broker views share `broker-hooks.ts`; presentation never owns live-order authorization.
 
-| Location                                                                 | Responsibility                                                                                                                                                          |
-| ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `backend/main.ts`                                                        | Express composition, session/authentication and protected route registration                                                                                            |
-| `backend/database.ts`, `types.ts`, `local-database.ts`                   | Schema migrations, database contracts and development PostgreSQL lifecycle                                                                                              |
-| `backend/backup.ts`, `import-legacy-sqlite.ts`                           | Encrypted backup/restore and explicit legacy migration; not request handlers                                                                                            |
-| `backend/security.ts`, `mfa.ts`                                          | Password/session protections, second factor and credential encryption                                                                                                   |
-| `backend/broker-registry.ts`, `broker-app-credential-store.ts`, `zerodha-connection.ts` | Owner-scoped active selection, encrypted broker-app credentials and one-use Zerodha authorization with a private SDK adapter                                            |
-| `backend/portfolio-service.ts`, `broker-portfolio-normalizer.ts`                       | Durable broker-neutral portfolio accounts, synchronized snapshots, canonical instrument identity and server-side consolidation                                      |
-| `backend/kotak-*`, `market-data-provider.ts`, `instrument-master.ts`     | Kotak adapter, bounded provider contracts, streaming and exact instrument identity                                                                                      |
-| `backend/live/`                                                          | Order intent binding, preview/confirmation, risk reservations, adapter dispatch, reconciliation and halt controls                                                       |
-| `backend/stored-market-data.ts`, `historical-candle-store.ts`            | Stored instrument/candle validation plus bounded PostgreSQL/verified-Parquet reads                                                                                      |
-| `backend/option-chain-history.ts`                                        | Exchange-session display selection and captured-chain fallback                                                                                                          |
-| `backend/historical-market-data*`                                        | Broker historical-data transport validation; not backtest calculations                                                                                                  |
-| `backend/research-contracts.ts`, `strategy-research-routes.ts`           | Saved strategy validation and delegation of research calculations                                                                                                       |
-| `backend/calculation-client.ts`, `calculation-jobs.ts`                   | Validated private Python calls and durable owner-scoped job lifecycle                                                                                                   |
-| `backend/database-browser-routes.ts`                                     | Authenticated, read-only, owner-filtered inspection of allowlisted records                                                                                              |
-| `calculation_engine/app.py`, `contracts.py`                              | Private authenticated calculation API and strict numerical inputs                                                                                                       |
-| `calculation_engine/backtest.py`, `payoff.py`                            | Canonical backtests, stored-session simulation, option payoff and portfolio Greeks                                                                                      |
-| `calculation_engine/market_insights.py`                                  | Bounded read-only public NSE reference datasets                                                                                                                         |
-| `frontend/src/app/`, `proxy.ts`                                          | Next.js entrypoints, broker callback, attribution and request boundary                                                                                                  |
-| `frontend/src/features/workspace/`                                       | Navigation, session lifecycle, shared layout, dialogs and ordered workspace styles                                                                                      |
-| `frontend/src/features/brokers/broker-hooks.ts`, `brokers-screen.tsx`    | Shared connection/selection hooks and grouped broker views; authentication never arms execution                                                                         |
-| `frontend/src/features/live-trading/`, `orders/`                         | Explicit execution controls and read-only order records                                                                                                                 |
-| `frontend/src/features/overview/`                                        | Mode-isolated account snapshots, streamed display marks and automatic read-only NSE intelligence                                                                        |
-| `frontend/src/features/portfolio/`                                       | Read-only account/consolidated portfolio selection, coverage status, valuation summaries and expandable broker breakdowns                                              |
-| `frontend/src/features/option-chain/`                                    | Live/stored chain selection, exact stored chart reads, chart rendering and standalone-chain Python-derived IV/Greeks; the builder does not request chain Greeks |
-| `frontend/src/features/backtest-studio/`, `spread-builder/`, `research/` | Form inputs and presentation of Python calculation results                                                                                                              |
-| Other `frontend/src/features/` folders                                   | Account, audit, database, learning and saved-strategy screens, each with its own screen entrypoint                                                                      |
-| `frontend/src/components/`, `lib/`                                       | Shared controls, instrument pickers, request validation and presentation utilities                                                                                      |
-| `scripts/download*`, `audit-nse*`, `import-*`                            | Explicit historical-data download, quality audit and additive import commands                                                                                           |
-| `scripts/check-production-environment.mjs`                               | Fail-closed deployment settings validation; never prints secrets                                                                                                        |
-| `scripts/preflight-commit.mjs`, `.githooks/`, `.github/workflows/`       | Staged/revision build gates and commit-by-commit CI                                                                                                                     |
-| `Dockerfile`, `docker-compose.yml`, `Caddyfile`, `Makefile`              | Runtime images, single-host service wiring, HTTPS and operator commands                                                                                                 |
+| Location                                                                                | Responsibility                                                                                                                                                  |
+| --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `backend/main.ts`                                                                       | Express composition, session/authentication and protected route registration                                                                                    |
+| `backend/database.ts`, `types.ts`, `local-database.ts`                                  | Schema migrations, database contracts and development PostgreSQL lifecycle                                                                                      |
+| `backend/backup.ts`, `import-legacy-sqlite.ts`                                          | Encrypted backup/restore and explicit legacy migration; not request handlers                                                                                    |
+| `backend/security.ts`, `mfa.ts`                                                         | Password/session protections, second factor and credential encryption                                                                                           |
+| `backend/broker-registry.ts`, `broker-app-credential-store.ts`, `zerodha-connection.ts` | Owner-scoped active selection, encrypted broker-app credentials and one-use Zerodha authorization with a private SDK adapter                                    |
+| `backend/portfolio-service.ts`, `broker-portfolio-normalizer.ts`                        | Durable broker-neutral portfolio accounts, synchronized snapshots, canonical instrument identity and server-side consolidation                                  |
+| `backend/kotak-*`, `market-data-provider.ts`, `instrument-master.ts`                    | Kotak adapter, bounded provider contracts, streaming and exact instrument identity                                                                              |
+| `backend/live/`                                                                         | Order intent binding, preview/confirmation, risk reservations, adapter dispatch, reconciliation and halt controls                                               |
+| `backend/stored-market-data.ts`, `historical-candle-store.ts`                           | Stored instrument/candle validation plus bounded PostgreSQL/verified-Parquet reads                                                                              |
+| `backend/option-chain-history.ts`                                                       | Exchange-session display selection and captured-chain fallback                                                                                                  |
+| `backend/historical-market-data*`                                                       | Broker historical-data transport validation; not backtest calculations                                                                                          |
+| `backend/research-contracts.ts`, `strategy-research-routes.ts`                          | Saved strategy validation and delegation of research calculations                                                                                               |
+| `backend/calculation-client.ts`, `calculation-jobs.ts`                                  | Validated private Python calls and durable owner-scoped job lifecycle                                                                                           |
+| `backend/database-browser-routes.ts`                                                    | Authenticated, read-only, owner-filtered inspection of allowlisted records                                                                                      |
+| `calculation_engine/app.py`, `contracts.py`                                             | Private authenticated calculation API and strict numerical inputs                                                                                               |
+| `calculation_engine/backtest.py`, `payoff.py`                                           | Canonical backtests, stored-session simulation, option payoff and portfolio Greeks                                                                              |
+| `calculation_engine/market_insights.py`                                                 | Bounded read-only public NSE reference datasets                                                                                                                 |
+| `frontend/src/app/`, `proxy.ts`                                                         | Next.js entrypoints, broker callback, attribution and request boundary                                                                                          |
+| `frontend/src/features/workspace/`                                                      | Navigation, session lifecycle, shared layout, dialogs and ordered workspace styles                                                                              |
+| `frontend/src/features/brokers/broker-hooks.ts`, `brokers-screen.tsx`                   | Shared connection/selection hooks and grouped broker views; authentication never arms execution                                                                 |
+| `frontend/src/features/live-trading/`, `orders/`                                        | Explicit execution controls and read-only order records                                                                                                         |
+| `frontend/src/features/overview/`                                                       | Mode-isolated account snapshots, streamed display marks and automatic read-only NSE intelligence                                                                |
+| `frontend/src/features/portfolio/`                                                      | Read-only account/consolidated portfolio selection, coverage status, valuation summaries and expandable broker breakdowns                                       |
+| `frontend/src/features/option-chain/`                                                   | Live/stored chain selection, exact stored chart reads, chart rendering and standalone-chain Python-derived IV/Greeks; the builder does not request chain Greeks |
+| `frontend/src/features/backtest-studio/`, `spread-builder/`, `research/`                | Form inputs and presentation of Python calculation results                                                                                                      |
+| Other `frontend/src/features/` folders                                                  | Account, audit, database, learning and saved-strategy screens, each with its own screen entrypoint                                                              |
+| `frontend/src/components/`, `lib/`                                                      | Shared controls, instrument pickers, request validation and presentation utilities                                                                              |
+| `scripts/download*`, `audit-nse*`, `import-*`                                           | Explicit historical-data download, quality audit and additive import commands                                                                                   |
+| `scripts/check-production-environment.mjs`                                              | Fail-closed deployment settings validation; never prints secrets                                                                                                |
+| `scripts/preflight-commit.mjs`, `.githooks/`, `.github/workflows/`                      | Staged/revision build gates and commit-by-commit CI                                                                                                             |
+| `Dockerfile`, `docker-compose.yml`, `Caddyfile`, `Makefile`                             | Runtime images, single-host service wiring, HTTPS and operator commands                                                                                         |
 
 ## Data and calculations
 
@@ -507,19 +520,39 @@ After copying the archive to separate storage and verifying that copy with `HIST
 
 The regular PostgreSQL backup no longer contains daily cash/index candle values after retirement. Preserve at least one independently verified copy of the complete Parquet directory, including `manifest.json`, outside the repository and PostgreSQL volume. Restore service by copying that complete directory back to `HISTORICAL_ARCHIVE_DIRECTORY` and passing archive-only verification before starting the API.
 
+### NSE watchlist charts and stock search
+
+`npm run historical:sync-nse` downloads official NSE cash bhavcopies, index daily reports, the equity/SME security lists and F&O underlying list. Python checks report dates, checksums and OHLC ranges, skipping invalid individual price rows; the existing embedded DuckDB publishes compact ZSTD Parquet. No new service or broker credentials are required. Bootstrap covers the last 90 calendar days; later runs update from seven days before the last imported session, including missed days. Use `-- --from YYYY-MM-DD --to YYYY-MM-DD` for an explicit past range, or `-- --input /absolute/download-directory` for files from `scripts/download-nse.py`. NSE download/access failures leave the last successful publication untouched. The command reports accepted/rejected row counts; unavailable report dates are not fabricated.
+
+The operator runs this command after NSE publishes its end-of-day reports, on a host with Node dependencies and Python 3 installed. It is not an automatic scheduled job and clicking **Reload stored candles** does not download exchange reports. The API reads the publication under `HISTORICAL_ARCHIVE_DIRECTORY/nse` immediately, without restarting, using the existing read-only Compose mount. Raw downloaded files use an invocation-specific temporary directory and are removed when the command ends; only the compact publication is needed on the application server. Preserve `nse/current.json` and its referenced generation together when transferring/backing up the archive. Earlier generations remain available for rollback; do not delete a generation used by `current.json` or an in-flight reader. A hard-killed sync may leave `nse/sync.lock`; remove that file only after verifying no sync process is running.
+
+Watchlists browse the current NSE equity and SME names even before a stock has candles. **Cash** lists stocks; **F&O** lists eligible stock/index underlyings, not thousands of expiry/strike contracts; **Indices** lists reported indices. Search matches company names and symbols, displays names only and pages through all matches. Cash and F&O can contain the same stock because derivatives eligibility does not remove its cash listing. This catalogue is not proof that the active broker permits an order. Chart prices remain daily/unadjusted, never live. Charts request `source=nse-preferred`: when official candles exist, they display only that source's available period, avoiding indicators across the old archive's multi-year gap. When no NSE candles exist, legacy history remains visible with its actual date and stale-data warning. Research reads retain older history with exact NSE IDs/dates taking precedence; long gaps are disclosed and missing periods/corporate-action adjustments are not invented. New listings with no valid report candle display a clear empty state.
+
+### Using downloaded data across research screens
+
+Watchlists and floating cash/index charts read the published daily archives; Backtest Studio re-reads the same stored-candle repository on the server for cash/index simulations. Official NSE rows take precedence over matching legacy rows. Only published/imported batches are available while a backfill is running.
+
+The builder's historical fallback reads imported F&O closes, explicitly labelled as end-of-day research prices. Opening a selected option's price chart reads `/api/eod/option-candles` by exact NSE underlying, expiry, strike and call/put identity. It never substitutes underlying candles or another contract. Sessions without positive, consistent traded OHLC are omitted and counted; settlement-only rows are not fabricated into candles. Reloading charts reads existing storage, not the exchange.
+
+Daily cash/index backtesting is supported. Multi-leg option backtesting is not yet supported by the calculation engine; stored option premiums must not be passed through the cash simulator or treated as intraday executable prices.
+
 ## Broker and order safety
 
 ### Broker-neutral portfolios
 
 A successful broker authorization registers a durable portfolio account and immediately attempts an independent funds, holdings and positions synchronization. Connecting a broker never enables live trading. The server stores normalized daily snapshots and their individual items, then consolidates accounts; React only validates and presents that result. Existing authenticated sessions are bootstrapped on the first Portfolio request so accounts connected before this schema was introduced also appear.
 
-Holdings are matched by ISIN first, then by exchange/instrument identity, with normalized symbols used only as a guarded fallback. Derivatives use exchange, underlying, expiry, strike, option type, product and side. Consolidated rows retain per-account breakdowns. Partial refreshes are explicit: the response reports how many accounts updated and never silently treats a failed broker section as an empty balance.
+Holdings are matched by ISIN first, then by exchange/instrument identity, with normalized symbols used only as a guarded fallback. Derivatives use exchange, underlying, expiry, strike, option type, product and side. Consolidated rows retain per-account breakdowns. Partial refreshes are explicit: the response reports how many accounts updated and never silently treats a failed broker section as an empty balance. In All portfolios, each metric shows its available-account coverage: incomplete totals display a separately labelled known subtotal and identify the missing accounts. Complete API totals and equity history remain null until every selected account contributes that metric. Broker warnings identify the affected account, and snapshot times disclose when combined values were captured. Switching accounts clears the previous account's figures while the new view loads.
 
 Portfolio value does not add pledged value or available margin to holdings. Pledged quantities classify holdings; collateral, cash, available margin and used margin remain separate. Broker adapters must return a stable account binding plus normalized funds, holdings and positions. Kotak and Zerodha implement this read-only boundary; new providers should implement the same reader without changing persistence, consolidation or the screen.
 
 Daily end-of-day capture is attempted after 15:35 Asia/Kolkata on exchange weekdays for currently authenticated broker sessions. Performance history begins when an account is connected; the system cannot infer earlier cash flows or portfolio composition from current holdings. Statement import/backfill remains future work.
 
-Kotak live execution is implemented behind explicit enablement. Zerodha authorization/connection is separate from execution capability; selecting an unsupported execution adapter fails closed.
+Kotak and Zerodha live execution share one guarded control plane. Each uses its own broker session, exact instrument master, order tags and execution adapter; selecting a broker never falls back to another provider. Both support regular LIMIT/DAY orders for NSE cash (CNC) and long NSE options (NRML); sells only reduce app-tracked longs. Futures, BSE, intraday/MTF products, collateral holdings, and unexplained external exposure require operator review and are not silently adopted. Zerodha holdings use opening carry plus today's net CNC position; carried derivatives use the net position book. Broker P&L and funds are not a fee-complete cash ledger.
+
+In Trading → Live positions (or an option-chain order review), Live trading OFF and the Enable button remain visible. Blocking reasons identify unavailable server capability, disconnected/unsupported brokers, unconfirmed static IPs and closed regular NSE hours. Enable opens setup without placing orders: save risk limits, reconcile broker books, enter a fresh authenticator/recovery code, type `ENABLE REAL MONEY`, then confirm. Successful authorization lasts at most five minutes. Search the active broker's exact contract, enter quantity and limit, review a fresh preview and type `PLACE LIVE ORDER` before submitting. The red Disable action blocks further dispatch and requests cancellation of app-owned pending orders; it does not flatten positions or cancel foreign orders. Status refreshes while ON and becomes unavailable, not OFF, on a failed read.
+
+Keep the server flag off until deployment/broker verification is complete. `LIVE_TRADING_ENABLED=true` permits setup only; the active provider separately requires `KOTAK_STATIC_IP_CONFIRMED=true` or `ZERODHA_STATIC_IP_CONFIRMED=true` after actual outbound-IP registration. Never set these flags merely to dismiss the UI warning. Kite requires static IP registration for API orders ([official instructions](https://support.zerodha.com/category/trading-and-markets/general-kite/kite-api/articles/static-ip)). Its adapter follows the [Kite order API](https://kite.trade/docs/connect/v3/orders/) and [portfolio API](https://kite.trade/docs/connect/v3/portfolio/). Quote entitlement and fresh exchange-stamped bid/ask depth are required; historical option-chain prices cannot authorize execution. Weekday/time checks are conservative, not an exchange holiday calendar; broker rejection or absent/stale depth still blocks dispatch.
 
 The server resolves the active broker when an intent is bound. Changing the selection must not move existing orders or positions to another broker. Broker switches require enabled app MFA and a fresh authenticator or unused recovery code, and clear existing live permissions. Live execution requires configured server flags, app MFA, an authenticated broker session, registered static-IP prerequisites, risk limits, fresh reconciliation and explicit time-limited arming. Each arming requires a new code; a code consumed during broker selection cannot be reused. Initial broker registration can select the first broker but does not authorize trading.
 
@@ -533,7 +566,7 @@ Reconciliation advances positions and cash from the last clean snapshot using in
 
 ## Single-host deployment
 
-The supported topology is one Linux host, one API and **one calculator container**. A 4 GiB host is a starting configuration, not a live-trading performance guarantee. Steady-state container memory caps total 2,816 MiB; migrations add at most 384 MiB temporarily. Leave the remaining memory for Linux and Docker. Builds and recovery drills belong on development/CI machines, never on the trading host.
+The supported topology is one Linux host, one API and **one calculator container**. Steady-state container memory caps total 3,072 MiB; migrations add up to 384 MiB and the one-shot NSE maintenance job up to 512 MiB. Use 8 GiB for operational headroom; 4 GiB is a constrained development/staging configuration, not a live-trading performance guarantee. Builds and recovery drills belong on development/CI machines, never on the trading host.
 
 ### Worker safety and resource limits
 
@@ -550,7 +583,7 @@ The concise operator runbook and copy-safe configuration templates are in
 [`deployment/digitalocean.env.example`](deployment/digitalocean.env.example)
 and [`deployment/secrets.example.json`](deployment/secrets.example.json).
 
-Every incoming commit runs the isolated build preflight. Successful pushes to `main` additionally build four Linux-amd64 runtime images, run the disposable recovery drill, and only then publish images to GHCR. The `release-<commit>` artifact contains `release.env`, including digests for app, PostgreSQL and Caddy images. Images are not automatically deployed.
+Every incoming commit runs the isolated build preflight. Successful pushes to `main` additionally build five Linux-amd64 images (API, web, calculator, backup and one-shot NSE updater), run the disposable recovery drill, and only then publish images to GHCR. The `release-<commit>` artifact contains `release.env`, including digests for app, PostgreSQL and Caddy images. Images are not automatically deployed. The API/updater use Debian slim for the pinned DuckDB native bindings; image construction checks that DuckDB can actually load.
 
 Provision one amd64 Ubuntu Droplet in DigitalOcean Bangalore (`blr1`) with at least 4 vCPU and 8 GiB RAM, Docker Compose, Node 22+, iptables, a Reserved IPv4, a real domain and a private DigitalOcean Space. The Cloud Firewall should expose only 80/443 publicly and restrict SSH to operator addresses. Configure the Reserved IPv4 as the outbound source before registering it with a broker, and verify that routing after every network change.
 
@@ -600,7 +633,7 @@ Open **Markets → Watchlists** (`/#/watchlists`). Each account starts with NIFT
 
 ### Sensitive data
 
-New passwords use versioned scrypt (N=131072, r=8, p=1). Legacy hashes remain readable and upgrade after successful password/MFA login. One concurrent hash and a bounded queue cap native memory; the API heap is limited to 256 MiB to leave room for scrypt inside its 512-MiB container. Per-source and global admission limits remain necessary against overload. Five invalid/reused MFA proofs lock protected actions for 15 minutes; counters are persisted under the account lock even when an action rolls back. Migration 20 adds these counters and must run before starting this version. API 5xx logs include a request ID and stack locations, not request bodies, credentials or provider exception messages.
+New passwords use versioned scrypt (N=131072, r=8, p=1). Legacy hashes remain readable and upgrade after successful password/MFA login. One concurrent hash and a bounded queue cap native memory; the API heap is limited to 256 MiB, with space for the 256-MiB DuckDB budget, scrypt and native buffers inside its 768-MiB container. These budgets are not a guarantee of peak RSS: verify memory alerts under representative load. Per-source and global admission limits remain necessary against overload. Five invalid/reused MFA proofs lock protected actions for 15 minutes; counters are persisted under the account lock even when an action rolls back. Migration 20 adds these counters and must run before starting this version. API 5xx logs include a request ID and stack locations, not request bodies, credentials or provider exception messages.
 
 `BACKUP_DATABASE_TIMEOUT_SECONDS` bounds database dump/restore commands (default 1800 seconds, allowed 60–21600). Increase it explicitly for larger databases and test restore duration; no backup command runs indefinitely.
 

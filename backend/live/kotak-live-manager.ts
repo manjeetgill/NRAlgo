@@ -1,4 +1,5 @@
-/** Separate real-money control plane. Research and replay cannot reach this manager.
+/** Shared Kotak/Zerodha real-money control plane (legacy filename retained for existing imports).
+ * Research and replay cannot reach this manager.
  * One API process owns each connected session. Restarts/reconnects invalidate arming.
  */
 import { randomUUID } from "node:crypto";
@@ -11,7 +12,12 @@ import type {
   InstrumentSearch,
 } from "../instrument-master.js";
 import type { KotakMarketDataClient } from "../kotak-market-data-client.js";
-import { tradingDay } from "../market-contracts.js";
+import type { createZerodhaConnection } from "../zerodha-connection.js";
+import { regularMarketSessionOpen, tradingDay } from "../market-contracts.js";
+import {
+  ZerodhaLiveAdapter,
+  type ZerodhaExecutionSession,
+} from "./zerodha-live-adapter.js";
 import {
   resolveActiveBroker,
   type ActiveBrokerBinding,
@@ -38,8 +44,8 @@ type Entry = {
   id: string;
   brokerId: string;
   session: LoginSession;
-  connection: KotakExecutionSession;
-  adapter: KotakLiveAdapter;
+  connection: KotakExecutionSession | ZerodhaExecutionSession;
+  adapter: KotakLiveAdapter | ZerodhaLiveAdapter;
   service: LiveExecutionService;
   permissionKey: string;
   tail: Promise<unknown>;
@@ -47,8 +53,8 @@ type Entry = {
   timer?: ReturnType<typeof setTimeout>;
 };
 export class KotakLiveManager {
-  public readonly provider = "kotak" as const;
   readonly enabled: boolean;
+  private readonly staticIpConfirmed: Record<"kotak" | "zerodha", boolean>;
   private readonly bootId = randomUUID();
   private readonly entries = new Map<string, Entry>();
   private readonly pending = new Map<string, Promise<Entry>>();
@@ -59,13 +65,31 @@ export class KotakLiveManager {
     private readonly catalog: InstrumentCatalog,
     env: NodeJS.ProcessEnv,
     private readonly vault: ReturnType<typeof credentialVault>,
+    private readonly zerodha?: ReturnType<typeof createZerodhaConnection>,
   ) {
     this.enabled = env.LIVE_TRADING_ENABLED === "true";
-    if (this.enabled && env.KOTAK_STATIC_IP_CONFIRMED !== "true") {
+    this.staticIpConfirmed = {
+      kotak: env.KOTAK_STATIC_IP_CONFIRMED === "true",
+      zerodha: env.ZERODHA_STATIC_IP_CONFIRMED === "true",
+    };
+    if (this.enabled && !Object.values(this.staticIpConfirmed).some(Boolean)) {
       throw new Error(
-        "Live trading requires KOTAK_STATIC_IP_CONFIRMED=true after Kotak IP registration",
+        "Live trading requires registered static-IP confirmation for at least one execution broker",
       );
     }
+  }
+  /** Never fall back to another provider: every operation follows the resolved active account. */
+  private executionBlocker(provider: string) {
+    if (provider !== "kotak" && provider !== "zerodha") {
+      return `Live execution is not implemented for ${provider}.`;
+    }
+    if (provider === "zerodha" && !this.zerodha) {
+      return "Zerodha execution is unavailable on this server.";
+    }
+    if (!this.staticIpConfirmed[provider]) {
+      return `${provider.toUpperCase()} static-IP registration has not been confirmed by the server operator.`;
+    }
+    return null;
   }
   /** Fail closed when execution is disabled or the manager is shutting down. */
   private requireEnabled() {
@@ -125,14 +149,13 @@ export class KotakLiveManager {
     const active = await this.store.transaction((query) =>
       resolveActiveBroker(query, session.user_id),
     );
-    if (active.provider !== this.provider) {
-      fail(
-        409,
-        `Live execution is not implemented for the active ${active.provider} broker.`,
-      );
+    const blocked = this.executionBlocker(active.provider);
+    if (blocked) {
+      fail(409, blocked);
     }
-    if (!this.client.isConnected(session.user_id, session.token_hash)) {
-      fail(409, "Reconnect the active Kotak broker first.");
+    const client = active.provider === "kotak" ? this.client : this.zerodha!;
+    if (!client.isConnected(session.user_id, session.token_hash)) {
+      fail(409, `Reconnect the active ${active.provider} broker first.`);
     }
     const current = this.entries.get(active.id);
     if (
@@ -166,7 +189,8 @@ export class KotakLiveManager {
     active: ActiveBrokerBinding,
     limits?: RiskLimits,
   ): Promise<Entry> {
-    const connection = this.client.executionSession(
+    const client = active.provider === "kotak" ? this.client : this.zerodha!;
+    const connection = client.executionSession(
       session.user_id,
       session.token_hash,
     );
@@ -215,34 +239,56 @@ export class KotakLiveManager {
       );
       return account.id;
     });
-    const adapter = new KotakLiveAdapter(
-      connection,
-      (token) => this.catalog.resolveLive(token),
-      async () =>
-        this.store.transaction(async (query) =>
-          (
-            await query<{ intent: string }>(
-              "SELECT intent FROM live_orders WHERE account_id=$1",
-              [id],
-            )
-          ).map((r) => orderIntentSchema.parse(JSON.parse(r.intent))),
-        ),
-      async (contract, signal) => {
-        signal.throwIfAborted();
-        const quote = await this.client.getTopOfBookQuote(
-          session.user_id,
-          session.token_hash,
-          contract.instrument,
-          contract.market === "cash" ? "nse_cm" : "nse_fo",
-          signal,
+    // Load both allowed segments before reconciliation, including overnight app-owned positions.
+    if (active.provider === "zerodha") {
+      for (const market of ["cash", "options"] as const) {
+        await this.catalog.loadZerodha(market, () =>
+          (connection as ZerodhaExecutionSession).instruments(market),
         );
-        signal.throwIfAborted();
-        return {
-          pricePaise: Math.max(quote.bid, quote.ask),
-          observedAt: quote.observedAt,
-        };
-      },
-    );
+      }
+    }
+    const resolve = (token: string) => {
+      if (!token.startsWith(`${active.provider}:`)) {
+        fail(422, "Contract belongs to a different broker.");
+      }
+      return this.catalog.resolveLive(token);
+    };
+    const knownIntents = async () =>
+      this.store.transaction(async (query) =>
+        (
+          await query<{ intent: string }>(
+            "SELECT intent FROM live_orders WHERE account_id=$1",
+            [id],
+          )
+        ).map((r) => orderIntentSchema.parse(JSON.parse(r.intent))),
+      );
+    const adapter =
+      active.provider === "zerodha"
+        ? new ZerodhaLiveAdapter(
+            connection as ZerodhaExecutionSession,
+            resolve,
+            knownIntents,
+          )
+        : new KotakLiveAdapter(
+            connection as KotakExecutionSession,
+            resolve,
+            knownIntents,
+            async (contract, signal) => {
+              signal.throwIfAborted();
+              const quote = await this.client.getTopOfBookQuote(
+                session.user_id,
+                session.token_hash,
+                contract.instrument,
+                contract.market === "cash" ? "nse_cm" : "nse_fo",
+                signal,
+              );
+              signal.throwIfAborted();
+              return {
+                pricePaise: Math.max(quote.bid, quote.ask),
+                observedAt: quote.observedAt,
+              };
+            },
+          );
     const entry = {
       id,
       brokerId: active.id,
@@ -330,14 +376,23 @@ export class KotakLiveManager {
     const active = await this.store.transaction((query) =>
       resolveActiveBroker(query, session.user_id),
     );
-    if (active.provider !== this.provider) {
-      fail(
-        409,
-        `Live execution is not implemented for the active ${active.provider} broker.`,
-      );
+    const blocked = this.executionBlocker(active.provider);
+    if (blocked) {
+      fail(409, blocked);
     }
-    if (!this.client.isConnected(session.user_id, session.token_hash)) {
-      fail(409, "Reconnect the active Kotak broker first.");
+    const client = active.provider === "kotak" ? this.client : this.zerodha!;
+    if (!client.isConnected(session.user_id, session.token_hash)) {
+      fail(409, `Reconnect the active ${active.provider} broker first.`);
+    }
+    if (active.provider === "zerodha") {
+      const connection = this.zerodha!.executionSession(
+        session.user_id,
+        session.token_hash,
+      );
+      await this.catalog.loadZerodha(input.market, () =>
+        connection.instruments(input.market),
+      );
+      return this.catalog.search("zerodha", input);
     }
     if (!this.catalog.isFresh("kotak", input.market)) {
       const url = await this.client.getInstrumentMasterUrl(
@@ -372,17 +427,33 @@ export class KotakLiveManager {
         reason:
           (error as { detail?: string }).detail ??
           "Connect and select an active broker first.",
+        executionReady: false,
         orders: [],
       };
     }
-    if (active.provider !== this.provider) {
+    const blocked = this.executionBlocker(active.provider);
+    if (blocked) {
       return {
         enabled: true,
         armed: false,
         halted: true,
         activeBrokerId: active.id,
         provider: active.provider,
-        reason: `Live execution is not implemented for the active ${active.provider} broker.`,
+        executionReady: false,
+        reason: blocked,
+        orders: [],
+      };
+    }
+    const client = active.provider === "kotak" ? this.client : this.zerodha!;
+    if (!client.isConnected(session.user_id, session.token_hash)) {
+      return {
+        enabled: true,
+        armed: false,
+        halted: true,
+        executionReady: false,
+        provider: active.provider,
+        activeBrokerId: active.id,
+        reason: `Reconnect the active ${active.provider} broker before enabling live trading.`,
         orders: [],
       };
     }
@@ -413,7 +484,7 @@ export class KotakLiveManager {
       ...status,
       accountId: entry.id,
       activeBrokerId: entry.brokerId,
-      provider: this.provider,
+      provider: active.provider,
       enabled: true,
       armed,
       limits: JSON.parse(account.limits),
@@ -499,6 +570,12 @@ export class KotakLiveManager {
   }
   /** Consume MFA proof and grant short-lived session-bound permission only after clean reconciliation. */
   public async arm(session: LoginSession, token: string) {
+    if (!regularMarketSessionOpen(Date.now())) {
+      fail(
+        409,
+        "Regular NSE market session is closed. Enable trading during market hours.",
+      );
+    }
     const entry = await this.entry(session);
     return this.serial(entry, async () => {
       // Validate MFA before any broker work, then grant short-lived, boot/session-bound permission.
@@ -544,6 +621,12 @@ export class KotakLiveManager {
           }
           if (entry.revoked || !entry.connection.isCurrent()) {
             fail(409, "Broker session changed while arming.");
+          }
+          if (!regularMarketSessionOpen(Date.now())) {
+            fail(
+              409,
+              "Market session closed during authorization; live trading remains disabled.",
+            );
           }
           const deadline = livePermissionDeadline(
             session.expires * 1000,

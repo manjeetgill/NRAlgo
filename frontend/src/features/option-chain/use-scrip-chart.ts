@@ -25,6 +25,9 @@ const datasetSchema = z.object({
   ),
   interval: z.literal("day"),
   adjustment: z.enum(["unadjusted", "unknown"]),
+  sources: z.array(z.string()).default([]),
+  gaps: z.array(z.object({ from: z.iso.date(), to: z.iso.date() })).default([]),
+  excludedSessions: z.number().int().nonnegative().default(0),
 });
 export type ScripChartDataset = z.infer<typeof datasetSchema>;
 
@@ -75,7 +78,9 @@ export async function loadScripChart(
   signal.throwIfAborted();
   const data = datasetSchema.parse(
     await request(
-      `/eod/candles?id=${encodeURIComponent(id)}`,
+      id.startsWith("NSE:FO:")
+        ? `/eod/option-candles?id=${encodeURIComponent(id)}`
+        : `/eod/candles?id=${encodeURIComponent(id)}&source=nse-preferred`,
       "GET",
       undefined,
       undefined,

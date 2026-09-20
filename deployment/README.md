@@ -7,7 +7,7 @@ registration have been verified.
 
 ## 1. Publish a release
 
-Push the reviewed `main` commit. GitHub Actions builds the four runtime images,
+Push the reviewed `main` commit. GitHub Actions builds the five runtime/maintenance images,
 runs the isolated recovery drill, pushes immutable images to GHCR and publishes
 a `release-<commit>` artifact. Download its `release.env` only after the release
 job passes and save it as `/opt/nraialgo/.env.release`.
@@ -94,8 +94,8 @@ sudo /usr/bin/node --env-file=.env scripts/host-operations.mjs install-monitor
 - Reboot the Droplet and verify services, firewall rules, TLS and outbound
   Reserved IPv4 persistence.
 - Verify alert delivery during a controlled failed-health test.
-- Register the verified outbound IP with Kotak before changing
-  `KOTAK_STATIC_IP_CONFIRMED` or `LIVE_TRADING_ENABLED` to `true`.
+- Register the verified outbound IP with the intended execution broker before changing
+  `KOTAK_STATIC_IP_CONFIRMED` / `ZERODHA_STATIC_IP_CONFIRMED` or `LIVE_TRADING_ENABLED` to `true`.
 
 Do not enable live execution merely because containers are healthy. Recovery,
 broker reconciliation and the static outbound address are separate go-live
@@ -104,3 +104,34 @@ requirements.
 Official references: [Reserved IP outbound routing](https://docs.digitalocean.com/products/networking/reserved-ips/how-to/outbound-traffic/),
 [Cloud Firewall rules](https://docs.digitalocean.com/products/networking/firewalls/how-to/configure-rules/)
 and the [Spaces S3-compatible API](https://docs.digitalocean.com/reference/api/spaces/).
+
+## NSE chart data on the server
+
+The data directory is deliberately excluded from images and Git. Set an absolute
+`HISTORICAL_ARCHIVE_DIRECTORY` in `.env`, create that specific directory with owner
+UID/GID 1000 (the non-root container user), and copy the verified local archive there
+or bootstrap it with `make sync-market-data`. Do not recursively change ownership
+of a shared directory. The API mounts this archive read-only; only the maintenance
+job has write access. Ensure at least several GiB free for download scratch space.
+
+`make sync-market-data` runs the digest-pinned NSE updater once with 512 MiB and half
+a CPU, without database/broker secrets. It downloads official reports, preserves
+stable instrument IDs and atomically switches the publication only on success.
+Schedule this command in the host's scheduler after exchange reports are published,
+outside live execution hours; capture its exit status and alert on failure. No timer
+is silently installed by the application. Bootstrap defaults to 90 days, then each
+run overlaps the last seven days and catches up missed days. For an explicit range:
+
+```sh
+docker compose --env-file .env --env-file .env.release --profile maintenance \
+  run --rm --no-deps market-data --from 2026-01-01 --to 2026-09-18
+```
+
+Old published generations are retained for recovery; monitor disk usage and archive
+obsolete generations during a maintenance window with the API stopped. Never remove
+the generation referenced by `nse/current.json`. A hard-killed sync can leave
+`nse/sync.lock` and scratch files: first verify no maintenance container is running,
+then remove only that stale lock/scratch, not the chart archive. PostgreSQL backups
+do not include Parquet files: retain a separate verified archive copy or a documented
+re-download procedure. Confirm a known stock and index show the latest available
+session in Watchlists before declaring the deployment ready.

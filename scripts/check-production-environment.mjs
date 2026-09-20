@@ -9,6 +9,7 @@ import { pathToFileURL } from "node:url";
 const booleanNames = [
   "ALLOW_PUBLIC_REGISTRATION",
   "KOTAK_STATIC_IP_CONFIRMED",
+  "ZERODHA_STATIC_IP_CONFIRMED",
   "LIVE_TRADING_ENABLED",
 ];
 const hexSecretNames = [
@@ -73,6 +74,7 @@ export function productionEnvironmentErrors(env, envPath = ".env") {
     "WEB_IMAGE",
     "CALCULATION_IMAGE",
     "BACKUP_IMAGE",
+    "MARKET_DATA_IMAGE",
     "POSTGRES_IMAGE",
     "CADDY_IMAGE",
   ]) {
@@ -123,10 +125,11 @@ export function productionEnvironmentErrors(env, envPath = ".env") {
   }
   if (
     env.LIVE_TRADING_ENABLED === "true" &&
-    env.KOTAK_STATIC_IP_CONFIRMED !== "true"
+    env.KOTAK_STATIC_IP_CONFIRMED !== "true" &&
+    env.ZERODHA_STATIC_IP_CONFIRMED !== "true"
   ) {
     errors.push(
-      "Live execution requires confirmed Kotak static-IP registration.",
+      "Live execution requires static-IP registration for at least one supported broker; each active provider is gated separately.",
     );
   }
   if ((env.MARKET_DATA_PROVIDER || "") !== "kotak") {
@@ -188,7 +191,12 @@ export function productionEnvironmentErrors(env, envPath = ".env") {
     errors.push("BACKUP_S3_REGION must be blr1 for the India deployment.");
   }
   const webhookUrl = required("ALERT_WEBHOOK_URL");
-  if (new URL(webhookUrl || "invalid:").protocol !== "https:") {
+  try {
+    const url = new URL(webhookUrl);
+    if (url.protocol !== "https:" || url.username || url.password) {
+      throw new Error("Invalid webhook");
+    }
+  } catch {
     errors.push("ALERT_WEBHOOK_URL must be an https:// URL.");
   }
   if (backupUri) {

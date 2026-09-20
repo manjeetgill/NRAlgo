@@ -7,6 +7,9 @@
 !run.ts
 !backend/
 !backend/**
+!scripts/
+!scripts/sync-nse-charts.mjs
+!scripts/download-nse.py
 !calculation_engine/
 !calculation_engine/**
 !frontend/
@@ -24,3 +27,4 @@ frontend/out/
 **/__tests__/
 **/*.test.*
 **/*.spec.*
+calculation_engine/test_*.py

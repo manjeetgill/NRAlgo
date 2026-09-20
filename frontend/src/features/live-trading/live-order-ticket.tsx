@@ -1,6 +1,6 @@
 "use client";
 /** Explicit real-money ticket, separate from simulated ledgers. Never submits on mount or retry. */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Info } from "lucide-react";
 import { createLatestRequest } from "@/lib/latest-request";
 import { requestApiJson } from "@/lib/api";
@@ -37,6 +37,8 @@ type LiveStatus = {
   enabled: boolean;
   armed: boolean;
   halted: boolean;
+  executionReady?: boolean;
+  marketOpen?: boolean;
   activeBrokerId?: string;
   provider?: string;
   reason?: string;
@@ -64,10 +66,14 @@ const ORDER_STATE_TONE: Record<string, BadgeTone> = {
 /** Render explicit live controls, retaining server, MFA, risk and confirmation safeguards. */
 export function LiveOrderTicket({
   csrf,
+  activeBroker,
+  brokerStatusUnavailable = false,
   initialOrder,
   initialDraft,
 }: {
   csrf: string;
+  activeBroker?: { id: string; provider: string; status: string };
+  brokerStatusUnavailable?: boolean;
   initialOrder?: { contract: BrokerInstrument; side: "buy" | "sell" };
   initialDraft?: {
     id: string;
@@ -81,12 +87,64 @@ export function LiveOrderTicket({
 }) {
   const statusGate = useRef(createLatestRequest());
   const actionPending = useRef(false);
+  const haltPending = useRef(false);
   const toast = useToast();
   const [status, setStatus] = useState<LiveStatus | null>(null),
     [error, setError] = useState("");
   const [busy, setBusy] = useState(false),
     [message, setMessage] = useState("");
+  const [halting, setHalting] = useState(false);
   const [configured, setConfigured] = useState(false);
+  const [setupOpen, setSetupOpen] = useState(false);
+  const setupPanel = useRef<HTMLDivElement>(null);
+  const controlId = useId();
+  // These gates explain capability, not authorization. The server still owns every live check.
+  const blockers = [
+    ...(!status
+      ? [
+          "Execution status has not been verified. Check live status before continuing.",
+        ]
+      : []),
+    ...(status?.enabled === false
+      ? [
+          "Live execution is disabled on this server. The operator must enable execution and confirm static-IP registration for your active broker; this page cannot unlock it.",
+        ]
+      : []),
+    ...(brokerStatusUnavailable
+      ? [
+          "Active broker status could not be verified. Refresh broker connections.",
+        ]
+      : !activeBroker
+        ? ["Select and connect an active broker before enabling live trading."]
+        : [
+            ...(!["kotak", "zerodha"].includes(activeBroker.provider)
+              ? [
+                  `Live execution is not implemented for ${activeBroker.provider.toUpperCase()}.`,
+                ]
+              : []),
+            ...(activeBroker.status !== "connected"
+              ? [
+                  "The active broker is disconnected. Reconnect it before enabling live trading.",
+                ]
+              : []),
+          ]),
+    ...(status?.executionReady === false
+      ? [status.reason || "Execution prerequisites are not satisfied."]
+      : []),
+    ...(status && status.marketOpen !== true
+      ? [
+          status.marketOpen === false
+            ? "Regular NSE market hours are closed. Enable trading on a trading weekday between 09:15 and 15:30 IST. Holidays and stale quotes can also prevent orders."
+            : "Market-session status is unverified. Refresh live status before enabling.",
+        ]
+      : []),
+    ...(status?.activeBrokerId && status.activeBrokerId !== activeBroker?.id
+      ? [
+          "Execution status belongs to a different account. Check live status again.",
+        ]
+      : []),
+  ];
+  const canSetUp = blockers.length === 0;
   const [limits, setLimits] = useState({
     reserved: "",
     exposure: "",
@@ -125,14 +183,23 @@ export function LiveOrderTicket({
   /** Read control status without arming, reconciling or submitting orders. */
   const refresh = useCallback(async () => {
     const read = statusGate.current.begin();
-    const result = await requestApiJson(
-      "/live/status",
-      "GET",
-      undefined,
-      undefined,
-      15000,
-      read.signal,
-    );
+    let result;
+    try {
+      result = await requestApiJson(
+        "/live/status",
+        "GET",
+        undefined,
+        undefined,
+        15000,
+        read.signal,
+      );
+    } catch (error) {
+      // A failed status refresh must not leave a stale ON badge or unlock setup.
+      if (read.isCurrent()) {
+        setStatus(null);
+      }
+      throw error;
+    }
     if (read.isCurrent()) {
       setStatus(result);
       setConfigured(Boolean(result.accountId));
@@ -156,9 +223,28 @@ export function LiveOrderTicket({
       gate.invalidate();
     };
   }, [csrf, refresh]);
+  /** Keep time-limited ON status current without issuing any broker commands. */
+  useEffect(() => {
+    if (!status?.armed) {
+      return;
+    }
+    const timer = setInterval(() => {
+      if (!actionPending.current) {
+        void refresh().catch((e) => setError(e.message));
+      }
+    }, 10000);
+    return () => clearInterval(timer);
+  }, [status?.armed, refresh]);
+  /** Opening the enable flow is navigation only; focus the checks without granting permission. */
+  useEffect(() => {
+    if (setupOpen && canSetUp) {
+      setupPanel.current?.focus();
+      setupPanel.current?.scrollIntoView({ block: "nearest" });
+    }
+  }, [setupOpen, canSetUp]);
   /** Run explicit UI work with busy/error feedback; never automatically retry uncertain submissions. */
   async function action(work: () => Promise<void>) {
-    if (actionPending.current) {
+    if (actionPending.current || haltPending.current) {
       return;
     }
     actionPending.current = true;
@@ -196,9 +282,20 @@ export function LiveOrderTicket({
         "New submissions are blocked. Verify pending orders and positions at the broker.",
     });
   }
-  /** Serialize the explicit disable action through the shared pending-action guard. */
+  /** The kill switch must not wait behind an in-flight preview/order request; the server fences dispatch. */
   function handleLiveTradingDisable() {
-    void action(requestLiveTradingDisable);
+    if (haltPending.current) {
+      return;
+    }
+    haltPending.current = true;
+    setHalting(true);
+    setError("");
+    void requestLiveTradingDisable()
+      .catch((e) => setError(e.message))
+      .finally(() => {
+        haltPending.current = false;
+        setHalting(false);
+      });
   }
   const orderColumns: DataTableColumn<LiveOrderState>[] = [
     { key: "instrument", header: "Intent", render: (o) => o.intent.instrument },
@@ -262,16 +359,72 @@ export function LiveOrderTicket({
           )}
         </div>
       </div>
-      <fieldset disabled={busy}>
+      <fieldset disabled={halting}>
         <legend>Live trading control</legend>
-        <p role="status" className={styles.statusLine}>
-          Server capability: {status?.enabled ? "Available" : "Locked"} · Live
-          trading: {status?.armed ? "Enabled" : "Disabled"} · Execution
-          provider:{" "}
-          {status?.provider?.toUpperCase() ??
-            "Unavailable until execution status is available"}
-          . {status?.reason}
-        </p>
+        <div className={styles.controlHeader}>
+          <Badge
+            tone={!status ? "warning" : status.armed ? "success" : "neutral"}
+            role="status"
+          >
+            Live trading:{" "}
+            {!status ? "STATUS UNAVAILABLE" : status.armed ? "ON" : "OFF"}
+          </Badge>
+          {status?.armed ? (
+            <Button
+              role="switch"
+              aria-checked="true"
+              variant="danger"
+              onClick={handleLiveTradingDisable}
+            >
+              Disable live trading + cancel pending orders
+            </Button>
+          ) : (
+            <Button
+              disabled={!canSetUp || busy}
+              aria-expanded={canSetUp && setupOpen}
+              aria-controls={`${controlId}-setup`}
+              aria-describedby={`${controlId}-requirements`}
+              onClick={() => setSetupOpen(true)}
+            >
+              Enable live trading…
+            </Button>
+          )}
+          {!status && configured && (
+            <Button variant="danger" onClick={handleLiveTradingDisable}>
+              Disable live trading + cancel pending orders
+            </Button>
+          )}
+        </div>
+        <div id={`${controlId}-requirements`} className={styles.requirements}>
+          <p className={styles.statusLine}>
+            Active broker:{" "}
+            {brokerStatusUnavailable
+              ? "Unverified"
+              : (activeBroker?.provider.toUpperCase() ?? "Not selected")}{" "}
+            · Server capability:{" "}
+            {!status ? "Unverified" : status.enabled ? "Available" : "Locked"}
+          </p>
+          {blockers.length > 0 ? (
+            <>
+              <strong>Activation blocked</strong>
+              <ul>
+                {blockers.map((reason) => (
+                  <li key={reason}>{reason}</li>
+                ))}
+              </ul>
+            </>
+          ) : (
+            <p>
+              Enabling requires saved risk limits, clean broker reconciliation,
+              a fresh authenticator code and explicit confirmation. Opening
+              setup does not enable trading.
+            </p>
+          )}
+          {status?.reason && <p>{status.reason}</p>}
+          <a href="#/brokers">Manage broker connections</a>
+          {" · "}
+          <a href="#/security">Account &amp; authenticator settings</a>
+        </div>
         <p className={styles.statusLine}>
           Live trading starts OFF for every server and broker session. Enabling
           is temporary and requires reconciliation, a fresh 2FA code and
@@ -279,16 +432,6 @@ export function LiveOrderTicket({
           no 2FA, blocks new submissions first, then requests cancellation of
           non-terminal broker orders.
         </p>
-        {configured && status?.enabled && status.armed && (
-          <Button
-            role="switch"
-            aria-checked="true"
-            variant="danger"
-            onClick={handleLiveTradingDisable}
-          >
-            Disable live trading + cancel pending orders
-          </Button>
-        )}
       </fieldset>
       <p className={styles.sectionNote}>
         Use a dedicated trading account. Only reconciled, app-tracked exposure
@@ -329,13 +472,26 @@ export function LiveOrderTicket({
       >
         Check live status
       </Button>
-      {status?.enabled === false ? (
-        <p className={styles.statusLine}>
-          Disabled by the server operator. Static-IP registration and explicit
-          server configuration are required before activation.
-        </p>
-      ) : (
-        <>
+      {canSetUp && (setupOpen || status?.armed) && (
+        <div
+          id={`${controlId}-setup`}
+          ref={setupPanel}
+          tabIndex={-1}
+          className={styles.panel}
+        >
+          {!status?.armed && (
+            <Button
+              variant="secondary"
+              disabled={busy}
+              onClick={() => {
+                setSetupOpen(false);
+                setToken("");
+                setArmProof("");
+              }}
+            >
+              Close setup without enabling
+            </Button>
+          )}
           {!configured && (
             <fieldset disabled={busy}>
               <legend>1. Configure risk limits (required)</legend>
@@ -395,7 +551,15 @@ export function LiveOrderTicket({
           {configured && (
             <>
               <fieldset disabled={busy}>
-                <legend>2. Live trading access (2FA required)</legend>
+                <legend>
+                  2. Reconcile and authorize live trading (2FA required)
+                </legend>
+                <p className={styles.statusLine}>
+                  Review broker books with “Reconcile broker books” below.
+                  Enabling also repeats reconciliation on the server and refuses
+                  authorization if it is not clean. Permission lasts at most
+                  five minutes.
+                </p>
                 {!status?.armed && (
                   <>
                     <Field
@@ -686,7 +850,7 @@ export function LiveOrderTicket({
               />
             </>
           )}
-        </>
+        </div>
       )}
     </section>
   );

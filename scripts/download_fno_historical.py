@@ -431,6 +431,31 @@ def encode_normalized(rows: list[dict[str, str]]) -> bytes:
     return output.getvalue().encode("utf-8")
 
 
+def active_contracts(path: Path, as_of: date):
+    """Pin exact unexpired identities from a verified latest-report normalized CSV.
+
+    This is report membership, not proof of every listed or broker-tradable contract.
+    Contracts absent from that report must not be guessed or substituted.
+    """
+    payload = path.read_bytes()
+    reader = csv.DictReader(io.StringIO(payload.decode("utf-8")))
+    required = {"day", "underlying", "expiry_date", "right", "strike_price"}
+    if not required.issubset(reader.fieldnames or []):
+        raise ArchiveValidationError("Invalid active-contract reference columns")
+    keys = set()
+    report_days = set()
+    for row in reader:
+        report_days.add(date.fromisoformat(row["day"]))
+        expiry = date.fromisoformat(row["expiry_date"])
+        if row["right"] not in {"call", "put"}:
+            raise ArchiveValidationError("Invalid active-contract option right")
+        if expiry >= as_of:
+            keys.add((row["underlying"], row["expiry_date"], row["right"], row["strike_price"]))
+    if len(report_days) != 1 or next(iter(report_days)) > as_of or not keys:
+        raise ArchiveValidationError("Active-contract reference must contain one past report and unexpired contracts")
+    return keys, {"sha256": sha256(payload), "asOf": as_of.isoformat(), "reportDay": next(iter(report_days)).isoformat(), "contracts": len(keys)}
+
+
 def download(url: str, attempts: int = 4) -> bytes:
     """Fetch one public archive with bounded retries for transient failures."""
 
@@ -519,6 +544,11 @@ def run(args: argparse.Namespace) -> int:
         raise SystemExit("A single run is limited to 1,901 calendar days.")
     if args.delay < 1:
         raise SystemExit("--delay must be at least one second.")
+    if bool(args.active_contracts) != bool(args.active_on):
+        raise SystemExit("Use --active-contracts and --active-on together.")
+    if args.active_contracts and args.current_next:
+        raise SystemExit("Active-contract history cannot be combined with --current-next.")
+    selected, selection = active_contracts(args.active_contracts, args.active_on) if args.active_contracts else (None, None)
     symbols = tuple(dict.fromkeys(symbol.upper() for symbol in args.symbols))
     if not symbols or any(not re.fullmatch(r"[A-Z0-9&_.-]{1,40}", symbol) for symbol in symbols):
         raise SystemExit("Invalid --symbols value.")
@@ -533,7 +563,7 @@ def run(args: argparse.Namespace) -> int:
         key = day.isoformat()
         raw_path = root / "raw" / f"{key}.zip"
         normalized_path = root / "normalized" / f"{key}.csv"
-        if is_complete(days.get(key), raw_path, normalized_path, symbols) and bool(days[key].get("currentNext", False)) == args.current_next:
+        if is_complete(days.get(key), raw_path, normalized_path, symbols) and bool(days[key].get("currentNext", False)) == args.current_next and days[key].get("activeSelection") == selection:
             print(f"skip {key}: verified local copy")
             continue
         url, expected_family = archive_url(day)
@@ -558,6 +588,10 @@ def run(args: argparse.Namespace) -> int:
                 raise ArchiveValidationError(
                     f"Unexpected schema family {family}; expected {expected_family}."
                 )
+            if selected is not None:
+                retained = [row for row in rows if (row["underlying"], row["expiry_date"], row["right"], row["strike_price"]) in selected]
+                skipped += len(rows) - len(retained)
+                rows = retained
             normalized = encode_normalized(rows)
             atomic_write(raw_path, payload)
             atomic_write(normalized_path, normalized)
@@ -566,6 +600,7 @@ def run(args: argparse.Namespace) -> int:
                 "normalizerVersion": NORMALIZER_VERSION,
                 "symbols": sorted(symbols),
                 "currentNext": args.current_next,
+                "activeSelection": selection,
                 "url": url,
                 "schema": family,
                 "legacyProvider": (
@@ -605,6 +640,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--to", dest="to_day", type=parse_day, required=True)
     parser.add_argument("--symbols", nargs="+", default=list(DEFAULT_SYMBOLS))
     parser.add_argument("--current-next", action="store_true", help="Keep only the two nearest expiries per underlying.")
+    parser.add_argument("--active-contracts", type=Path, help="Normalized latest-report CSV defining exact option identities to retain.")
+    parser.add_argument("--active-on", type=parse_day, help="Keep only reference contracts unexpired on this date; pin this date when resuming.")
     parser.add_argument("--archive", type=Path, help="Use a local official archive; its report date is still validated.")
     parser.add_argument("--output", type=Path, default=Path(".runtime/nse-fno"))
     parser.add_argument("--delay", type=float, default=1.5)

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { portfolioDashboardSchema } from "../frontend/src/features/portfolio/portfolio-model.ts";
 import {
   buildDashboard,
   calculatePortfolioSummary,
@@ -138,4 +139,107 @@ test("daily snapshots use the Indian trading calendar", () => {
     portfolioTradingDay(Date.parse("2026-09-20T20:00:00.000Z")),
     "2026-09-21",
   );
+});
+
+// Combined totals must not hide a known account, nor portray it as the complete portfolio.
+const account = (id, provider) => ({
+  id,
+  broker_id: id,
+  provider,
+  account_binding: id,
+  display_label: provider,
+  currency: "INR",
+});
+const snapshot = (accountId, patch = {}) => ({
+  id: `snapshot-${accountId}`,
+  account_id: accountId,
+  trading_day: "2026-09-20",
+  observed_at: 1,
+  holdings_value: 100,
+  invested_value: 90,
+  pledged_value: 40,
+  positions_pnl: -5,
+  available_margin: 50,
+  cash_balance: 10,
+  used_margin: 20,
+  collateral_value: 30,
+  total_equity: 105,
+  complete: true,
+  warnings: [],
+  ...patch,
+});
+test("combined portfolio exposes known subtotals while preserving unavailable complete totals", () => {
+  const accounts = [account("one", "kotak"), account("two", "zerodha")];
+  const snapshots = [
+    snapshot("one", {
+      holdings_value: null,
+      pledged_value: null,
+      cash_balance: null,
+      total_equity: null,
+      complete: false,
+    }),
+    snapshot("two"),
+  ];
+  const result = buildDashboard(accounts, snapshots, [], snapshots);
+  assert.equal(result.summary.holdingsValue, null);
+  assert.deepEqual(result.summaryCoverage.holdingsValue, {
+    knownValue: 100,
+    availableAccounts: 1,
+    missingAccountIds: ["one"],
+  });
+  assert.equal(result.summary.availableMargin, 100);
+  assert.equal(result.summaryCoverage.availableMargin.availableAccounts, 2);
+  assert.equal(result.history[0].totalEquity, null);
+});
+test("unknown balances and missing snapshots are never converted to zero", () => {
+  const result = buildDashboard(
+    [account("one", "kotak"), account("two", "zerodha")],
+    [snapshot("one", { cash_balance: null })],
+    [],
+    [],
+  );
+  assert.deepEqual(result.summaryCoverage.cashBalance, {
+    knownValue: null,
+    availableAccounts: 0,
+    missingAccountIds: ["one", "two"],
+  });
+  assert.equal(result.summaryCoverage.holdingsValue.knownValue, 100);
+  assert.equal(result.summary.holdingsValue, null);
+});
+test("a genuine zero is a known subtotal; negative P&L and complete totals remain intact", () => {
+  const accounts = [account("one", "kotak"), account("two", "zerodha")];
+  const result = buildDashboard(
+    accounts,
+    [
+      snapshot("one", { cash_balance: null }),
+      snapshot("two", { cash_balance: 0 }),
+    ],
+    [],
+    [],
+  );
+  assert.deepEqual(result.summaryCoverage.cashBalance, {
+    knownValue: 0,
+    availableAccounts: 1,
+    missingAccountIds: ["one"],
+  });
+  assert.equal(result.summary.positionsPnl, -10);
+  const individual = buildDashboard([accounts[1]], [snapshot("two")], [], []);
+  assert.equal(individual.summary.holdingsValue, 100);
+  assert.deepEqual(
+    individual.summaryCoverage.holdingsValue.missingAccountIds,
+    [],
+  );
+});
+
+test("partial dashboard coverage passes the frontend response contract", () => {
+  const id = "00000000-0000-4000-8000-000000000001";
+  const accounts = [account(id, "zerodha")];
+  const snapshots = [snapshot(id, { holdings_value: null })];
+  const parsed = portfolioDashboardSchema.parse(
+    buildDashboard(accounts, snapshots, [], []),
+  );
+  assert.equal(parsed.summaryCoverage.holdingsValue.knownValue, null);
+  assert.deepEqual(parsed.summaryCoverage.holdingsValue.missingAccountIds, [
+    id,
+  ]);
 });

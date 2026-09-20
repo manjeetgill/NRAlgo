@@ -43,6 +43,7 @@ import { KotakLiveManager } from "./live/kotak-live-manager.js";
 import { registerLiveTradingRoutes } from "./live/live-trading-routes.js";
 import { registerDatabaseBrowserRoutes } from "./database-browser-routes.js";
 import { createZerodhaConnection } from "./zerodha-connection.js";
+import { createIciciConnection } from "./icici-connection.js";
 import { BrokerSessionStore } from "./broker-session-store.js";
 import { BrokerAppCredentialStore } from "./broker-app-credential-store.js";
 import { registerEodRoutes } from "./stored-market-data.js";
@@ -186,6 +187,38 @@ export function createApiApplication(
     savedBrokerSessions,
     brokerAppCredentials,
   );
+  const icici = createIciciConnection(
+    {
+      connected: async (userId, _sessionHash, accountBinding, reader) => {
+        const brokerId = await recordBrokerConnected(
+          store,
+          userId,
+          "icici",
+          accountBinding,
+        );
+        try {
+          await portfolioService.syncRegisteredBroker({
+            userId,
+            brokerId,
+            reader,
+            source: "connection",
+          });
+        } catch {
+          await store.transaction((query) =>
+            audit(
+              query,
+              "ICICI Direct connected; initial portfolio synchronization unavailable.",
+              userId,
+            ),
+          );
+        }
+      },
+      disconnected: (userId) =>
+        recordBrokerDisconnected(store, userId, "icici").then(() => undefined),
+    },
+    savedBrokerSessions,
+    brokerAppCredentials,
+  );
   const kotakClient = kotakData || new KotakMarketDataClient();
   /** Adapt the current Kotak session to normalized read-only portfolio capabilities. */
   const kotakPortfolioReader = (
@@ -221,19 +254,39 @@ export function createApiApplication(
       },
       loadHoldings: () =>
         kotakClient.getPortfolioRows(userId, sessionHash, "holdings"),
-      loadPositions: () =>
-        kotakClient.getPortfolioRows(userId, sessionHash, "positions"),
+      loadPositions: async () => {
+        const { enrichPortfolioPositionMarks } =
+          await import("./portfolio-position-marks.js");
+        const positions = await kotakClient.getPortfolioRows(
+          userId,
+          sessionHash,
+          "positions",
+        );
+        const marked = await enrichPortfolioPositionMarks(
+          positions,
+          (tokens, segment) =>
+            kotakClient.getQuoteSnapshots(userId, sessionHash, tokens, segment),
+        );
+        if (!brokerSession.isCurrent()) {
+          throw new Error(
+            "Kotak portfolio session changed during quote lookup.",
+          );
+        }
+        return marked;
+      },
     };
   };
   /** Resolve only the session-bound reader for the requested provider. */
   const resolvePortfolioReader = (
-    provider: "kotak" | "zerodha",
+    provider: "kotak" | "zerodha" | "icici",
     userId: string,
     sessionHash: string,
   ) =>
     provider === "kotak"
       ? kotakPortfolioReader(userId, sessionHash)
-      : zerodha.portfolioReader(userId, sessionHash);
+      : provider === "zerodha"
+        ? zerodha.portfolioReader(userId, sessionHash)
+        : icici.portfolioReader(userId, sessionHash);
   // Share one public catalog between market-data and research contract resolution.
   const catalog = instrumentCatalog || new InstrumentCatalog();
   const liveManager = new KotakLiveManager(
@@ -242,6 +295,7 @@ export function createApiApplication(
     catalog,
     env,
     vault,
+    zerodha,
   );
   const kotakMarketData = createKotakMarketDataProvider(kotakClient, catalog);
   const marketData = selectMarketDataProvider(
@@ -296,6 +350,11 @@ export function createApiApplication(
           .activePortfolioReaders()
           .map(({ userId, reader }) => ({ userId, reader })),
       );
+      candidates.push(
+        ...icici
+          .activePortfolioReaders()
+          .map(({ userId, reader }) => ({ userId, reader })),
+      );
       for (const candidate of candidates) {
         const key = `${candidate.userId}|${candidate.reader.accountBinding}`;
         if (dailyCapturedBindings.has(key)) {
@@ -339,13 +398,14 @@ export function createApiApplication(
   async function disconnectUserData(userId: string) {
     restoreEpoch.set(userId, (restoreEpoch.get(userId) || 0) + 1);
     const revocation = zerodha.disconnect(userId);
+    const iciciRevocation = icici.disconnect(userId);
     liveManager.revoke(userId);
     marketData.disconnect(userId);
     if (marketData !== kotakMarketData) {
       kotakClient.disconnect(userId);
     }
     await savedBrokerSessions.remove(userId);
-    await revocation;
+    await Promise.all([revocation, iciciRevocation]);
   }
   const openRegistration =
     env.ALLOW_PUBLIC_REGISTRATION === "true" ||
@@ -357,6 +417,7 @@ export function createApiApplication(
     clearInterval(dailyPortfolioTimer);
     calculationRunner.close();
     zerodha.close();
+    icici.close();
     await liveManager.close();
     marketData.close();
     if (marketData !== kotakMarketData) {
@@ -673,6 +734,7 @@ export function createApiApplication(
               )
             : Promise.resolve(),
           zerodha.restore(owner),
+          icici.restore(owner),
         ]);
       })();
       entry = { until: Math.min(owner.expires * 1000, now + 60000), promise };
@@ -1030,6 +1092,7 @@ export function createApiApplication(
   );
   registerDatabaseBrowserRoutes(app, store);
   zerodha.register(app);
+  icici.register(app);
   registerEodRoutes(app, store, history);
   registerWatchlistRoutes(app, store, history);
   calculationRunner.start();

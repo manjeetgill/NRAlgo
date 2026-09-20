@@ -133,6 +133,7 @@ export function DailyChartCanvas({
   const [active, setActive] = useState<IndicatorName[]>([]);
   const [selectedDrawing, setSelectedDrawing] = useState<string | null>(null);
   const [drawingCount, setDrawingCount] = useState(0);
+  const [range, setRange] = useState("");
   const hasVolume = candles.every((bar) => bar.volume !== null);
   const fit = (count: number) => {
     const instance = chart.current;
@@ -156,6 +157,7 @@ export function DailyChartCanvas({
     }
     let observer: ResizeObserver | undefined;
     setReady(false);
+    setRange("");
     setError("");
     setMessage("");
     setSelectedDrawing(null);
@@ -360,15 +362,16 @@ export function DailyChartCanvas({
         </Select>
         <Select
           aria-label="Chart range"
-          value=""
+          value={range}
           disabled={!ready}
-          onChange={(event) =>
+          onChange={(event) => {
+            setRange(event.target.value);
             fit(
               event.target.value === "all"
                 ? candles.length
                 : Math.min(250, candles.length),
-            )
-          }
+            );
+          }}
         >
           <option value="" disabled>
             View

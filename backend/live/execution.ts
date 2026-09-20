@@ -22,7 +22,6 @@ import {
   type ExecutionBrokerAdapter,
   type OrderIntent,
   type OrderState,
-  type RiskLimits,
 } from "./contracts.js";
 import { evaluateLiveRisk, RiskLimitError } from "./risk.js";
 import {
@@ -54,36 +53,6 @@ export interface OrderRow {
   reserved_paise: string;
   created_at: number;
   broker_id: string | null;
-}
-
-/** Provision a separate live control record, initially halted. This does not connect a broker
- * or grant permission to trade. Binding must uniquely identify the actual broker account.
- */
-export async function createLiveAccount(
-  store: Store,
-  userId: string,
-  brokerBinding: string,
-  limits: RiskLimits,
-  brokerId: string | null = null,
-) {
-  const id = randomUUID();
-  if (!brokerBinding || brokerBinding.length > 200) {
-    throw new Error("Broker account binding required");
-  }
-  await store.transaction((query) =>
-    query(
-      "INSERT INTO live_accounts(id,user_id,broker_binding,halt_reason,limits,broker_id) VALUES($1,$2,$3,$4,$5,$6)",
-      [
-        id,
-        userId,
-        brokerBinding,
-        "Initial reconciliation and explicit resume required",
-        JSON.stringify(riskLimitsSchema.parse(limits)),
-        brokerId,
-      ],
-    ),
-  );
-  return id;
 }
 
 /** Append non-secret safety facts to the live execution audit. */

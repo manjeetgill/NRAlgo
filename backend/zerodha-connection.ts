@@ -1,7 +1,7 @@
 /**
  * Owner/session-bound Zerodha authorization and its private Kite SDK adapter.
  * One-use login state and per-user SDK instances keep credentials in server memory.
- * Connection establishes authentication only; this module never dispatches orders.
+ * Connection never authorizes trading. Only the live manager receives the fenced execution capability.
  */
 import type { Express } from "express";
 import { createHash, randomBytes } from "node:crypto";
@@ -179,6 +179,75 @@ export function createZerodhaSdk(
       },
       account: saved.account,
       saved: () => saved,
+      /** Narrow server-only wire capability: abortable requests, no retries and no raw SDK errors. */
+      async executionRequest(
+        path: string,
+        method: "GET" | "POST" | "DELETE",
+        body: Record<string, string> | undefined,
+        signal: AbortSignal,
+      ) {
+        const allowed =
+          method === "GET"
+            ? [
+                "/orders",
+                "/portfolio/positions",
+                "/portfolio/holdings",
+                "/user/margins/equity",
+              ].includes(path) ||
+              /^\/quote\?i=(NSE|NFO)%3A[A-Za-z0-9%_.&-]+$/.test(path)
+            : method === "POST"
+              ? path === "/orders/regular"
+              : /^\/orders\/regular\/\d{1,30}$/.test(path);
+        if (!allowed || (method === "POST") !== Boolean(body)) {
+          throw new Error("Unsupported execution request");
+        }
+        try {
+          const response = await fetch(`https://api.kite.trade${path}`, {
+            method,
+            signal,
+            redirect: "error",
+            headers: {
+              "X-Kite-Version": "3",
+              Authorization: `token ${key}:${saved.accessToken}`,
+              "Content-Type": "application/x-www-form-urlencoded",
+            },
+            ...(body ? { body: new URLSearchParams(body).toString() } : {}),
+          });
+          if (!response.ok || !response.body) {
+            throw new Error();
+          }
+          const reader = response.body.getReader();
+          const chunks: Uint8Array[] = [];
+          let size = 0;
+          try {
+            for (;;) {
+              const part = await reader.read();
+              if (part.done) {
+                break;
+              }
+              size += part.value.length;
+              if (size > 8 * 1024 * 1024) {
+                throw new Error();
+              }
+              chunks.push(part.value);
+            }
+          } finally {
+            await reader.cancel().catch(() => {});
+          }
+          const envelope = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+          if (envelope?.status !== "success" || envelope.data === undefined) {
+            throw new Error();
+          }
+          return envelope.data as unknown;
+        } catch {
+          // Even an HTTP error is ambiguous for writes. The OMS reconciles; it never retries.
+          throw new Error(
+            "Zerodha execution response unavailable or unconfirmed. Reconcile before retrying any action.",
+          );
+        }
+      },
+      executionInstruments: (market: "cash" | "options") =>
+        client.getInstruments(market === "cash" ? "NSE" : "NFO"),
       async revoke() {
         try {
           await client.invalidateAccessToken(saved.accessToken);
@@ -445,6 +514,51 @@ export function createZerodhaConnection(
     },
     disconnect,
     isConnected,
+    /** Capture the exact owner/session. Reconnects invalidate reads and writes, including late responses. */
+    executionSession(userId: string, sessionHash: string) {
+      if (!isConnected(userId, sessionHash)) {
+        fail(409, "Reconnect the active Zerodha broker first.");
+      }
+      const connection = connections.get(sessionHash)!;
+      const isCurrent = () =>
+        connections.get(sessionHash) === connection &&
+        isConnected(userId, sessionHash);
+      return {
+        accountBinding: `zerodha:${createHash("sha256").update(connection.client.account.user_id.trim().toUpperCase()).digest("hex")}`,
+        expiresAt: connection.deadline,
+        isCurrent,
+        async request(
+          path: string,
+          method: "GET" | "POST" | "DELETE",
+          body: Record<string, string> | undefined,
+          signal: AbortSignal,
+        ) {
+          if (!isCurrent() || signal.aborted) {
+            throw new Error("Zerodha execution session changed");
+          }
+          const result = await connection.client.executionRequest(
+            path,
+            method,
+            body,
+            signal,
+          );
+          if (!isCurrent() || signal.aborted) {
+            throw new Error("Zerodha execution session changed");
+          }
+          return result;
+        },
+        async instruments(market: "cash" | "options") {
+          if (!isCurrent()) {
+            throw new Error("Zerodha execution session changed");
+          }
+          const result = await connection.client.executionInstruments(market);
+          if (!isCurrent()) {
+            throw new Error("Zerodha execution session changed");
+          }
+          return result;
+        },
+      };
+    },
     async optionSnapshot(
       userId: string,
       sessionHash: string,

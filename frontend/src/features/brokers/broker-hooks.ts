@@ -222,7 +222,7 @@ export function useBrokerConnection(
 /** Provider-neutral registry metadata contains no broker credentials. */
 const registeredBrokerSchema = z.object({
   id: z.string().uuid(),
-  provider: z.enum(["kotak", "zerodha"]),
+  provider: z.enum(["kotak", "zerodha", "icici"]),
   status: z.enum(["connected", "disconnected"]),
   connectedAt: z.number().finite(),
   updatedAt: z.number().finite(),
@@ -236,8 +236,6 @@ const selectionSchema = z.object({
   changed: z.boolean(),
   warning: z.string().nullable(),
 });
-
-export type RegisteredBroker = z.infer<typeof registeredBrokerSchema>;
 
 /** Fence stale reads and serialize active-broker changes without retrying mutations. */
 export function useBrokerRegistry(
@@ -499,4 +497,109 @@ export function useZerodhaConnection(csrf: string) {
     }
   }
   return { connection, busy, error, action, configure };
+}
+
+const iciciConnectionSchema = z.object({
+  configured: z.boolean(),
+  connected: z.boolean(),
+  expiresAt: z.number().nullable(),
+  account: z.object({ user_id: z.string(), user_name: z.string() }).nullable(),
+  capabilities: z.object({
+    exchanges: z.array(z.enum(["NSE", "NFO"])),
+    mcx: z.literal(false),
+  }),
+});
+
+/** Manage Breeze's daily session-key login; credentials never survive browser state. */
+export function useIciciConnection(csrf: string) {
+  const [connection, setConnection] = useState<z.infer<
+    typeof iciciConnectionSchema
+  > | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const load = useCallback(async (signal?: AbortSignal) => {
+    const value = iciciConnectionSchema.parse(
+      await requestApiJson(
+        "/brokers/icici",
+        "GET",
+        undefined,
+        undefined,
+        15000,
+        signal,
+      ),
+    );
+    setConnection(value);
+    return value;
+  }, []);
+  useEffect(() => {
+    const abort = new AbortController();
+    void load(abort.signal).catch((failure) => {
+      if (!abort.signal.aborted) {
+        setError(
+          failure instanceof Error
+            ? failure.message
+            : "Unable to load ICICI Direct status.",
+        );
+      }
+    });
+    return () => abort.abort();
+  }, [load]);
+  const connect = useCallback(
+    async (input: {
+      appKey: string;
+      secretKey: string;
+      sessionKey: string;
+    }) => {
+      if (busy) {
+        return false;
+      }
+      setBusy(true);
+      setError("");
+      try {
+        await requestApiJson(
+          "/brokers/icici/connect",
+          "POST",
+          input,
+          csrf,
+          30000,
+        );
+        await load();
+        window.dispatchEvent(new Event("active-broker-changed"));
+        return true;
+      } catch (failure) {
+        setError(
+          failure instanceof Error
+            ? failure.message
+            : "ICICI Direct connection failed.",
+        );
+        return false;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [busy, csrf, load],
+  );
+  const disconnect = useCallback(async () => {
+    if (busy) {
+      return false;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await requestApiJson("/brokers/icici/disconnect", "POST", {}, csrf);
+      await load();
+      window.dispatchEvent(new Event("active-broker-changed"));
+      return true;
+    } catch (failure) {
+      setError(
+        failure instanceof Error
+          ? failure.message
+          : "ICICI Direct disconnect failed.",
+      );
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, csrf, load]);
+  return { connection, busy, error, connect, disconnect };
 }

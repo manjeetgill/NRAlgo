@@ -9,6 +9,7 @@ import {
   brokerConnectionAdapters,
   useBrokerConnection,
   useBrokerRegistry,
+  useIciciConnection,
   useZerodhaConnection,
 } from "./broker-hooks";
 import { Button } from "@/components/ui/button";
@@ -47,8 +48,17 @@ const capabilityRows: CapabilityRow[] = [
     id: "zerodha",
     broker: "Zerodha Kite",
     reports: "Read-only portfolio",
-    marketData: "Not integrated",
-    execution: "Not available in this app",
+    marketData:
+      "Quote snapshots require Kite data access; no live chart stream",
+    execution: "Separate live authorization and risk checks",
+  },
+  {
+    id: "icici",
+    broker: "ICICI Direct Breeze",
+    reports: "NSE/NFO holdings, positions and funds",
+    marketData: "NSE/NFO only; Breeze does not expose MCX",
+    execution:
+      "Connection and portfolio adapter; live execution remains locked",
   },
 ];
 const capabilityColumns: DataTableColumn<CapabilityRow>[] = [
@@ -215,6 +225,7 @@ export function BrokersScreen({ csrf }: { csrf: string }) {
           </Button>
         </Card>
         <ZerodhaConnectionCard csrf={csrf} />
+        <IciciConnectionCard csrf={csrf} />
       </div>
       {showPortfolio && connection.connected && (
         <BrokerPortfolioPanel broker="kotak" csrf={csrf} />
@@ -326,7 +337,11 @@ export function BrokersScreen({ csrf }: { csrf: string }) {
   );
 }
 
-const providerNames = { kotak: "Kotak Neo", zerodha: "Zerodha Kite" } as const;
+const providerNames = {
+  kotak: "Kotak Neo",
+  zerodha: "Zerodha Kite",
+  icici: "ICICI Direct",
+} as const;
 
 /** Render one owner-scoped radio group for future routing without exposing account identifiers. */
 function ActiveBrokerSelector({
@@ -369,8 +384,9 @@ function ActiveBrokerSelector({
         <div>
           <h2>Active live broker</h2>
           <p>
-            Select the account for supported live activity. Only Kotak Neo
-            currently supports order execution in this app.
+            Select the account for supported activity. Live execution is
+            available only where the provider adapter and separate risk
+            authorization are both enabled.
           </p>
         </div>
         <Badge tone="accent" role="status">
@@ -449,7 +465,9 @@ function ActiveBrokerSelector({
         </p>
         {pendingBroker?.provider === "zerodha" && (
           <p role="note">
-            Zerodha live order execution is not yet available in this app.
+            Zerodha requires registered static-IP configuration and fresh quote
+            access. Switching brokers clears live permission; authorize again in
+            Live positions.
           </p>
         )}
         {registry.error && <p role="alert">{registry.error}</p>}
@@ -591,11 +609,14 @@ function ZerodhaConnectionCard({ csrf }: { csrf: string }) {
           <dt>Access</dt>
           <dd>
             Authorized API session, profile verification and read-only portfolio
-            snapshots. Market-data screens and order routing are not yet
-            integrated with Zerodha.
+            snapshots. Supported live orders use this account only, after server
+            configuration, risk checks and fresh app 2FA authorization.
           </dd>
           <dt>Execution</dt>
-          <dd>Disabled · connecting does not authorize trading</dd>
+          <dd>
+            Requires separate authorization ·{" "}
+            <a href="#/live-positions">Review live trading controls</a>
+          </dd>
         </dl>
         <div className="screen-toolbar">
           <Button
@@ -740,6 +761,130 @@ function ZerodhaConnectionCard({ csrf }: { csrf: string }) {
           No Zerodha password or OTP is collected here. Those are entered only
           on Zerodha during authorization. Your Kotak connection is independent.
         </p>
+      </Dialog>
+    </>
+  );
+}
+
+/** ICICI Breeze connection card; the daily session key is collected only for explicit login. */
+function IciciConnectionCard({ csrf }: { csrf: string }) {
+  const toast = useToast();
+  const { connection, busy, error, connect, disconnect } =
+    useIciciConnection(csrf);
+  const [open, setOpen] = useState(false);
+  const [credentials, setCredentials] = useState({
+    appKey: "",
+    secretKey: "",
+    sessionKey: "",
+  });
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    try {
+      if (await connect(credentials)) {
+        setOpen(false);
+        toast({ tone: "success", title: "ICICI Direct connected" });
+      }
+    } finally {
+      setCredentials({ appKey: "", secretKey: "", sessionKey: "" });
+    }
+  }
+  return (
+    <>
+      <Card aria-label="ICICI Direct connection">
+        <div className="screen-toolbar">
+          <h2 className="broker-card-title">
+            <span className="connection-logo">I</span>ICICI Direct Breeze
+          </h2>
+          <Badge tone={connection?.connected ? "success" : "warning"}>
+            {connection?.connected ? "Connected" : "Authorization required"}
+          </Badge>
+        </div>
+        <p>
+          Connect Breeze for NSE/NFO holdings, positions and funds. Connecting
+          does not enable live-order submission.
+        </p>
+        <p role="note" className="warning">
+          ICICI&apos;s Breeze API currently does not expose MCX or BSE
+          securities. Commodity positions cannot be imported through this
+          adapter.
+        </p>
+        {connection?.account && (
+          <p>
+            Connected account: {connection.account.user_name} ·{" "}
+            {connection.account.user_id}
+          </p>
+        )}
+        {error && (
+          <p role="alert" className="error">
+            {error}
+          </p>
+        )}
+        <div className="screen-toolbar">
+          <Button disabled={busy} onClick={() => setOpen(true)}>
+            {connection?.connected ? "Reconnect ICICI" : "Connect ICICI"}
+          </Button>
+          {connection?.connected && (
+            <Button
+              variant="secondary"
+              disabled={busy}
+              onClick={async () => {
+                if (await disconnect()) {
+                  toast({
+                    tone: "success",
+                    title: "ICICI Direct disconnected",
+                  });
+                }
+              }}
+            >
+              Disconnect
+            </Button>
+          )}
+        </div>
+      </Card>
+      <Dialog
+        open={open}
+        onClose={() => setOpen(false)}
+        title="Connect ICICI Direct Breeze"
+        labelledBy="connect-icici-title"
+      >
+        <form onSubmit={submit} autoComplete="off">
+          <div className="market-grid">
+            {(
+              [
+                ["appKey", "Breeze API key", "text"],
+                ["secretKey", "Breeze secret key", "password"],
+                ["sessionKey", "Daily Breeze session key", "password"],
+              ] as const
+            ).map(([name, label, type]) => (
+              <Field key={name} label={label} htmlFor={`icici-${name}`}>
+                <Input
+                  id={`icici-${name}`}
+                  type={type}
+                  required
+                  minLength={1}
+                  maxLength={512}
+                  disabled={busy}
+                  autoComplete="off"
+                  value={credentials[name]}
+                  onChange={(event) =>
+                    setCredentials((current) => ({
+                      ...current,
+                      [name]: event.target.value,
+                    }))
+                  }
+                />
+              </Field>
+            ))}
+          </div>
+          <p>
+            Generate the session key from the ICICI Breeze portal. It expires at
+            midnight or earlier if revoked. Secrets are encrypted on the server
+            and never returned to this screen.
+          </p>
+          <Button type="submit" disabled={busy}>
+            {busy ? "Connecting…" : "Connect ICICI Direct"}
+          </Button>
+        </form>
       </Dialog>
     </>
   );

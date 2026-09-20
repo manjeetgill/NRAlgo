@@ -8,6 +8,42 @@ import {
 } from "../backend/live/session-window.ts";
 
 const now = 1_000_000;
+// Provider selection and deployment readiness are checked without connecting to any broker.
+test("live manager keeps static-IP gates separate for Kotak and Zerodha", async () => {
+  const manager = new KotakLiveManager(
+    {},
+    {},
+    {},
+    { LIVE_TRADING_ENABLED: "true", ZERODHA_STATIC_IP_CONFIRMED: "true" },
+    {},
+    {},
+  );
+  assert.equal(manager.executionBlocker("zerodha"), null);
+  assert.match(manager.executionBlocker("kotak"), /static-IP/);
+  assert.match(manager.executionBlocker("unknown"), /not implemented/);
+  await manager.close();
+});
+test("live manager requires operator configuration before any provider can activate", () => {
+  assert.throws(
+    () =>
+      new KotakLiveManager(
+        {},
+        {},
+        {},
+        { LIVE_TRADING_ENABLED: "true" },
+        {},
+        {},
+      ),
+    /static-IP/,
+  );
+});
+test("closed market rejects enablement before broker access or MFA consumption", async (t) => {
+  t.mock.method(Date, "now", () => Date.parse("2026-09-20T06:00:00Z"));
+  const manager = Object.assign(Object.create(KotakLiveManager.prototype), {
+    entry: () => assert.fail("closed market must not contact broker"),
+  });
+  await assert.rejects(manager.arm({}, "123456"), { status: 409 });
+});
 test("live permission is capped at five minutes", () => {
   assert.equal(
     livePermissionDeadline(now + 600_000, now + 600_000, now),

@@ -9,6 +9,7 @@ import {
   type InstrumentSearch,
 } from "../instrument-master.js";
 import type { LoginSession } from "../types.js";
+import { regularMarketSessionOpen } from "../market-contracts.js";
 import {
   orderIntentSchema,
   riskLimitsSchema,
@@ -58,7 +59,10 @@ export function registerLiveTradingRoutes(
     };
   app.get(
     "/api/live/status",
-    handle((_req, res) => manager.status(res.locals.session)),
+    handle(async (_req, res) => ({
+      ...((await manager.status(res.locals.session)) as object),
+      marketOpen: regularMarketSessionOpen(Date.now()),
+    })),
   );
   app.post(
     "/api/live/instruments",

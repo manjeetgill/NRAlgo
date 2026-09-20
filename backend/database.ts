@@ -497,6 +497,21 @@ export async function runDatabaseMigrations(
       );
       await query("INSERT INTO schema_migrations VALUES(22)");
     }
+    if (
+      !(await query("SELECT version FROM schema_migrations WHERE version=23"))
+        .length
+    ) {
+      await query(
+        "ALTER TABLE user_brokers DROP CONSTRAINT user_brokers_provider_check, ADD CONSTRAINT user_brokers_provider_check CHECK(provider IN ('kotak','zerodha','icici'))",
+      );
+      await query(
+        "ALTER TABLE broker_sessions DROP CONSTRAINT broker_sessions_provider_check, ADD CONSTRAINT broker_sessions_provider_check CHECK(provider IN ('kotak','zerodha','icici'))",
+      );
+      await query(
+        "ALTER TABLE portfolio_accounts DROP CONSTRAINT portfolio_accounts_provider_check, ADD CONSTRAINT portfolio_accounts_provider_check CHECK(provider IN ('kotak','zerodha','icici'))",
+      );
+      await query("INSERT INTO schema_migrations VALUES(23)");
+    }
   });
   // The migration container owns DDL; API/worker use a separate non-superuser role.
   if (options.runtimePassword) {

@@ -1,5 +1,4 @@
-/** Read-only broker history transport. The browser supplies contract identity, never candles or credentials. */
-import { requestApiJson } from "./api";
+/** Shared history contracts and validation for stored-data charts and backtests. */
 import type { BrokerInstrument } from "@/components/instrument-picker";
 
 export type HistoryInterval = "1minute" | "5minute" | "day";
@@ -31,30 +30,6 @@ export interface HistoryDataset {
   fetchedAt: string;
   adjustmentPolicy: string;
   coverage: string;
-}
-
-/** Serialize the selected master contract without trusting display labels or option aliases. */
-export function historyRequestFor(
-  instrument: BrokerInstrument,
-  from: string,
-  to: string,
-  interval: HistoryInterval,
-): HistoryRequest {
-  return {
-    market: instrument.market,
-    stockCode: instrument.symbol,
-    instrument: instrument.instrument,
-    from,
-    to,
-    interval,
-    ...(instrument.option
-      ? {
-          expiryDate: instrument.option.expiryDate,
-          right: instrument.option.right,
-          strikePrice: instrument.option.strikePrice,
-        }
-      : {}),
-  };
 }
 
 /** IST calendar dates avoid browser-timezone drift for requests and daily backtests. */
@@ -124,21 +99,4 @@ export function validateHistoryDataset(
     previous = time;
   }
   return data;
-}
-
-/** One explicit history request; no automatic polling, CSV fallback, token exposure or order side effects. */
-export async function fetchMarketHistory(
-  request: HistoryRequest,
-  csrf: string,
-  signal: AbortSignal,
-): Promise<HistoryDataset> {
-  const data = await requestApiJson(
-    "/market/history",
-    "POST",
-    request,
-    csrf,
-    95000,
-    signal,
-  );
-  return validateHistoryDataset(data, request);
 }

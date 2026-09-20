@@ -14,7 +14,11 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
       - run: npm test
+      - run: python3 -m unittest discover -s tests -p 'test_*.py'
   commits:
     runs-on: ubuntu-latest
     outputs:
@@ -84,7 +88,7 @@ jobs:
           REPOSITORY: ${{ github.repository }}
         run: |
           prefix="ghcr.io/${REPOSITORY,,}"
-          for target in backend web calculation backup; do
+          for target in backend web calculation backup market-data; do
             docker build --pull --target "$target" \
               --label "org.opencontainers.image.source=https://github.com/$REPOSITORY" \
               --label "org.opencontainers.image.revision=$GITHUB_SHA" \
@@ -107,11 +111,12 @@ jobs:
       - name: Publish immutable release manifest
         run: |
           : > release.env
-          for target in backend web calculation backup; do
+          for target in backend web calculation backup market-data; do
             image="$RELEASE_IMAGE_PREFIX-$target:sha-$GITHUB_SHA"
             docker push "$image"
             digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$image")
-            printf '%s_IMAGE=%s\n' "${target^^}" "$digest" >> release.env
+            name=${target//-/_}
+            printf '%s_IMAGE=%s\n' "${name^^}" "$digest" >> release.env
           done
           for spec in POSTGRES=postgres:17-alpine CADDY=caddy:2-alpine; do
             name=${spec%%=*}

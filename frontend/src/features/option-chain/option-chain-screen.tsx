@@ -222,6 +222,10 @@ export function OptionChainScreen({
             <LiveOrderTicket
               key={`${brokers.activeBrokerId}:${order.contract.symbol}:${order.side}`}
               csrf={csrf}
+              activeBroker={activeBroker}
+              brokerStatusUnavailable={
+                brokers.loading || Boolean(brokers.error)
+              }
               initialOrder={order}
             />
           )}

@@ -7,7 +7,7 @@
  */
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
-import { DuckDBInstance, type DuckDBValue } from "@duckdb/node-api";
+import { DuckDBInstance, listValue, type DuckDBValue } from "@duckdb/node-api";
 import { z } from "zod";
 import { root, type Store } from "./database.js";
 
@@ -46,6 +46,15 @@ export type HistoricalInstrument = {
   candle_count: number;
 };
 
+export type WatchlistInstrument = Omit<
+  HistoricalInstrument,
+  "first_day" | "last_day"
+> & {
+  first_day: string | null;
+  last_day: string | null;
+  fno: boolean;
+};
+
 export type HistoricalCandle = {
   day: string;
   open: number;
@@ -74,6 +83,93 @@ export class HistoricalCandleStore {
   private readonly candleGlob: string;
   private readonly archived: boolean;
   private instance?: Promise<DuckDBInstance>;
+
+  /** Resolve an atomic NSE publication each request so a daily sync needs no app restart. */
+  private nsePublication() {
+    const directory = resolve(this.archiveDirectory, "nse");
+    const pointer = resolve(directory, "current.json");
+    if (!existsSync(pointer)) {
+      return null;
+    }
+    const publication = z
+      .object({
+        version: z.literal(1),
+        generation: z.uuid(),
+        fetchedAt: z.iso.datetime(),
+        files: z.record(
+          z.string(),
+          z.object({
+            bytes: z.number().int().positive(),
+            sha256: z.string().regex(/^[a-f0-9]{64}$/),
+          }),
+        ),
+      })
+      .parse(JSON.parse(readFileSync(pointer, "utf8")));
+    const file = (name: string) => {
+      const path = resolve(directory, publication.generation, name);
+      if (
+        !publication.files[name] ||
+        !existsSync(path) ||
+        statSync(path).size !== publication.files[name].bytes
+      ) {
+        throw new Error(
+          "NSE chart publication is incomplete; run the NSE chart sync again.",
+        );
+      }
+      return path;
+    };
+    return {
+      catalog: file("catalog.parquet"),
+      candles: file("candles.parquet"),
+      fetchedAt: publication.fetchedAt,
+    };
+  }
+
+  /** Browse the full current NSE catalogue, including newly listed stocks without candles. */
+  public async searchWatchlistInstruments(
+    queryText: string,
+    offset: number,
+    segment: "cash" | "fno" | "index",
+  ) {
+    // NSE's derivatives alias must resolve without changing saved legacy index IDs.
+    if (queryText.trim().toUpperCase() === "NIFTYNXT50") {
+      queryText = "NIFTY_NEXT_50";
+    }
+    const publication = this.nsePublication();
+    if (!publication) {
+      const detail =
+        "The NSE stock catalogue has not been downloaded yet. Run the NSE chart sync to populate Cash, F&O and Indices.";
+      throw Object.assign(new Error(detail), { status: 503, detail });
+    }
+    const filter =
+      segment === "index"
+        ? "kind='index'"
+        : segment === "fno"
+          ? "fno=true"
+          : "kind='equity'";
+    const rows = await this.parquetQuery<WatchlistInstrument>(
+      `SELECT * FROM read_parquet(?) WHERE active=true AND ${filter} AND (strpos(upper(symbol),upper(?))>0 OR strpos(upper(name),upper(?))>0) ORDER BY CASE WHEN upper(symbol)=upper(?) THEN 0 WHEN starts_with(upper(symbol),upper(?)) THEN 1 ELSE 2 END,name,id LIMIT 51 OFFSET ?`,
+      [publication.catalog, queryText, queryText, queryText, queryText, offset],
+    );
+    return {
+      items: rows.slice(0, 50),
+      nextOffset: rows.length > 50 ? offset + 50 : null,
+      fetchedAt: publication.fetchedAt,
+    };
+  }
+
+  /** Refresh saved display names in one catalogue read without rewriting the user's list. */
+  public async watchlistNames(ids: string[]) {
+    const publication = this.nsePublication();
+    if (!publication || !ids.length) {
+      return new Map<string, string>();
+    }
+    const rows = await this.parquetQuery<{ id: string; name: string }>(
+      "SELECT id,name FROM read_parquet(?) WHERE id IN (SELECT unnest(?))",
+      [publication.catalog, listValue(ids)],
+    );
+    return new Map(rows.map((row) => [row.id, row.name]));
+  }
 
   constructor(
     private readonly store: Store,
@@ -145,6 +241,17 @@ export class HistoricalCandleStore {
 
   /** Search only instruments that have candles, in stable symbol order. */
   public async searchInstruments(queryText: string, offset: number) {
+    const publication = this.nsePublication();
+    if (publication) {
+      // Research still requires actual candles. The watchlist catalogue deliberately does not.
+      const catalogs = this.archived
+        ? [publication.catalog, this.catalogPath]
+        : [publication.catalog];
+      return this.parquetQuery<HistoricalInstrument>(
+        "SELECT id,symbol,name,kind,series,exchange,CAST(first_day AS VARCHAR) first_day,CAST(last_day AS VARCHAR) last_day,CAST(candle_count AS INTEGER) candle_count FROM (SELECT * FROM read_parquet(?,union_by_name=true) WHERE candle_count>0 QUALIFY row_number() OVER (PARTITION BY id ORDER BY last_day DESC)=1) WHERE strpos(upper(symbol),upper(?))>0 OR strpos(upper(name),upper(?))>0 ORDER BY CASE WHEN upper(symbol)=upper(?) THEN 0 ELSE 1 END,symbol,id LIMIT 51 OFFSET ?",
+        [listValue(catalogs), queryText, queryText, queryText, offset],
+      );
+    }
     if (this.archived) {
       return this.parquetQuery<HistoricalInstrument>(
         "SELECT id,symbol,name,kind,series,exchange,CAST(first_day AS VARCHAR) AS first_day,CAST(last_day AS VARCHAR) AS last_day,CAST(candle_count AS INTEGER) AS candle_count FROM read_parquet(?) WHERE strpos(upper(symbol),upper(?))>0 OR strpos(upper(name),upper(?))>0 ORDER BY symbol,id LIMIT 51 OFFSET ?",
@@ -161,6 +268,16 @@ export class HistoricalCandleStore {
 
   /** Read exact instrument metadata from the compact catalog or PostgreSQL. */
   public async readInstrument(id: string) {
+    const publication = this.nsePublication();
+    if (publication) {
+      const [instrument] = await this.parquetQuery<HistoricalInstrument>(
+        "SELECT id,symbol,name,kind,series,exchange,COALESCE(first_day,'') first_day,COALESCE(last_day,'') last_day,candle_count FROM read_parquet(?) WHERE id=? LIMIT 1",
+        [publication.catalog, id],
+      );
+      if (instrument) {
+        return instrument;
+      }
+    }
     if (this.archived) {
       const [instrument] = await this.parquetQuery<HistoricalInstrument>(
         "SELECT id,symbol,name,kind,series,exchange,CAST(first_day AS VARCHAR) AS first_day,CAST(last_day AS VARCHAR) AS last_day,CAST(candle_count AS INTEGER) AS candle_count FROM read_parquet(?) WHERE id=? LIMIT 1",
@@ -178,7 +295,44 @@ export class HistoricalCandleStore {
   }
 
   /** Read at most 10,001 ordered rows so API callers can enforce the public cap. */
-  public async readCandles(id: string, from?: string, to?: string) {
+  public async readCandles(
+    id: string,
+    from?: string,
+    to?: string,
+    preferNse = false,
+  ) {
+    const publication = this.nsePublication();
+    if (publication) {
+      const candles = await this.parquetQuery<HistoricalCandle>(
+        "SELECT CAST(day AS VARCHAR) AS day,open,high,low,close,volume,source,CAST(imported_at AS VARCHAR) imported_at FROM read_parquet(?) WHERE instrument_id=? AND (? IS NULL OR day>=CAST(? AS DATE)) AND (? IS NULL OR day<=CAST(? AS DATE)) ORDER BY day LIMIT 10001",
+        [
+          publication.candles,
+          id,
+          from ?? null,
+          from ?? null,
+          to ?? null,
+          to ?? null,
+        ],
+      );
+      // Charts prefer the contiguous official source: do not calculate indicators across a multi-year legacy gap.
+      if (preferNse && candles.length) {
+        return candles;
+      }
+      const legacy = await this.readLegacyCandles(id, from, to);
+      // Exact day/identity only: no symbol-renaming guesses and no fabricated gap filling.
+      const merged = new Map(legacy.map((bar) => [bar.day, bar]));
+      for (const candle of candles) {
+        merged.set(candle.day, candle);
+      }
+      return [...merged.values()]
+        .sort((a, b) => a.day.localeCompare(b.day))
+        .slice(0, 10001);
+    }
+    return this.readLegacyCandles(id, from, to);
+  }
+
+  /** Preserve the existing archive/PostgreSQL fallback; NSE updates are an additive overlay. */
+  private async readLegacyCandles(id: string, from?: string, to?: string) {
     if (this.archived) {
       return this.parquetQuery<HistoricalCandle>(
         "SELECT CAST(day AS VARCHAR) AS day,open,high,low,close,volume,source,CAST(imported_at AS VARCHAR) AS imported_at FROM read_parquet(?,hive_partitioning=true) WHERE instrument_id=? AND (? IS NULL OR day>=CAST(? AS DATE)) AND (? IS NULL OR day<=CAST(? AS DATE)) ORDER BY day LIMIT 10001",

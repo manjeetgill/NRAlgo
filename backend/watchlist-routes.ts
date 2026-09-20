@@ -89,7 +89,20 @@ export function registerWatchlistRoutes(
         items: entriesSchema.parse(row.items),
       }));
     });
-    res.json({ lists });
+    const names = await history.watchlistNames(
+      lists.flatMap((list) =>
+        list.items.flatMap((item) => (item.id ? [item.id] : [])),
+      ),
+    );
+    res.json({
+      lists: lists.map((list) => ({
+        ...list,
+        items: list.items.map((item) => ({
+          ...item,
+          name: (item.id && names.get(item.id)) || item.name,
+        })),
+      })),
+    });
   });
   app.post("/api/watchlists", async (req, res) => {
     const { name } = z.object({ name: nameSchema }).strict().parse(req.body);

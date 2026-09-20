@@ -18,6 +18,7 @@ import {
   type BrokerProvider,
 } from "./broker-registry.js";
 import { fail, rateLimit } from "./security.js";
+import { applyPortfolioBhavcopy } from "./portfolio-bhavcopy.js";
 
 /** Provider implementation required by the portfolio service. */
 export interface PortfolioBrokerReader {
@@ -62,6 +63,8 @@ type SnapshotRow = {
   warnings: unknown;
 };
 type ItemRow = {
+  last_close_day?: string;
+  estimated_pnl?: boolean;
   id: string;
   snapshot_id: string;
   account_id: string;
@@ -210,7 +213,12 @@ export class PortfolioService {
     accountBinding: string,
   ) {
     return this.store.transaction(async (query) => {
-      const baseLabel = provider === "kotak" ? "Kotak Neo" : "Zerodha Kite";
+      const baseLabel =
+        provider === "kotak"
+          ? "Kotak Neo"
+          : provider === "zerodha"
+            ? "Zerodha Kite"
+            : "ICICI Direct";
       const [count] = await query<{ total: string }>(
         "SELECT COUNT(*)::text AS total FROM portfolio_accounts WHERE user_id=$1 AND provider=$2",
         [userId, provider],
@@ -439,7 +447,12 @@ export class PortfolioService {
          ORDER BY ps.trading_day,ps.account_id`,
         [userId, ...(brokerIds ?? [])],
       );
-      return buildDashboard(accounts, snapshots, items, history);
+      const displayItems = await applyPortfolioBhavcopy(
+        query,
+        items,
+        portfolioTradingDay(Date.now()),
+      );
+      return buildDashboard(accounts, snapshots, displayItems, history);
     });
   }
 }
@@ -513,6 +526,14 @@ export function buildDashboard(
       investedAmount: invested,
       currentValue: current,
       pnl: completeSum(group.map((row) => row.pnl)),
+      lastCloseDays: [
+        ...new Set(
+          group.flatMap((row) =>
+            row.last_close_day ? [row.last_close_day] : [],
+          ),
+        ),
+      ].sort(),
+      estimatedPnl: group.some((row) => row.estimated_pnl === true),
       accounts: group.map((row) => ({
         accountId: row.account_id,
         provider: row.provider,
@@ -538,6 +559,42 @@ export function buildDashboard(
           : null;
       }),
     );
+  // Keep complete totals strict, but expose usable per-metric subtotals separately.
+  // A broker with missing holdings can still contribute verified margin/P&L; missing is never zero.
+  const summaryFields = {
+    holdingsValue: "holdings_value",
+    investedValue: "invested_value",
+    pledgedValue: "pledged_value",
+    positionsPnl: "positions_pnl",
+    availableMargin: "available_margin",
+    cashBalance: "cash_balance",
+    usedMargin: "used_margin",
+    collateralValue: "collateral_value",
+    totalEquity: "total_equity",
+  } as const;
+  const summaryCoverage = Object.fromEntries(
+    Object.entries(summaryFields).map(([name, field]) => {
+      const available = selected.flatMap((snapshot) => {
+        const value = snapshot?.[field];
+        return typeof value === "number" && Number.isFinite(value)
+          ? [value]
+          : [];
+      });
+      return [
+        name,
+        {
+          knownValue: available.length ? completeSum(available) : null,
+          availableAccounts: available.length,
+          missingAccountIds: accounts
+            .filter((_, index) => {
+              const value = selected[index]?.[field];
+              return typeof value !== "number" || !Number.isFinite(value);
+            })
+            .map((account) => account.id),
+        },
+      ];
+    }),
+  );
   const days = new Map<string, Map<string, SnapshotRow>>();
   for (const snapshot of history) {
     const day = String(snapshot.trading_day).slice(0, 10);
@@ -577,6 +634,7 @@ export function buildDashboard(
       collateralValue: total("collateral_value"),
       totalEquity: total("total_equity"),
     },
+    summaryCoverage,
     items: consolidatedItems.sort((left, right) =>
       left.symbol.localeCompare(right.symbol),
     ),

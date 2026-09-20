@@ -330,6 +330,95 @@ export function normalizeZerodhaPortfolioRows(
   });
 }
 
+/** Normalize Breeze NSE/NFO books; unsupported MCX rows fail closed instead of disappearing. */
+export function normalizeIciciPortfolioRows(
+  kind: "positions" | "holdings",
+  raw: unknown,
+): PortfolioRow[] {
+  if (!Array.isArray(raw) || raw.length >= 10000) {
+    throw new Error("ICICI Direct portfolio missing or potentially truncated");
+  }
+  return raw.map((value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error("Invalid ICICI Direct portfolio row");
+    }
+    const row = value as Record<string, unknown>;
+    const exchangeCode = readPortfolioDisplayText(
+      row.exchange_code,
+    ).toUpperCase();
+    if (!exchangeCode || !["NSE", "NFO"].includes(exchangeCode)) {
+      throw new Error(
+        "ICICI Direct Breeze supports only NSE and NFO portfolio rows",
+      );
+    }
+    const symbol = readPortfolioDisplayText(
+      row.stock_code || row.stock_name,
+    ).toUpperCase();
+    const quantity = firstOptionalPortfolioNumber(
+      row.quantity,
+      row.open_quantity,
+      row.available_quantity,
+    );
+    if (!symbol || quantity === null || !Number.isSafeInteger(quantity)) {
+      throw new Error("Missing ICICI Direct portfolio identity/quantity");
+    }
+    const averagePrice = firstOptionalPortfolioNumber(
+      row.average_price,
+      row.avg_price,
+    );
+    const markPrice = firstOptionalPortfolioNumber(
+      row.current_market_price,
+      row.ltp,
+    );
+    const pnl = firstOptionalPortfolioNumber(
+      row.unrealized_profit,
+      row.unrealised_profit,
+      row.profit_loss,
+    );
+    return {
+      symbol,
+      isin: readPortfolioDisplayText(row.isin_code || row.isin).toUpperCase(),
+      underlying: kind === "positions" ? symbol : "",
+      instrumentToken: readPortfolioDisplayText(
+        row.token || row.instrument_token || `${exchangeCode}:${symbol}`,
+      ),
+      exchange: exchangeCode === "NFO" ? "nse_fo" : "nse_cm",
+      product: readPortfolioDisplayText(row.product_type || row.product),
+      quantity,
+      pledgedQuantity:
+        kind === "holdings"
+          ? firstOptionalPortfolioNumber(
+              row.pledged_quantity,
+              row.blocked_quantity,
+            )
+          : null,
+      t1Quantity:
+        kind === "holdings"
+          ? firstOptionalPortfolioNumber(
+              row.t1_quantity,
+              row.unsettled_quantity,
+            )
+          : null,
+      mtfQuantity:
+        kind === "holdings"
+          ? firstOptionalPortfolioNumber(row.mtf_quantity)
+          : null,
+      averagePrice,
+      markPrice,
+      pnl:
+        pnl ??
+        (averagePrice !== null && markPrice !== null
+          ? (markPrice - averagePrice) * quantity
+          : null),
+      pnlBase: null,
+      pnlPerMark: null,
+      expiry: readPortfolioDisplayText(row.expiry_date),
+      right: readPortfolioDisplayText(row.right),
+      strike: readPortfolioDisplayText(row.strike_price),
+    };
+  });
+}
+
 /** Broker-neutral funds keep buying power distinct from cash and collateral. */
 export interface NormalizedFunds {
   availableMargin: number | null;
@@ -338,6 +427,47 @@ export interface NormalizedFunds {
   collateralValue: number | null;
   /** Account-wide open-position MTM when the broker reports it with limits. */
   positionMtm: number | null;
+}
+
+/** Normalize Breeze limits while keeping cash, collateral and buying power distinct. */
+export function normalizeIciciFunds(raw: unknown): NormalizedFunds {
+  const rows = Array.isArray(raw) ? raw : [raw];
+  const row = rows.find((value): value is Record<string, unknown> =>
+    Boolean(value && typeof value === "object" && !Array.isArray(value)),
+  );
+  if (!row) {
+    return {
+      availableMargin: null,
+      cashBalance: null,
+      usedMargin: null,
+      collateralValue: null,
+      positionMtm: null,
+    };
+  }
+  return {
+    availableMargin: firstOptionalPortfolioNumber(
+      row.total_bank_balance,
+      row.available_margin,
+      row.limit_available,
+    ),
+    cashBalance: firstOptionalPortfolioNumber(
+      row.cash_balance,
+      row.bank_balance,
+    ),
+    usedMargin: firstOptionalPortfolioNumber(
+      row.margin_used,
+      row.blocked_margin,
+    ),
+    collateralValue: firstOptionalPortfolioNumber(
+      row.collateral_value,
+      row.pledged_collateral,
+    ),
+    positionMtm: firstOptionalPortfolioNumber(
+      row.unrealized_profit,
+      row.unrealised_profit,
+      row.mtm,
+    ),
+  };
 }
 
 /** Read Zerodha's NSE/NFO margin breakdown without exposing the raw payload. */

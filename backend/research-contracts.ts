@@ -99,4 +99,3 @@ export const researchStrategySchema = z
   });
 
 export type ResearchStrategy = z.infer<typeof researchStrategySchema>;
-export type ResearchLeg = z.infer<typeof researchLegSchema>;

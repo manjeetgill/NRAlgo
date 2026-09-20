@@ -13,7 +13,7 @@ import { audit, type Store } from "./database.js";
 import { credentialVault, fail, rateLimit } from "./security.js";
 import { verifySecondFactor, withMfaAttempt } from "./mfa.js";
 
-export const brokerProviderSchema = z.enum(["kotak", "zerodha"]);
+export const brokerProviderSchema = z.enum(["kotak", "zerodha", "icici"]);
 export type BrokerProvider = z.infer<typeof brokerProviderSchema>;
 
 type BrokerRow = {

@@ -4,10 +4,318 @@ import {
   KotakLiveAdapter,
   kotakOrderTag,
 } from "../backend/live/kotak-live-adapter.ts";
-import { createZerodhaSdk } from "../backend/zerodha-connection.ts";
+import {
+  createZerodhaSdk,
+  createZerodhaConnection,
+} from "../backend/zerodha-connection.ts";
+import {
+  ZerodhaLiveAdapter,
+  zerodhaOrderTag,
+} from "../backend/live/zerodha-live-adapter.ts";
+import {
+  InstrumentCatalog,
+  parseZerodhaInstruments,
+} from "../backend/instrument-master.ts";
 import { intent } from "./fixtures.mjs";
 
 const signal = () => new AbortController().signal;
+// These broker fixtures never access a network, credentials, real accounts or order endpoints.
+const kiteIntent = {
+  key: "kite-owned-intent",
+  instrument: "zerodha:options:123",
+  side: "buy",
+  quantity: 10,
+  limitPaise: 1000,
+};
+const kiteContract = {
+  masterToken: kiteIntent.instrument,
+  instrument: "123",
+  market: "options",
+  name: "NIFTY26SEP25000CE",
+  symbol: "NIFTY",
+  lotSize: 10,
+  tickPaise: 5,
+};
+const kiteBookRow = (patch = {}) => ({
+  order_id: "12345",
+  tag: zerodhaOrderTag(kiteIntent.key),
+  exchange: "NFO",
+  product: "NRML",
+  tradingsymbol: kiteContract.name,
+  instrument_token: 123,
+  variety: "regular",
+  transaction_type: "BUY",
+  order_type: "LIMIT",
+  validity: "DAY",
+  quantity: 10,
+  filled_quantity: 0,
+  price: 10,
+  status: "OPEN",
+  ...patch,
+});
+function kiteExecution(options = {}) {
+  const calls = [];
+  const session = {
+    accountBinding: "zerodha:fixture",
+    expiresAt: Date.now() + 600000,
+    isCurrent: () => options.current !== false,
+    async request(path, method, body, abortSignal) {
+      calls.push({ path, method, body });
+      abortSignal.throwIfAborted();
+      if (options.failure) {
+        throw options.failure;
+      }
+      if (method !== "GET") {
+        return options.ack ?? { order_id: "12345" };
+      }
+      if (path === "/orders") {
+        return options.orders ?? [];
+      }
+      if (path === "/portfolio/positions") {
+        return { net: options.positions ?? [] };
+      }
+      if (path === "/portfolio/holdings") {
+        return options.holdings ?? [];
+      }
+      if (path === "/user/margins/equity") {
+        return options.margin ?? { enabled: true, net: 100000 };
+      }
+      const key = decodeURIComponent(path.split("?i=")[1]);
+      return {
+        [key]: {
+          instrument_token: Number(options.contract?.instrument ?? 123),
+          timestamp: new Date(Date.now() + 19800000)
+            .toISOString()
+            .slice(0, 19)
+            .replace("T", " "),
+          depth: {
+            buy: [{ price: 9.95, quantity: 20 }],
+            sell: [{ price: 10, quantity: 20 }],
+          },
+          ...options.quote,
+        },
+      };
+    },
+  };
+  const adapter = new ZerodhaLiveAdapter(
+    session,
+    () => options.contract ?? kiteContract,
+    async () => [kiteIntent],
+  );
+  return { adapter, calls };
+}
+test("Zerodha dispatches exactly one regular LIMIT/DAY order with a 20-character correlation tag", async () => {
+  const { adapter, calls } = kiteExecution();
+  const result = await adapter.placeOrder(kiteIntent, signal());
+  assert.equal(result.status, "acknowledged");
+  assert.equal(result.filledQuantity, 0);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].body.tag.length, 20);
+  assert.deepEqual(calls[0], {
+    path: "/orders/regular",
+    method: "POST",
+    body: {
+      exchange: "NFO",
+      tradingsymbol: kiteContract.name,
+      transaction_type: "BUY",
+      quantity: "10",
+      product: "NRML",
+      order_type: "LIMIT",
+      validity: "DAY",
+      price: "10.00",
+      tag: zerodhaOrderTag(kiteIntent.key),
+    },
+  });
+});
+for (const patch of [
+  { instrument: "kotak:options:123" },
+  { quantity: 11 },
+  { limitPaise: 1001 },
+  { side: "sell" },
+]) {
+  test(`Zerodha rejects invalid/cross-provider intent before dispatch ${JSON.stringify(patch)}`, async () => {
+    const { adapter, calls } = kiteExecution();
+    await assert.rejects(
+      adapter.placeOrder({ ...kiteIntent, ...patch }, signal()),
+    );
+    assert.equal(calls.length, 0);
+  });
+}
+test("Zerodha accepts a reduce-only sale of an exact contract", async () => {
+  const { adapter, calls } = kiteExecution();
+  await adapter.placeOrder(
+    { ...kiteIntent, side: "sell", reduceOnly: true },
+    signal(),
+  );
+  assert.equal(calls[0].body.transaction_type, "SELL");
+});
+for (const ack of [{}, { order_id: 12345 }, { order_id: "bad" }]) {
+  test(`Zerodha malformed acknowledgement is never retried ${JSON.stringify(ack)}`, async () => {
+    const { adapter, calls } = kiteExecution({ ack });
+    await assert.rejects(adapter.placeOrder(kiteIntent, signal()));
+    assert.equal(calls.length, 1);
+  });
+}
+test("Zerodha ambiguous write failure has one attempt only", async () => {
+  const { adapter, calls } = kiteExecution({ failure: new Error("timeout") });
+  await assert.rejects(adapter.placeOrder(kiteIntent, signal()));
+  assert.equal(calls.length, 1);
+});
+test("Zerodha owned partial fills reconcile; manual orders are never cancellation candidates", async () => {
+  const { adapter, calls } = kiteExecution({
+    orders: [
+      kiteBookRow({ filled_quantity: 4 }),
+      kiteBookRow({ order_id: "999", tag: null }),
+    ],
+  });
+  const owned = await adapter.getCancellationOrders(signal());
+  assert.equal(owned.length, 1);
+  assert.equal(owned[0].status, "partially_filled");
+  await assert.rejects(adapter.cancelOrder("999", signal()), /not owned/);
+  assert.ok(calls.every((c) => c.method === "GET"));
+  await adapter.cancelOrder("12345", signal());
+  assert.equal(calls.at(-1).method, "DELETE");
+});
+for (const patch of [
+  { price: 11 },
+  { instrument_token: 999 },
+  { quantity: 20 },
+  { status: "COMPLETE", filled_quantity: 2 },
+  { status: "REJECTED", filled_quantity: 1 },
+  { status: "UNKNOWN" },
+  { variety: "amo" },
+]) {
+  test(`Zerodha rejects altered or contradictory broker books ${JSON.stringify(patch)}`, async () => {
+    await assert.rejects(
+      kiteExecution({ orders: [kiteBookRow(patch)] }).adapter.getSnapshot(
+        signal(),
+      ),
+    );
+  });
+}
+test("Zerodha normalizes option carry, RMS funds and daily mark-to-market", async () => {
+  const position = {
+    ...kiteBookRow(),
+    quantity: 10,
+    average_price: 9,
+    multiplier: 1,
+    m2m: -10,
+  };
+  const snapshot = await kiteExecution({
+    positions: [position],
+  }).adapter.getSnapshot(signal());
+  assert.deepEqual(snapshot.positions, { [kiteIntent.instrument]: 10 });
+  assert.equal(snapshot.grossExposurePaise, 10000);
+  assert.equal(snapshot.dailyPnlPaise, -1000);
+  assert.equal(snapshot.availablePaise, 10000000);
+  assert.equal(snapshot.cashBalancePaise, null);
+});
+test("Zerodha CNC opening carry plus today's net sales does not subtract used holdings twice", async () => {
+  const contract = {
+    ...kiteContract,
+    masterToken: "zerodha:cash:123",
+    market: "cash",
+    name: "TEST",
+    lotSize: 1,
+  };
+  const holding = {
+    exchange: "NSE",
+    product: "CNC",
+    instrument_token: 123,
+    tradingsymbol: "TEST",
+    opening_quantity: 10,
+    used_quantity: 2,
+    collateral_quantity: 0,
+    short_quantity: 0,
+    discrepancy: false,
+    average_price: 8,
+    day_change: 1,
+  };
+  const position = { ...holding, quantity: -2, multiplier: 1, m2m: 0 };
+  const snapshot = await kiteExecution({
+    contract,
+    holdings: [holding],
+    positions: [position],
+  }).adapter.getSnapshot(signal());
+  assert.deepEqual(snapshot.positions, { "zerodha:cash:123": 8 });
+});
+for (const options of [
+  { current: false },
+  { quote: { timestamp: "2020-01-01 10:00:00" } },
+  { quote: { instrument_token: 999 } },
+  { quote: { depth: { buy: [], sell: [] } } },
+  { margin: { enabled: true } },
+  {
+    positions: [
+      {
+        ...kiteBookRow(),
+        quantity: -10,
+        average_price: 10,
+        multiplier: 1,
+        m2m: 0,
+      },
+    ],
+  },
+  {
+    positions: [
+      {
+        ...kiteBookRow(),
+        product: "MIS",
+        quantity: 10,
+        average_price: 10,
+        multiplier: 1,
+        m2m: 0,
+      },
+    ],
+  },
+]) {
+  test(`Zerodha missing/stale/unsupported inputs fail closed ${JSON.stringify(options)}`, async () => {
+    const { adapter } = kiteExecution(options);
+    if (options.quote) {
+      await assert.rejects(
+        adapter.getQuote(kiteIntent.instrument, "buy", signal()),
+      );
+    } else {
+      await assert.rejects(adapter.getSnapshot(signal()));
+    }
+  });
+}
+test("Kite master excludes futures/indices and separates broker tokens", async () => {
+  const row = {
+    instrument_token: 123,
+    tradingsymbol: kiteContract.name,
+    name: "NIFTY",
+    exchange: "NFO",
+    segment: "NFO-OPT",
+    instrument_type: "CE",
+    lot_size: 10,
+    tick_size: 0.05,
+    expiry: "2099-09-29",
+    strike: 25000,
+  };
+  const catalog = new InstrumentCatalog();
+  await catalog.loadZerodha("options", async () => [
+    row,
+    {
+      ...row,
+      instrument_token: 456,
+      segment: "NFO-FUT",
+      instrument_type: "FUT",
+      tick_size: 0,
+    },
+  ]);
+  assert.equal(catalog.resolveLive(kiteIntent.instrument).tickPaise, 5);
+  assert.throws(() => catalog.resolveLive("kotak:options:123"));
+  assert.equal(
+    catalog.search("zerodha", { market: "options", query: "NIFTY", offset: 0 })
+      .items.length,
+    1,
+  );
+  assert.throws(
+    () => parseZerodhaInstruments("options", [row, row]),
+    /Duplicate/,
+  );
+});
 function kotak(options = {}) {
   const calls = [];
   const adapter = new KotakLiveAdapter(
@@ -320,4 +628,86 @@ test("Zerodha failed revocation reports failure, not success", async () => {
       .revoke(),
     false,
   );
+});
+
+test("Zerodha wire capability is allowlisted, abortable, non-retrying and redacts transport errors", async (t) => {
+  const { sdk } = kite();
+  const client = sdk.restore({
+    accessToken: "test-private-fixture-token",
+    account: { user_id: "TEST", user_name: "Test" },
+  });
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", async (url, init) => {
+    calls++;
+    assert.equal(url, "https://api.kite.trade/orders/regular");
+    assert.equal(init.redirect, "error");
+    assert.ok(init.signal);
+    throw new Error("private-fixture-token in transport error");
+  });
+  await assert.rejects(
+    client.executionRequest(
+      "/orders/regular",
+      "POST",
+      { quantity: "1" },
+      signal(),
+    ),
+    (error) => !error.message.includes("private-fixture-token"),
+  );
+  assert.equal(calls, 1);
+  await assert.rejects(
+    client.executionRequest("/user/profile", "POST", {}, signal()),
+  );
+  await assert.rejects(
+    client.executionRequest(
+      "https://other.invalid",
+      "GET",
+      undefined,
+      signal(),
+    ),
+  );
+  assert.equal(calls, 1);
+});
+
+test("Zerodha execution capability rejects another owner and becomes stale on disconnect", async () => {
+  let requests = 0;
+  const sdk = {
+    restore: () => ({
+      account: { user_id: "TEST" },
+      verify: async () => {},
+      revoke: async () => true,
+      executionRequest: async () => {
+        requests++;
+        return [];
+      },
+      executionInstruments: async () => [],
+    }),
+  };
+  const owner = {
+    user_id: "owner",
+    token_hash: "app-session",
+    expires: Date.now() / 1000 + 600,
+  };
+  const connection = createZerodhaConnection({}, sdk, undefined, {
+    load: async () => ({ value: {}, expires: Date.now() + 600000 }),
+  });
+  try {
+    await connection.restore(owner);
+    assert.throws(() =>
+      connection.executionSession("someone-else", owner.token_hash),
+    );
+    const session = connection.executionSession(
+      owner.user_id,
+      owner.token_hash,
+    );
+    await session.request("/orders", "GET", undefined, signal());
+    assert.equal(requests, 1);
+    await connection.disconnect(owner.user_id);
+    assert.equal(session.isCurrent(), false);
+    await assert.rejects(
+      session.request("/orders/regular", "POST", {}, signal()),
+    );
+    assert.equal(requests, 1);
+  } finally {
+    connection.close();
+  }
 });

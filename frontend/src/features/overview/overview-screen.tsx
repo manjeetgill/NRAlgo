@@ -69,7 +69,7 @@ export function OverviewScreen({
         .map((item) => item.provider),
     );
     return brokerAccountAdapters.filter((adapter) =>
-      connectedProviders.has(adapter.id as "kotak" | "zerodha"),
+      connectedProviders.has(adapter.id as "kotak" | "zerodha" | "icici"),
     );
   }, [registry.brokers]);
   const [brokerId, setBrokerId] = useState("");

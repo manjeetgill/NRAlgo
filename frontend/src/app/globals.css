@@ -2059,16 +2059,6 @@ input::placeholder {
 .kotak-data-panel {
   margin: 16px 0;
 }
-/* Keep long exchange symbol names within the ticket on narrow screens. */
-.kotak-cash-symbol-picker {
-  grid-column: 1 / -1;
-  display: grid;
-  gap: 12px;
-}
-.kotak-cash-symbol-picker select {
-  width: 100%;
-  min-width: 0;
-}
 .kotak-data-panel fieldset {
   display: flex;
   flex-wrap: wrap;

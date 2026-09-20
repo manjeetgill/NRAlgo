@@ -212,6 +212,8 @@ export function LiveTradingScreen({ csrf }: { csrf: string }) {
         <LiveOrderTicket
           key={`${registry.activeBrokerId}:${activeBroker?.status}:${ticketDraft?.id ?? "manual"}`}
           csrf={csrf}
+          activeBroker={activeBroker}
+          brokerStatusUnavailable={registry.loading || Boolean(registry.error)}
           initialDraft={ticketDraft ?? undefined}
         />
       </div>

@@ -7,6 +7,7 @@ import type { Express } from "express";
 import { z } from "zod";
 import type { Store } from "./database.js";
 import type { HistoricalCandleStore } from "./historical-candle-store.js";
+import { registerStoredOptionCharts } from "./stored-option-chart.js";
 const instrumentSchema = z
   .object({
     id: z.string().min(1).max(120),
@@ -34,7 +35,6 @@ const candleSchema = z
       v.low <= Math.min(v.open, v.close),
     "Invalid OHLC range",
   );
-export type StoredInstrument = z.infer<typeof instrumentSchema>;
 export type StoredDailyCandle = z.infer<typeof candleSchema>;
 
 /** Resolve one exact stored candle for research; symbol matching prevents stale ID reuse. */
@@ -98,6 +98,17 @@ export function registerEodRoutes(
   store: Store,
   history: HistoricalCandleStore,
 ) {
+  registerStoredOptionCharts(app, store);
+  app.get("/api/eod/watchlist-instruments", async (req, res) => {
+    const { q, offset, segment } = z
+      .object({
+        q: z.string().trim().max(60).default(""),
+        offset: z.coerce.number().int().min(0).max(100000).default(0),
+        segment: z.enum(["cash", "fno", "index"]).default("cash"),
+      })
+      .parse(req.query);
+    res.json(await history.searchWatchlistInstruments(q, offset, segment));
+  });
   app.get("/api/eod/instruments", async (req, res) => {
     const { q, offset } = z
       .object({
@@ -112,18 +123,24 @@ export function registerEodRoutes(
     });
   });
   app.get("/api/eod/candles", async (req, res) => {
-    const { id, from, to } = z
+    const { id, from, to, source } = z
       .object({
         id: z.string().min(1).max(120),
         from: z.iso.date().optional(),
         to: z.iso.date().optional(),
+        source: z.enum(["all", "nse-preferred"]).default("all"),
       })
       .refine((input) => !input.from || !input.to || input.from <= input.to, {
         message: "Stored history start must not be after its end.",
       })
       .parse(req.query);
     const instrument = await history.readInstrument(id);
-    const candles = await history.readCandles(id, from, to);
+    const candles = await history.readCandles(
+      id,
+      from,
+      to,
+      source === "nse-preferred",
+    );
     const result = (() => {
       if (candles.length > 10000) {
         throw Object.assign(new Error("Stored history range is too large."), {
@@ -149,6 +166,13 @@ export function registerEodRoutes(
             ),
           ),
         ],
+        gaps: candles.flatMap((bar, index) =>
+          index &&
+          Date.parse(bar.day) - Date.parse(candles[index - 1].day) >
+            10 * 86400000
+            ? [{ from: candles[index - 1].day, to: bar.day }]
+            : [],
+        ),
         interval: "day",
         fetchedAt: new Date().toISOString(),
         storage: history.mode(),
@@ -205,9 +229,6 @@ const optionCandleSchema = z
         row.low <= Math.min(row.open, row.close)),
     { message: "Invalid traded option OHLC range." },
   );
-
-export type StoredOptionInstrument = z.infer<typeof optionInstrumentSchema>;
-export type StoredOptionCandle = z.infer<typeof optionCandleSchema>;
 
 /** Validate and bulk-upsert one exchange-day file without one transaction per contract. */
 export async function importOptionEodDailyData(store: Store, input: unknown) {
@@ -273,52 +294,6 @@ export async function importOptionEodDailyData(store: Store, input: unknown) {
     );
   });
   return entries.length;
-}
-
-/** Validate and atomically upsert one bounded daily batch. Re-import is idempotent. */
-export async function importOptionEodData(
-  store: Store,
-  instrument: unknown,
-  rows: unknown,
-) {
-  const contract = optionInstrumentSchema.parse(instrument);
-  const candles = z.array(optionCandleSchema).min(1).max(1000).parse(rows);
-  if (new Set(candles.map((row) => row.day)).size !== candles.length) {
-    throw new Error("Duplicate option dates in import batch.");
-  }
-  await store.transaction(async (query) => {
-    await query(
-      "INSERT INTO option_eod_instruments(id,underlying,expiry_date,option_right,strike_price,exchange) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(id) DO UPDATE SET underlying=EXCLUDED.underlying,expiry_date=EXCLUDED.expiry_date,option_right=EXCLUDED.option_right,strike_price=EXCLUDED.strike_price,exchange=EXCLUDED.exchange",
-      [
-        contract.id,
-        contract.underlying,
-        contract.expiryDate,
-        contract.right,
-        contract.strikePrice,
-        contract.exchange,
-      ],
-    );
-    for (const candle of candles) {
-      await query(
-        "INSERT INTO option_eod_candles(instrument_id,day,open,high,low,close,settlement,volume,open_interest,change_open_interest,lot_size,underlying_price,source) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT(instrument_id,day) DO UPDATE SET open=EXCLUDED.open,high=EXCLUDED.high,low=EXCLUDED.low,close=EXCLUDED.close,settlement=EXCLUDED.settlement,volume=EXCLUDED.volume,open_interest=EXCLUDED.open_interest,change_open_interest=EXCLUDED.change_open_interest,lot_size=EXCLUDED.lot_size,underlying_price=EXCLUDED.underlying_price,source=EXCLUDED.source,imported_at=NOW()",
-        [
-          contract.id,
-          candle.day,
-          candle.open,
-          candle.high,
-          candle.low,
-          candle.close,
-          candle.settlement,
-          candle.volume,
-          candle.openInterest,
-          candle.changeOpenInterest,
-          candle.lotSize,
-          candle.underlyingPrice,
-          candle.source,
-        ],
-      );
-    }
-  });
 }
 
 /** Return one real exchange session's expiries at or before the replay cutoff. */

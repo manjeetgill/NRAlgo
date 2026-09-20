@@ -18,6 +18,7 @@
     "start": "node --env-file-if-exists=.env dist/backend/main.js",
     "migrate": "node --env-file-if-exists=.env --import tsx backend/database.ts",
     "historical:archive": "node --env-file-if-exists=.env --import tsx scripts/migrate-eod-to-parquet.mjs",
+    "historical:sync-nse": "node --env-file-if-exists=.env scripts/sync-nse-charts.mjs",
     "historical:verify": "node --env-file-if-exists=.env --import tsx scripts/migrate-eod-to-parquet.mjs --verify",
     "historical:verify-archive": "node --env-file-if-exists=.env --import tsx scripts/migrate-eod-to-parquet.mjs --archive-only",
     "historical:retire-postgres": "node --env-file-if-exists=.env --import tsx scripts/retire-postgres-eod-candles.mjs --confirm-retire-eod-candles",

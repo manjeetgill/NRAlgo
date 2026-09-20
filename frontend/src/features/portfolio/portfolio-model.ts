@@ -1,9 +1,17 @@
 import { z } from "zod";
 
-export const portfolioProviderSchema = z.enum(["kotak", "zerodha"]);
+export const portfolioProviderSchema = z.enum(["kotak", "zerodha", "icici"]);
 export type PortfolioProvider = z.infer<typeof portfolioProviderSchema>;
 
 const nullableMoney = z.number().finite().nullable();
+/** Subtotals remain explicitly distinct from complete all-account totals. */
+const metricCoverageSchema = z
+  .object({
+    knownValue: nullableMoney,
+    availableAccounts: z.number().int().nonnegative(),
+    missingAccountIds: z.array(z.string().uuid()).max(20),
+  })
+  .strict();
 
 const portfolioAccountSchema = z
   .object({
@@ -46,6 +54,8 @@ const portfolioItemSchema = z
     mtfQuantity: z.number().int().safe().nullable(),
     averagePrice: nullableMoney,
     markPrice: nullableMoney,
+    lastCloseDays: z.array(z.iso.date()).default([]),
+    estimatedPnl: z.boolean().default(false),
     investedAmount: nullableMoney,
     currentValue: nullableMoney,
     pnl: nullableMoney,
@@ -78,6 +88,20 @@ export const portfolioDashboardSchema = z
       })
       .strict(),
     items: z.array(portfolioItemSchema).max(20_000),
+    summaryCoverage: z
+      .object({
+        holdingsValue: metricCoverageSchema,
+        investedValue: metricCoverageSchema,
+        pledgedValue: metricCoverageSchema,
+        positionsPnl: metricCoverageSchema,
+        availableMargin: metricCoverageSchema,
+        cashBalance: metricCoverageSchema,
+        usedMargin: metricCoverageSchema,
+        collateralValue: metricCoverageSchema,
+        totalEquity: metricCoverageSchema,
+      })
+      .strict()
+      .optional(),
     history: z.array(
       z
         .object({

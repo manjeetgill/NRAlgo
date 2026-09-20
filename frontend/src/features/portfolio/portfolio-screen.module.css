@@ -11,7 +11,7 @@
   gap: var(--space-6);
   flex-wrap: wrap;
 }
-.header h1 {
+.header h2 {
   display: flex;
   align-items: center;
   gap: 9px;
@@ -50,6 +50,23 @@
   font-size: var(--text-xl);
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
+}
+/* Partial amounts must never visually imply complete all-account balances. */
+.metricCard .partial {
+  color: var(--warning-text);
+  font-weight: 650;
+}
+.snapshotDetails {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+}
+.snapshotDetails summary {
+  cursor: pointer;
+}
+.snapshotDetails ul {
+  padding-left: var(--space-5);
+  margin: var(--space-2) 0;
 }
 .coverage {
   display: flex;

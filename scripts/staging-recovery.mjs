@@ -40,6 +40,7 @@ const env = {
   SECRETS_DIR: temporary,
   LIVE_TRADING_ENABLED: "false",
   KOTAK_STATIC_IP_CONFIRMED: "false",
+  ZERODHA_STATIC_IP_CONFIRMED: "false",
   ALLOW_PUBLIC_REGISTRATION: "false",
   MARKET_DATA_PROVIDER: "kotak",
   BACKUP_S3_URI: "s3://recovery-validation-only/backups",
@@ -51,6 +52,7 @@ for (const name of [
   "BACKEND",
   "CALCULATION",
   "BACKUP",
+  "MARKET_DATA",
   "WEB",
   "POSTGRES",
   "CADDY",
@@ -193,6 +195,50 @@ try {
   pass(
     "deployment preflight rejects mutable images, plaintext secrets and missing alerts",
   );
+  // No cloud requests or real archives: exercise both packaged runtimes under job limits.
+  docker([
+    "run",
+    "--rm",
+    "--network",
+    "none",
+    "--read-only",
+    "--cap-drop",
+    "ALL",
+    "--security-opt",
+    "no-new-privileges:true",
+    "--memory",
+    "512m",
+    "--memory-swap",
+    "512m",
+    "--cpus",
+    "0.5",
+    "--pids-limit",
+    "128",
+    "--tmpfs",
+    "/tmp:size=256m,mode=1777",
+    "--entrypoint",
+    "node",
+    `${prefix}-market-data:${tag}`,
+    "--input-type=module",
+    "-e",
+    `
+      import assert from 'node:assert/strict';
+      import { writeFile } from 'node:fs/promises';
+      import { spawnSync } from 'node:child_process';
+      import { publishNseCharts } from './scripts/sync-nse-charts.mjs';
+      import { HistoricalCandleStore } from './dist/backend/historical-candle-store.js';
+      assert.equal(spawnSync('python3', ['scripts/download-nse.py', '--help']).status, 0);
+      await writeFile('/tmp/catalog.ndjson', JSON.stringify({id:'NSE:EQ:FIXTURE',symbol:'FIXTURE',name:'Fixture Limited',kind:'equity',series:'EQ',exchange:'NSE',active:true,fno:false}));
+      await writeFile('/tmp/candles.ndjson', JSON.stringify({instrument_id:'NSE:EQ:FIXTURE',day:'2026-09-18',open:100,high:102,low:99,close:101,volume:1000,source:'nse-bhavcopy',imported_at:'2026-09-20T00:00:00Z'}));
+      await publishNseCharts('/tmp', '/tmp/nse');
+      const store = new HistoricalCandleStore({transaction: async fn => fn(async () => [])}, '/tmp');
+      assert.equal((await store.searchWatchlistInstruments('FIXTURE', 0, 'cash')).items[0].name, 'Fixture Limited');
+      assert.equal((await store.readCandles('NSE:EQ:FIXTURE'))[0].close, 101);
+    `,
+  ]);
+  pass(
+    "NSE maintenance image publishes and serves synthetic charts without network or secrets",
+  );
   for (const [name, service] of Object.entries(config.services)) {
     service.restart = "no";
     delete service.ports;
@@ -200,6 +246,8 @@ try {
     service.environment.LIVE_TRADING_ENABLED = "false";
     if (["api", "migrate"].includes(name)) {
       service.image = `${prefix}-backend:${tag}`;
+      // Recovery must never mount the operator's local historical archive.
+      service.volumes = [];
     }
     if (name === "calculator") {
       service.image = `${prefix}-calculation:${tag}`;
@@ -419,13 +467,16 @@ print('Cancellation, crash, timeout, reuse, auth and chunked limits passed')
     import assert from 'node:assert/strict';
     import {CalculationJobRunner} from './dist/backend/calculation-jobs.js';
     import {openDatabaseStore} from './dist/backend/database.js';
+    import {HistoricalCandleStore} from './dist/backend/historical-candle-store.js';
     const store=openDatabaseStore();const query=(sql,args=[])=>store.transaction(q=>q(sql,args));
     let started;const began=new Promise(r=>started=r);let finish;const pending=new Promise(r=>finish=r);
     const client={dailyBacktest:async()=>{started();return pending;}};
-    const a=new CalculationJobRunner(store,client),b=new CalculationJobRunner(store,client);
+    const history=new HistoricalCandleStore(store);
+    const a=new CalculationJobRunner(store,client,history),b=new CalculationJobRunner(store,client,history);
     await query("UPDATE calculation_jobs SET status='queued',claim_token=NULL,lease_until=NULL WHERE id=$1",['${job}']);
     const claims=await Promise.all([a.claim(),b.claim()]);assert.equal(claims.filter(Boolean).length,1);
-    const old=claims.find(Boolean);const execution=a.execute(old);await began;
+    const old=claims.find(Boolean);const execution=a.execute(old);
+    await Promise.race([began,execution.then(()=>{throw new Error('Fixture ended before the calculator was called');})]);
     await query("UPDATE calculation_jobs SET claim_token='replacement-owner' WHERE id=$1",['${job}']);
     finish({engineVersion:'stale',result:{}});await execution;
     assert.equal((await query('SELECT status FROM calculation_jobs WHERE id=$1',['${job}']))[0].status,'running');

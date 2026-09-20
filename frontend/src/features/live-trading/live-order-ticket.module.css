@@ -80,3 +80,32 @@
   gap: var(--space-3);
   align-items: center;
 }
+/* The state and primary safety action remain visible even when setup is blocked. */
+.controlHeader {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+.requirements {
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  margin-bottom: var(--space-3);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+}
+.requirements strong {
+  color: var(--text-primary);
+}
+.requirements ul {
+  list-style: disc;
+  padding-left: var(--space-5);
+  margin: var(--space-2) 0;
+}
+.requirements a {
+  color: var(--accent);
+  text-decoration: underline;
+}

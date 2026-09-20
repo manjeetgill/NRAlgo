@@ -11,7 +11,8 @@ EXPOSE 8010
 CMD ["python", "-m", "uvicorn", "calculation_engine.worker:app", "--host", "0.0.0.0", "--port", "8010", "--workers", "1", "--limit-concurrency", "8", "--timeout-graceful-shutdown", "5", "--no-server-header"]
 
 # Compile TypeScript with dev dependencies; production stages contain only runtime artifacts.
-FROM node:22-alpine AS backend-build
+# DuckDB's pinned native Node bindings require glibc, not Alpine's musl runtime.
+FROM node:22-bookworm-slim AS backend-build
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci --registry=https://registry.npmjs.org
@@ -19,16 +20,27 @@ COPY tsconfig.json run.ts ./
 COPY backend ./backend
 RUN npm run build:backend
 
-FROM node:22-alpine AS backend
+FROM node:22-bookworm-slim AS backend
 WORKDIR /app
 ENV NODE_ENV=production API_HOST=0.0.0.0
 COPY package*.json ./
 RUN npm ci --omit=dev --registry=https://registry.npmjs.org
+RUN node --input-type=module -e "import { DuckDBInstance } from '@duckdb/node-api'; const db = await DuckDBInstance.create(':memory:'); db.closeSync();"
 COPY --from=backend-build /app/dist/backend ./dist/backend
 RUN mkdir /app/.runtime && chown node:node /app/.runtime
 USER node
 EXPOSE 8000
 CMD ["node", "--import", "./dist/backend/runtime-secrets.js", "dist/backend/main.js"]
+
+# Explicit, one-shot NSE maintenance job; no broker or database secrets are mounted.
+FROM backend AS market-data
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends python3 ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+COPY scripts/sync-nse-charts.mjs scripts/download-nse.py ./scripts/
+USER node
+ENTRYPOINT ["node", "scripts/sync-nse-charts.mjs"]
+CMD []
 
 FROM node:22-alpine AS web-build
 WORKDIR /app

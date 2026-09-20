@@ -250,6 +250,7 @@ export function WatchlistsScreen({ csrf }: { csrf: string }) {
         {adding && (
           <div className={styles.search}>
             <StoredInstrumentPicker
+              watchlist
               key={active?.id}
               disabled={busy}
               onSelect={add}
@@ -289,8 +290,7 @@ export function WatchlistsScreen({ csrf }: { csrf: string }) {
                   }
                   onClick={() => setSelected(item)}
                 >
-                  <strong>{item.symbol}</strong>
-                  <small>{item.name}</small>
+                  <strong>{item.name}</strong>
                 </button>
                 <button
                   className={styles.remove}

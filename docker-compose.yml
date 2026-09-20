@@ -87,14 +87,14 @@ services:
         condition: service_healthy
   api:
     <<: *app
-    mem_limit: 512m
-    memswap_limit: 512m
+    mem_limit: 768m
+    memswap_limit: 768m
     cpus: 1.0
     cpu_shares: 1024
     image: ${BACKEND_IMAGE:?Use the digest-pinned release manifest}
     environment:
       <<: *database
-      # Leave room for one 128-MiB scrypt job and native/socket buffers within 512 MiB.
+      # Heap + 256-MiB DuckDB + one 128-MiB scrypt job need native-buffer headroom.
       NODE_OPTIONS: --max-old-space-size=256
       APP_ORIGIN: https://${APP_DOMAIN:?Set APP_DOMAIN to your hostname}
       MARKET_DATA_PROVIDER: ${MARKET_DATA_PROVIDER:-kotak}
@@ -102,6 +102,7 @@ services:
       ZERODHA_API_SECRET_FILE: /run/secrets/zerodha_api_secret
       LIVE_TRADING_ENABLED: ${LIVE_TRADING_ENABLED:-false}
       KOTAK_STATIC_IP_CONFIRMED: ${KOTAK_STATIC_IP_CONFIRMED:-false}
+      ZERODHA_STATIC_IP_CONFIRMED: ${ZERODHA_STATIC_IP_CONFIRMED:-false}
       SETUP_TOKEN_FILE: /run/secrets/setup_token
       BROKER_ENCRYPTION_KEY_FILE: /run/secrets/broker_encryption_key
       REGISTRATION_TOKEN_FILE: /run/secrets/registration_token
@@ -140,6 +141,25 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+  # Not a daemon: the operator schedules this bounded job outside live execution hours.
+  market-data:
+    <<: *app
+    profiles: [maintenance]
+    restart: "no"
+    image: ${MARKET_DATA_IMAGE:?Use the digest-pinned release manifest}
+    mem_limit: 512m
+    memswap_limit: 512m
+    cpus: 0.5
+    cpu_shares: 128
+    environment:
+      NODE_OPTIONS: --max-old-space-size=128
+      HISTORICAL_ARCHIVE_DIRECTORY: /app/.runtime/historical-parquet
+    # Disk-backed scratch is required for bootstrap reports; it never enters the API image.
+    tmpfs: []
+    volumes:
+      - ${HISTORICAL_ARCHIVE_DIRECTORY:-./.runtime/historical-parquet}:/app/.runtime/historical-parquet
+      - market_data_scratch:/tmp
+    networks: [reference_egress]
   calculator:
     <<: *app
     mem_limit: 768m
@@ -254,6 +274,7 @@ services:
       retries: 3
       start_period: 120s
 volumes:
+  market_data_scratch:
   postgres_data:
   caddy_data:
   caddy_config:

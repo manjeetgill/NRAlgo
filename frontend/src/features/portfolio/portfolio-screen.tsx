@@ -28,6 +28,7 @@ import styles from "./portfolio-screen.module.css";
 const providerLabels: Record<PortfolioProvider, string> = {
   kotak: "Kotak Neo",
   zerodha: "Zerodha Kite",
+  icici: "ICICI Direct",
 };
 
 const money = (value: number | null) =>
@@ -146,7 +147,10 @@ export function PortfolioScreen({ csrf }: { csrf: string }) {
     [dashboard],
   );
   const warnings = useMemo(
-    () => dashboard?.accounts.flatMap((account) => account.warnings) ?? [],
+    () =>
+      dashboard?.accounts.flatMap((account) =>
+        account.warnings.map((warning) => `${account.label}: ${warning}`),
+      ) ?? [],
     [dashboard],
   );
 
@@ -157,7 +161,13 @@ export function PortfolioScreen({ csrf }: { csrf: string }) {
     <section className={styles.screen} aria-label="Portfolio dashboard">
       <header className={styles.header}>
         <div>
-          <h1>Portfolio</h1>
+          <h2>
+            {selection === "all"
+              ? "All portfolios"
+              : (accountOptions.find(
+                  (account) => account.brokerId === selection,
+                )?.label ?? "Selected portfolio")}
+          </h2>
           <p>
             Consolidated broker snapshots. Portfolio selection does not change
             the active broker used for live orders.
@@ -169,7 +179,13 @@ export function PortfolioScreen({ csrf }: { csrf: string }) {
               id="portfolio-account"
               value={selection}
               disabled={loading || !accountOptions.length}
-              onChange={(event) => setSelection(event.target.value)}
+              onChange={(event) => {
+                // Never present the previous account's amounts beneath a newly selected account.
+                request.current?.abort();
+                setDashboard(null);
+                setLoading(true);
+                setSelection(event.target.value);
+              }}
             >
               <option value="all">All portfolios</option>
               {accountOptions.map((account) => (
@@ -217,58 +233,115 @@ export function PortfolioScreen({ csrf }: { csrf: string }) {
           <div className={styles.coverage}>
             <strong>
               {dashboard.coverage.updatedAccounts} of{" "}
-              {dashboard.coverage.totalAccounts} accounts updated
+              {dashboard.coverage.totalAccounts} accounts have saved snapshots
             </strong>
             <span>
-              {dashboard.coverage.completeAccounts ===
-              dashboard.coverage.totalAccounts
-                ? "Complete broker coverage"
-                : "Incomplete accounts are excluded from complete totals"}
+              {Object.values(dashboard.summaryCoverage ?? {}).some(
+                (metric) => metric.missingAccountIds.length > 0,
+              ) ||
+              dashboard.coverage.completeAccounts !==
+                dashboard.coverage.totalAccounts
+                ? "Partial data · known subtotals are labelled; missing values are not zero"
+                : "Complete broker coverage"}
             </span>
           </div>
           <div className={styles.metrics}>
-            <Metric
-              label="Account equity"
-              value={money(dashboard.summary.totalEquity)}
-            />
-            <Metric
-              label="Holdings value"
-              value={money(dashboard.summary.holdingsValue)}
-            />
-            <Metric
-              label="Open-position P&L"
-              value={money(dashboard.summary.positionsPnl)}
-              tone={dashboard.summary.positionsPnl}
-            />
-            <Metric
-              label="Cash balance"
-              value={money(dashboard.summary.cashBalance)}
-            />
-            <Metric
-              label="Available margin"
-              value={money(dashboard.summary.availableMargin)}
-            />
-            <Metric
-              label="Pledged holdings"
-              value={money(dashboard.summary.pledgedValue)}
-            />
-            <Metric
-              label="Collateral value"
-              value={money(dashboard.summary.collateralValue)}
-            />
-            <Metric
-              label="Used margin"
-              value={money(dashboard.summary.usedMargin)}
-            />
+            {(
+              [
+                ["totalEquity", "Account equity"],
+                ["holdingsValue", "Holdings value"],
+                ["positionsPnl", "Open-position P&L"],
+                ["cashBalance", "Cash balance"],
+                ["availableMargin", "Available margin"],
+                ["pledgedValue", "Pledged holdings"],
+                ["collateralValue", "Collateral value"],
+                ["usedMargin", "Used margin"],
+              ] as const
+            ).map(([field, label]) => {
+              const coverage = dashboard.summaryCoverage?.[field];
+              const value =
+                dashboard.summary[field] ?? coverage?.knownValue ?? null;
+              const partial =
+                value !== null && Boolean(coverage?.missingAccountIds.length);
+              const missing = dashboard.accounts
+                .filter((account) =>
+                  coverage?.missingAccountIds.includes(account.id),
+                )
+                .map((account) => account.label);
+              return (
+                <Metric
+                  key={field}
+                  label={label}
+                  value={money(value)}
+                  tone={field === "positionsPnl" ? value : undefined}
+                  partial={partial}
+                  detail={
+                    coverage
+                      ? `${coverage.availableAccounts} of ${dashboard.coverage.totalAccounts} accounts${missing.length ? ` · Missing: ${missing.join(", ")}` : ""}`
+                      : undefined
+                  }
+                />
+              );
+            })}
           </div>
+          <details className={styles.snapshotDetails}>
+            <summary>Snapshot times and account coverage</summary>
+            <ul>
+              {dashboard.accounts.map((account) => (
+                <li key={account.id}>
+                  <strong>{account.label}</strong>:{" "}
+                  {account.observedAt === null
+                    ? "No saved snapshot"
+                    : new Date(account.observedAt).toLocaleString("en-IN", {
+                        timeZone: "Asia/Kolkata",
+                      }) + " IST"}
+                  {account.warnings.length > 0
+                    ? " · Partial broker response"
+                    : ""}
+                </li>
+              ))}
+            </ul>
+            <p>
+              Combined values use each account’s latest saved snapshot, which
+              may have different capture times. Refresh broker data to update
+              connected accounts.
+            </p>
+          </details>
           <PerformanceChart dashboard={dashboard} />
-          <PortfolioTable title="Holdings" rows={holdings} holdings />
-          <PortfolioTable title="Open positions" rows={positions} />
+          <PortfolioTable
+            title="Holdings"
+            rows={holdings}
+            holdings
+            missingAccounts={dashboard.accounts
+              .filter(
+                (account) =>
+                  account.observedAt === null ||
+                  account.warnings.some((warning) =>
+                    /^Holdings unavailable/i.test(warning),
+                  ),
+              )
+              .map((account) => account.label)}
+          />
+          <PortfolioTable
+            title="Open positions"
+            rows={positions}
+            missingAccounts={dashboard.accounts
+              .filter(
+                (account) =>
+                  account.observedAt === null ||
+                  account.warnings.some((warning) =>
+                    /^Positions unavailable/i.test(warning),
+                  ),
+              )
+              .map((account) => account.label)}
+          />
           <p className={styles.disclaimer}>
             Pledged value classifies holdings and is not added again to account
             equity. Available margin is buying power, not cash. Values are
             stored broker snapshots; this screen cannot place or authorize an
             order.
+            {positions.some((row) => row.lastCloseDays.length > 0) &&
+              " Rows labelled NSE close use dated bhavcopy prices, not live LTP. Estimated unrealized P&L uses saved quantity and average price, excludes fees and realized trades, and does not update broker summary totals or performance history."}
           </p>
         </>
       )}
@@ -280,14 +353,21 @@ function Metric({
   label,
   value,
   tone,
+  partial,
+  detail,
 }: {
   label: string;
   value: string;
   tone?: number | null;
+  partial?: boolean;
+  detail?: string;
 }) {
   return (
     <Card className={styles.metricCard} aria-label={label}>
       <span>{label}</span>
+      {partial && (
+        <span className={styles.partial}>Partial · known subtotal</span>
+      )}
       <strong
         className={
           typeof tone !== "number" ? "" : tone < 0 ? styles.loss : styles.gain
@@ -295,6 +375,7 @@ function Metric({
       >
         {value}
       </strong>
+      {detail && <span>{detail}</span>}
     </Card>
   );
 }
@@ -358,10 +439,12 @@ function PortfolioTable({
   title,
   rows,
   holdings = false,
+  missingAccounts = [],
 }: {
   title: string;
   rows: PortfolioItem[];
   holdings?: boolean;
+  missingAccounts?: string[];
 }) {
   const columns = useMemo<DataTableColumn<PortfolioItem>[]>(() => {
     const base: DataTableColumn<PortfolioItem>[] = [
@@ -446,11 +529,18 @@ function PortfolioTable({
       },
       {
         key: "ltp",
-        header: "LTP",
+        header: "LTP / Last close",
         align: "right",
         sortValue: (row) => row.markPrice ?? -Infinity,
         render: (row) => (
-          <span className={styles.mono}>{money(row.markPrice)}</span>
+          <span className={styles.mono}>
+            {money(row.markPrice)}
+            {row.lastCloseDays.length > 0 && (
+              <small style={{ display: "block" }}>
+                NSE close · {row.lastCloseDays.join(", ")}
+              </small>
+            )}
+          </span>
         ),
       },
       {
@@ -478,6 +568,9 @@ function PortfolioTable({
             }`}
           >
             {money(row.pnl)}
+            {row.estimatedPnl && (
+              <small style={{ display: "block" }}>Estimated unrealized</small>
+            )}
           </span>
         ),
       },
@@ -492,6 +585,8 @@ function PortfolioTable({
           <CardTitle>{title}</CardTitle>
           <CardDescription>
             {rows.length} consolidated instruments
+            {missingAccounts.length > 0 &&
+              ` · Incomplete book: ${missingAccounts.join(", ")}`}
           </CardDescription>
         </div>
       </CardHeader>
@@ -499,8 +594,16 @@ function PortfolioTable({
         columns={columns}
         rows={rows}
         rowKey={(row) => `${row.kind}:${row.canonicalKey}`}
-        emptyTitle={`No ${title.toLowerCase()}`}
-        emptyDescription={`No non-zero ${title.toLowerCase()} in this snapshot.`}
+        emptyTitle={
+          missingAccounts.length
+            ? `${title} unavailable`
+            : `No ${title.toLowerCase()}`
+        }
+        emptyDescription={
+          missingAccounts.length
+            ? `Missing data from ${missingAccounts.join(", ")}; this is not an empty account.`
+            : `No non-zero ${title.toLowerCase()} in this snapshot.`
+        }
       />
     </Card>
   );
