@@ -320,7 +320,7 @@ export function WorkspaceShell({
               }}
             >
               <Icon size={18} />
-              <span>{label}</span>
+              <span>{label === "Backtesting" ? "Backtests" : label}</span>
             </button>
           ))}
         </nav>
@@ -346,6 +346,11 @@ export function WorkspaceShell({
                   : getWorkspacePageLabel(destination)}
               </button>
             ))}
+            {openSection === "Settings" && (
+              <button type="button" disabled={busy} onClick={onSignOut}>
+                Sign out
+              </button>
+            )}
           </nav>
         )}
         <div className="sidebar-bottom">
