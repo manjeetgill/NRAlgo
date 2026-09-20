@@ -21,6 +21,15 @@ export interface TopOfBookQuote {
   receivedAt: number;
 }
 
+/** The only NSE underlyings with index options; every other F&O underlying is a stock. */
+export const OPTION_INDEX_UNDERLYINGS = new Set([
+  "NIFTY",
+  "BANKNIFTY",
+  "FINNIFTY",
+  "MIDCPNIFTY",
+  "NIFTYNXT50",
+]);
+
 export const tradingDay = (now: number) =>
   new Date(now + 19800000).toISOString().slice(0, 10);
 

@@ -25,6 +25,7 @@ import {
   searchStoredOptionUnderlyings,
 } from "./option-chain-history.js";
 import {
+  OPTION_INDEX_UNDERLYINGS,
   regularMarketSessionOpen,
   tradingDay,
   type MarketDataBroker,
@@ -87,11 +88,15 @@ export function registerMarketDataRoutes(
   const workspaceExperienceSchema = z.enum(["builder", "chain"]);
   /** Prefer the active provider whenever its authenticated adapter is available,
    * including after market close. Otherwise use durable snapshots for either
-   * current-chain screen; market hours alone never select a data source.
+   * current-chain screen. For a stock underlying specifically, off-market hours
+   * still force the NSE-stored chain even with a connected broker: individual
+   * stock option feeds are unreliable once the exchange session ends, unlike the
+   * handful of index underlyings a broker keeps serving a stable last quote for.
    */
   async function resolveWorkspaceDataMode(
     experience: z.infer<typeof workspaceExperienceSchema> | undefined,
     session: { user_id: string; token_hash: string },
+    underlying?: string,
   ) {
     const active = await store.transaction((query) =>
       resolveActiveBroker(query, session.user_id),
@@ -110,6 +115,14 @@ export function registerMarketDataRoutes(
         return "historical" as const;
       }
       fail(409, "Reconnect the active broker before loading live market data.");
+    }
+    if (
+      experience &&
+      underlying &&
+      !OPTION_INDEX_UNDERLYINGS.has(underlying) &&
+      !regularMarketSessionOpen(Date.now())
+    ) {
+      return "historical" as const;
     }
     return "live" as const;
   }
@@ -497,7 +510,11 @@ export function registerMarketDataRoutes(
       .strict()
       .parse(req.body);
     const session = res.locals.session;
-    const dataMode = await resolveWorkspaceDataMode(input.experience, session);
+    const dataMode = await resolveWorkspaceDataMode(
+      input.experience,
+      session,
+      input.underlying,
+    );
     if (dataMode === "historical") {
       const active =
         input.experience === "builder"

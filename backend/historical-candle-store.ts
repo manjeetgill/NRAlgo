@@ -314,10 +314,10 @@ export class HistoricalCandleStore {
           to ?? null,
         ],
       );
-      // Charts prefer the contiguous official source: do not calculate indicators across a multi-year legacy gap.
-      if (preferNse && candles.length) {
-        return candles;
-      }
+      // Full history from listing, not just the contiguous rolling window: merge
+      // with the older archive rather than hiding it. Any multi-year discontinuity
+      // is surfaced to the UI via the gaps field, not silently dropped.
+      void preferNse;
       const legacy = await this.readLegacyCandles(id, from, to);
       // Exact day/identity only: no symbol-renaming guesses and no fabricated gap filling.
       const merged = new Map(legacy.map((bar) => [bar.day, bar]));

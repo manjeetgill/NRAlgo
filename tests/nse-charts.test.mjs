@@ -107,17 +107,22 @@ test("NSE publication exposes names/new listings, separates Cash/F&O/Indices, ov
     assert.equal((await history.readInstrument(ipo.id)).id, ipo.id);
     assert.deepEqual(await history.readCandles(ipo.id), []);
     const bars = await history.readCandles(alpha.id);
-    assert.equal(
-      (await history.readCandles(alpha.id, undefined, undefined, true)).length,
-      1,
-      "Charts use the official period without bridging legacy gaps",
-    );
     assert.deepEqual(
       bars.map((bar) => [bar.day, bar.close]),
       [
         ["2021-01-13", 80],
         ["2026-09-18", 110],
       ],
+    );
+    // Full history from listing is shown regardless of the (now-inert) preferNse
+    // flag: the legacy archive is merged, not discarded, and a multi-year gap is
+    // disclosed via the API's gaps field rather than hidden by truncating the range.
+    assert.deepEqual(
+      (await history.readCandles(alpha.id, undefined, undefined, true)).map(
+        (bar) => [bar.day, bar.close],
+      ),
+      bars.map((bar) => [bar.day, bar.close]),
+      "Charts show the full merged history, including across a legacy gap",
     );
     assert.equal(
       (await history.searchInstruments("NEWIPO", 0)).length,

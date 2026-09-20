@@ -1,10 +1,18 @@
 "use client";
+import { useState } from "react";
 import { DailyChartCanvas } from "./daily-chart-canvas";
+import { aggregateCandles, type Interval } from "./aggregate-candles";
 import type { BrokerInstrument } from "@/components/instrument-picker";
 import { useScripChart } from "./use-scrip-chart";
 import { Button } from "@/components/ui/button";
 import { AsyncBoundary } from "@/components/ui/async-boundary";
+import { Tabs } from "@/components/ui/tabs";
 import styles from "./contract-price-chart.module.css";
+const intervalItems: { key: Interval; label: string }[] = [
+  { key: "day", label: "Daily" },
+  { key: "week", label: "Weekly" },
+  { key: "month", label: "Monthly" },
+];
 /** Stored EOD prices only; never broker calls or synthetic intraday candles. */
 export default function ContractPriceChart({
   instrument,
@@ -25,6 +33,10 @@ export default function ContractPriceChart({
   const { dataset, error, loading, reload } = useScripChart(
     selectedId || symbol ? { id: selectedId, symbol } : null,
   );
+  const [interval, setInterval] = useState<Interval>("day");
+  const displayedCandles = dataset
+    ? aggregateCandles(dataset.candles, interval)
+    : [];
   return (
     <section
       className={`screen-stack ${styles.card}`}
@@ -33,8 +45,8 @@ export default function ContractPriceChart({
       }
     >
       <h3>
-        {dataset?.instrument?.symbol || symbol || "Stored history"} · Daily
-        chart
+        {dataset?.instrument?.symbol || symbol || "Stored history"} ·{" "}
+        {intervalItems.find((item) => item.key === interval)?.label} chart
       </h3>
       {instrument?.market === "options" && (
         <p role="note" className={styles.note}>
@@ -42,8 +54,14 @@ export default function ContractPriceChart({
           substitution.
         </p>
       )}
+      <Tabs
+        items={intervalItems}
+        active={interval}
+        onChange={(key) => setInterval(key as Interval)}
+      />
       <p className={styles.meta}>
-        Historical · 1D ·{" "}
+        Historical ·{" "}
+        {interval === "day" ? "1D" : interval === "week" ? "1W" : "1M"} ·{" "}
         {dataset?.adjustment === "unknown"
           ? "adjustment status unverified"
           : "unadjusted"}
@@ -59,8 +77,14 @@ export default function ContractPriceChart({
         {dataset && (
           <>
             <p className={styles.summary}>
-              {dataset.candles.length} daily candles · {dataset.candles[0].day}{" "}
-              to {dataset.candles.at(-1)!.day} · Not live
+              {displayedCandles.length}{" "}
+              {interval === "day"
+                ? "daily"
+                : interval === "week"
+                  ? "weekly"
+                  : "monthly"}{" "}
+              candles · {dataset.candles[0].day} to{" "}
+              {dataset.candles.at(-1)!.day} · Not live
             </p>
             {dataset.sources.some((source) => source.startsWith("nse-")) && (
               <p className={styles.meta}>
@@ -91,7 +115,8 @@ export default function ContractPriceChart({
             )}
             <DailyChartCanvas
               symbol={dataset.instrument!.symbol}
-              candles={dataset.candles}
+              candles={displayedCandles}
+              interval={interval}
             />
           </>
         )}

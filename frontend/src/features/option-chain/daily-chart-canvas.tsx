@@ -119,9 +119,11 @@ const drawings = [
 export function DailyChartCanvas({
   symbol,
   candles,
+  interval = "day",
 }: {
   symbol: string;
   candles: Candle[];
+  interval?: "day" | "week" | "month";
 }) {
   const host = useRef<HTMLDivElement>(null);
   const chart = useRef<Chart | null>(null);
@@ -179,7 +181,7 @@ export function DailyChartCanvas({
         pricePrecision: 2,
         volumePrecision: 0,
       });
-      instance.setPeriod({ type: "day", span: 1 });
+      instance.setPeriod({ type: interval, span: 1 });
       instance.setDataLoader({
         getBars: ({ type, callback }) =>
           callback(
@@ -213,7 +215,7 @@ export function DailyChartCanvas({
       dispose(element);
       chart.current = null;
     };
-  }, [candles, symbol, hasVolume]);
+  }, [candles, symbol, hasVolume, interval]);
 
   /** Re-read tokens and restyle in place when the viewer toggles light/dark, without a full re-init. */
   useEffect(() => {
@@ -388,7 +390,7 @@ export function DailyChartCanvas({
       <div
         ref={host}
         role="img"
-        aria-label="Daily candlestick chart"
+        aria-label={`${interval === "day" ? "Daily" : interval === "week" ? "Weekly" : "Monthly"} candlestick chart`}
         data-candle-count={candles.length}
         className={styles.host}
       />
