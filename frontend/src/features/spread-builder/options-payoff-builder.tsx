@@ -335,6 +335,21 @@ export function OptionsPayoffBuilder({
         if (!Number.isFinite(targetSpot) || targetSpot <= 0) {
           return invalid("Enter a positive target price.");
         }
+        // Mirror the calculator's accepted display grid for immediate form feedback;
+        // Python remains authoritative and validates direct API requests too.
+        const low = Math.max(
+          0.01,
+          Math.min(s * 0.8, ...basket.map((leg) => leg.strike * 0.9)),
+        );
+        const high = Math.max(
+          s * 1.2,
+          ...basket.map((leg) => leg.strike * 1.1),
+        );
+        if (targetSpot < low || targetSpot > high) {
+          return invalid(
+            `Target price must be between ${low.toFixed(2)} and ${high.toFixed(2)}.`,
+          );
+        }
         const input: PayoffCalculationInput = {
           legs: basket,
           spot: s,

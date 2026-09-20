@@ -64,10 +64,13 @@ def health() -> dict[str, str]:
 @app.post("/v1/backtests/daily", dependencies=[Depends(authorize)])
 def daily_backtest(payload: DailyBacktestRequest) -> dict[str, object]:
     """Calculate one deterministic daily backtest."""
-    return {
-        "engineVersion": ENGINE_VERSION,
-        "result": run_daily_backtest(payload.bars, payload.settings),
-    }
+    try:
+        return {
+            "engineVersion": ENGINE_VERSION,
+            "result": run_daily_backtest(payload.bars, payload.settings),
+        }
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
 
 @app.post("/v1/research/stored-daily", dependencies=[Depends(authorize)])

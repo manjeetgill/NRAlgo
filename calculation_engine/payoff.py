@@ -184,12 +184,13 @@ def _implied_volatility(
     high = 5.0
     low_mark = _black_76(forward, contract, days, rate, low)["price"]
     high_mark = _black_76(forward, contract, days, rate, high)["price"]
-    if contract.premium < low_mark - 0.01 or contract.premium > high_mark + 0.01:
+    if contract.premium < low_mark or contract.premium > high_mark:
         return None
-    if abs(contract.premium - low_mark) <= 0.01:
-        return low
-    return float(
-        brentq(
+    # A rounded near-intrinsic premium cannot identify volatility reliably.
+    if contract.premium - low_mark <= 0.01:
+        return None
+    try:
+        volatility = float(brentq(
             lambda volatility: _black_76(
                 forward, contract, days, rate, volatility
             )["price"]
@@ -198,8 +199,16 @@ def _implied_volatility(
             high,
             xtol=1e-12,
             maxiter=100,
-        )
-    )
+        ))
+    except (ValueError, RuntimeError):
+        # One corrupt/unbracketed contract must not discard the rest of the chain.
+        return None
+    # Vega is rupees per one percentage point of volatility. A 0.1-point
+    # change smaller than one paisa is not identifiable from rounded premiums.
+    vega = _black_76(forward, contract, days, rate, volatility)["vega"]
+    if not np.isfinite(volatility) or not np.isfinite(vega) or vega <= 0.1:
+        return None
+    return volatility
 
 
 def calculate_option_greeks(payload: OptionGreeksRequest) -> dict[str, object]:
