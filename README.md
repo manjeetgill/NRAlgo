@@ -36,7 +36,7 @@ Local PostgreSQL configuration/data and the Python environment live in ignored `
 
 ```sh
 npm run hooks:install       # Run once after cloning; enables .githooks/pre-commit.
-npm run check               # Lint and both TypeScript checks on the working tree.
+npm run check               # Lint, both TypeScript checks and offline safety tests.
 npm run preflight:commit    # Build only the staged snapshot, not unstaged changes.
 node scripts/preflight-commit.mjs HEAD  # Recheck a particular committed revision.
 ```
@@ -118,6 +118,8 @@ Kotak live execution is implemented behind explicit enablement. Zerodha authoriz
 The server resolves the active broker when an intent is bound. Changing the selection must not move existing orders or positions to another broker. Broker switches require enabled app MFA and a fresh authenticator or unused recovery code, and clear existing live permissions. Live execution requires configured server flags, app MFA, an authenticated broker session, registered static-IP prerequisites, risk limits, fresh reconciliation and explicit time-limited arming. Each arming requires a new code; a code consumed during broker selection cannot be reused. Initial broker registration can select the first broker but does not authorize trading.
 
 Account & security renders the MFA setup QR locally in the browser, with manual setup-key entry as a fallback. No external QR service receives the secret. Enrollment material stays only in component memory and is cleared after confirmation, navigation away, or the ten-minute setup window. Scan the QR in an authenticator app and enter its six-digit code to enable MFA; save the one-use recovery codes privately.
+
+Live permissions end at most five minutes after arming and at least 30 seconds before either the app or broker session expires. Dispatch rechecks this buffer and the durable app session. Cancellation and reconciliation remain available while the broker session is valid; the buffer does not guarantee exchange cancellation before expiry.
 
 Preview is not submission. Unknown submission outcomes must be reconciled, never automatically resent. Halt latches permission off; cancellation acknowledgements do not prove exchange cancellation, and halt does not automatically flatten positions. Keep `LIVE_TRADING_ENABLED=false` until these paths have been manually verified with the broker.
 

@@ -632,6 +632,7 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
       this.isConnected(userId, sessionHash);
     return {
       accountBinding: `kotak:${createHash("sha256").update(session.ucc.trim().toUpperCase()).digest("hex")}`,
+      expiresAt: session.expires,
       isCurrent,
       request: async (
         path: string,

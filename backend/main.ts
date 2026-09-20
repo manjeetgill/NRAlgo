@@ -863,7 +863,7 @@ export function createApiApplication(
     };
     const status = err instanceof z.ZodError ? 422 : error.status || 500;
     if (status >= 500) {
-      const requestId = randomUUID();
+      const requestId = res.locals.correlationId ?? randomUUID();
       res.setHeader("X-Request-Id", requestId);
       // Stack locations diagnose failures without logging messages, SQL parameters,
       // query strings, headers, request bodies or provider payloads containing secrets.

@@ -18,6 +18,10 @@ import {
 } from "../broker-registry.js";
 import { LiveExecutionService } from "./execution.js";
 import {
+  livePermissionDeadline,
+  LIVE_SESSION_BUFFER_MS,
+} from "./session-window.js";
+import {
   KotakLiveAdapter,
   type KotakExecutionSession,
 } from "./kotak-live-adapter.js";
@@ -78,6 +82,10 @@ export class KotakLiveManager {
   /** Recheck broker identity, durable session, permission expiry and trading day before dispatch. */
   private async authorize(query: Query, entry: Entry) {
     this.requireEnabled();
+    livePermissionDeadline(
+      entry.session.expires * 1000,
+      entry.connection.expiresAt,
+    );
     if (entry.revoked || !entry.connection.isCurrent()) {
       fail(
         409,
@@ -93,7 +101,11 @@ export class KotakLiveManager {
     );
     const validSession = await query(
       "SELECT token_hash FROM sessions WHERE token_hash=$1 AND user_id=$2 AND expires>$3",
-      [entry.session.token_hash, entry.session.user_id, Date.now() / 1000],
+      [
+        entry.session.token_hash,
+        entry.session.user_id,
+        (Date.now() + LIVE_SESSION_BUFFER_MS) / 1000,
+      ],
     );
     if (
       !permission ||
@@ -508,13 +520,13 @@ export class KotakLiveManager {
       if (entry.revoked) {
         fail(409, "Live arming cancelled.");
       }
-      await entry.service.resumeAfterReconciliation();
-      const armedUntil = Math.min(
-        Date.now() + 5 * 60000,
-        session.expires * 1000,
-      );
       try {
-        await this.store.transaction(async (query) => {
+        livePermissionDeadline(
+          session.expires * 1000,
+          entry.connection.expiresAt,
+        );
+        await entry.service.resumeAfterReconciliation();
+        const armedUntil = await this.store.transaction(async (query) => {
           // Serialize permission grants with broker selection so a concurrent switch
           // cannot leave permission attached to the broker we just switched away from.
           const active = await resolveActiveBroker(
@@ -531,9 +543,13 @@ export class KotakLiveManager {
           if (entry.revoked || !entry.connection.isCurrent()) {
             fail(409, "Broker session changed while arming.");
           }
+          const deadline = livePermissionDeadline(
+            session.expires * 1000,
+            entry.connection.expiresAt,
+          );
           await query(
             "INSERT INTO live_permissions(account_id,session_hash,armed_until,trading_day) VALUES($1,$2,$3,$4) ON CONFLICT(account_id) DO UPDATE SET session_hash=EXCLUDED.session_hash,armed_until=EXCLUDED.armed_until,trading_day=EXCLUDED.trading_day",
-            [entry.id, entry.permissionKey, armedUntil, tradingDay(Date.now())],
+            [entry.id, entry.permissionKey, deadline, tradingDay(Date.now())],
           );
           await query(
             "INSERT INTO live_events(account_id,kind,detail,created_at) VALUES($1,'armed',$2,$3)",
@@ -543,14 +559,15 @@ export class KotakLiveManager {
               Date.now(),
             ],
           );
+          return deadline;
         });
+        return { armed: true, armedUntil };
       } catch (error) {
         await entry.service.haltAndCancel(
           "Arming interrupted; no live permission granted",
         );
         throw error;
       }
-      return { armed: true, armedUntil };
     });
   }
   /** Validate intent and price, then persist a short-lived preview without submitting an order. */

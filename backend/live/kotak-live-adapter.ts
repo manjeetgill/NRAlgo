@@ -16,6 +16,7 @@ import {
 
 export interface KotakExecutionSession {
   accountBinding: string;
+  expiresAt: number;
   isCurrent(): boolean;
   request(
     path: string,

@@ -126,13 +126,20 @@ try {
   dependencies("frontend");
   run("npm", ["run", "lint"]);
   run("npm", ["run", "build:backend"]);
+  // Historical revisions may predate the offline regression suite.
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(snapshot, "package.json"), "utf8"),
+  );
+  if (manifest.scripts?.test) {
+    run("npm", ["test"]);
+  }
   run("npm", ["--prefix", "frontend", "run", "build"]);
   run("python3", [
     "-c",
     "import ast,pathlib; files=list(pathlib.Path('calculation_engine').glob('*.py'))+list(pathlib.Path('scripts').glob('*.py')); [ast.parse(p.read_text(),filename=str(p)) for p in files]; print(f'Python syntax: {len(files)} modules checked')",
   ]);
   console.log(
-    "Preflight passed: lint, backend build, frontend production build and Python syntax.",
+    "Preflight passed: lint, backend build, available safety tests, frontend production build and Python syntax.",
   );
 } catch (error) {
   console.error(`Preflight failed; commit blocked. ${error.message}`);
