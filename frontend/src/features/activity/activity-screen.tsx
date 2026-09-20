@@ -25,14 +25,27 @@ export function ActivityScreen({
 }) {
   const [category, setCategory] = useState<AuditCategory>("All");
   const [search, setSearch] = useState("");
+  const [fromDay, setFromDay] = useState("");
+  const [toDay, setToDay] = useState("");
   const [selected, setSelected] = useState<AuditEvent | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const refreshPending = useRef(false);
   const dialog = useRef<HTMLDialogElement>(null);
   /** Reuse the visible filtered rows for export. */
   const events = useMemo(
-    () => filterAuditEvents(workspace.events, category, search),
-    [workspace.events, category, search],
+    () =>
+      filterAuditEvents(workspace.events, category, search).filter((event) => {
+        // Calendar filters use IST, matching the displayed event time, not the browser's zone.
+        const timestamp = Date.parse(event.created_at);
+        const day = Number.isFinite(timestamp)
+          ? new Date(timestamp + 330 * 60_000).toISOString().slice(0, 10)
+          : "";
+        return (
+          (!fromDay || day >= fromDay) &&
+          (!toDay || (Boolean(day) && day <= toDay))
+        );
+      }),
+    [workspace.events, category, search, fromDay, toDay],
   );
   /** A manual workspace read updates the audit snapshot; quote ticks do not refetch history. */
   const refresh = useCallback(async () => {
@@ -79,7 +92,7 @@ export function ActivityScreen({
           disabled={!events.length}
           onClick={exportEvents}
         >
-          Export history
+          Export filtered events
         </Button>
       </PageActions>
       <section className="panel screen-card">
@@ -106,6 +119,42 @@ export function ActivityScreen({
             />
           </label>
         </div>
+        <div className="screen-toolbar">
+          <label>
+            From date (IST)
+            <input
+              type="date"
+              value={fromDay}
+              max={toDay || undefined}
+              onChange={(event) => setFromDay(event.target.value)}
+            />
+          </label>
+          <label>
+            To date (IST)
+            <input
+              type="date"
+              value={toDay}
+              min={fromDay || undefined}
+              onChange={(event) => setToDay(event.target.value)}
+            />
+          </label>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              setFromDay("");
+              setToDay("");
+              setSearch("");
+              setCategory("All");
+            }}
+          >
+            Clear filters
+          </Button>
+        </div>
+        <p className="muted">
+          Showing {events.length} of {workspace.events.length} loaded events.
+          Filters and exports apply only to this recent snapshot, not the full
+          audit archive.
+        </p>
         <div className="audit-timeline">
           {events.map((event) => (
             <div key={event.id}>
