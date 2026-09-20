@@ -198,7 +198,7 @@
 }
 .accountMetrics {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 22px;
   border-top: 1px solid #edf0f5;
   padding-top: 16px;

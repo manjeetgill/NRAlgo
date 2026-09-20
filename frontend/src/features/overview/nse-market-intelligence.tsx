@@ -188,7 +188,8 @@ export function NseMarketIntelligence() {
           <div className={styles.resultHeading}>
             <strong>{result.label}</strong>
             <time dateTime={new Date(result.observedAt).toISOString()}>
-              {new Date(result.observedAt).toLocaleTimeString("en-IN", {
+              Fetched{" "}
+              {new Date(result.observedAt).toLocaleString("en-IN", {
                 timeZone: "Asia/Kolkata",
               })}{" "}
               IST

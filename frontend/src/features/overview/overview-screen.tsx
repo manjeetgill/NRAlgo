@@ -305,42 +305,10 @@ export function OverviewScreen({
         </div>
         <div className={styles.accountMetrics}>
           <div>
-            <span>Available margin</span>
-            <strong>{formatAccountMoney(snapshot?.availableFunds)}</strong>
-            <small>Broker buying power · not a cash ledger</small>
-          </div>
-          <button
-            aria-expanded={showPositions}
-            aria-controls="overview-positions"
-            onClick={onTogglePositions}
-          >
-            <span>Open positions</span>
-            <strong>{snapshot?.positions?.length ?? "—"}</strong>
-            <small>
-              {showPositions
-                ? "Hide position details"
-                : "View position details"}{" "}
-              <ArrowRight size={12} />
-            </small>
-          </button>
-          <button
-            aria-expanded={showHoldings}
-            aria-controls="overview-holdings"
-            onClick={onToggleHoldings}
-          >
-            <span>Holdings</span>
-            <strong>{snapshot?.holdings?.length ?? "—"}</strong>
-            <small>
-              Pledged shares ·{" "}
-              {pledgedQuantity?.toLocaleString("en-IN") ?? "Unavailable"}{" "}
-              <ArrowRight size={12} />
-            </small>
-          </button>
-          <div>
-            <span>Snapshot</span>
+            <span>Account snapshot captured</span>
             <strong className={styles.timestamp}>
               {snapshot
-                ? new Date(snapshot.capturedAt).toLocaleTimeString("en-IN", {
+                ? new Date(snapshot.capturedAt).toLocaleString("en-IN", {
                     timeZone: "Asia/Kolkata",
                   }) + " IST"
                 : "Not loaded"}
@@ -354,7 +322,8 @@ export function OverviewScreen({
         </div>
         {!registry.loading && !broker && (
           <p className={styles.notice}>
-            Connect a broker in Broker connections to load funds and positions.
+            <a href="#/brokers">Connect a broker</a> to load funds and
+            positions.
           </p>
         )}
         {broker && account.connected === false && (
