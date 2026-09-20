@@ -31,7 +31,20 @@ const BacktestStudioScreen = dynamic(
 );
 /** Accessible fallback while the selected screen's code is fetched. */
 function ScreenLoading() {
-  return <p role="status">Loading screen…</p>;
+  return (
+    <section
+      className="screen-loading"
+      role="status"
+      aria-label="Loading screen"
+    >
+      <p>Loading screen…</p>
+      <div aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </div>
+    </section>
+  );
 }
 const WatchlistsScreen = dynamic(
   () =>

@@ -478,6 +478,28 @@
   font-weight: 650;
   box-shadow: none;
 }
+/* Consistent keyboard focus across links, controls and native disclosures. */
+.app-shell :is(button, a, input, select, textarea, summary):focus-visible {
+  outline: 3px solid #335cde;
+  outline-offset: 3px;
+}
+.screen-loading {
+  min-height: 280px;
+  color: var(--muted);
+}
+.screen-loading > div {
+  display: grid;
+  gap: 16px;
+}
+.screen-loading span {
+  display: block;
+  height: 56px;
+  border-radius: 10px;
+  background: #e8edf4;
+}
+.screen-loading span:last-child {
+  height: 140px;
+}
 .app-shell .button-primary {
   background: #335cde;
   border-color: #335cde;
@@ -508,20 +530,20 @@
 }
 .app-shell label {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .app-shell th {
   padding: 13px 14px;
   background: #f7f9fc;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.4px;
 }
 .app-shell td {
   padding: 17px 14px;
   border-bottom-color: #e8edf4;
-  font-size: 12px;
+  font-size: 13px;
 }
 .app-shell .tabs button,
 .app-shell .screen-filters .button {
