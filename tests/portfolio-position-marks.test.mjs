@@ -62,7 +62,7 @@ for (const [name, quotes] of [
     assert.equal(row.pnl, null);
   });
 }
-test("quote outage preserves broker report and position quantity", async () => {
+test("quote outage preserves the broker mark and recalculates from the documented basis", async () => {
   const original = position({ markPrice: 390, pnl: 100 });
   const [row] = await enrichPortfolioPositionMarks(
     [original],
@@ -71,7 +71,18 @@ test("quote outage preserves broker report and position quantity", async () => {
     },
     now,
   );
-  assert.deepEqual(row, original);
+  assert.equal(row.quantity, original.quantity);
+  assert.equal(row.markPrice, 390);
+  assert.equal(row.pnl, 1300);
+});
+test("fresh exact quote replaces the position report mark and recalculates P&L", async () => {
+  const [row] = await enrichPortfolioPositionMarks(
+    [position({ markPrice: 390, pnl: 100 })],
+    async () => [quote({ price: 400 })],
+    now,
+  );
+  assert.equal(row.markPrice, 400);
+  assert.equal(row.pnl, 1950);
 });
 test("never invent P&L when the broker did not supply its basis", async () => {
   const [row] = await enrichPortfolioPositionMarks(

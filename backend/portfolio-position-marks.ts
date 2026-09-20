@@ -64,10 +64,8 @@ export async function enrichPortfolioPositionMarks(
     }
   }
   return positions.map((row) => {
-    const markPrice =
-      row.markPrice ??
-      marks.get(`${row.exchange}|${row.instrumentToken}`) ??
-      null;
+    const exactQuote = marks.get(`${row.exchange}|${row.instrumentToken}`);
+    const markPrice = exactQuote ?? row.markPrice ?? null;
     const calculated =
       markPrice !== null && row.pnlBase !== null && row.pnlPerMark !== null
         ? row.pnlBase + row.pnlPerMark * markPrice
@@ -76,10 +74,9 @@ export async function enrichPortfolioPositionMarks(
       ...row,
       markPrice,
       pnl:
-        row.pnl ??
-        (calculated !== null && Number.isFinite(calculated)
+        calculated !== null && Number.isFinite(calculated)
           ? calculated
-          : null),
+          : row.pnl,
     };
   });
 }

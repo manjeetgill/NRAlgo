@@ -78,11 +78,16 @@ export function normalizePortfolioRows(
       ["cfBuyQty", "flBuyQty", "cfSellQty", "flSellQty"].some(
         (key) => row[key] !== undefined,
       );
-    const positionQuantity = hasPositionQuantities
+    const totalBuyQuantity = hasPositionQuantities
       ? (parseOptionalPortfolioNumber(row.cfBuyQty) ?? 0) +
-        (parseOptionalPortfolioNumber(row.flBuyQty) ?? 0) -
-        (parseOptionalPortfolioNumber(row.cfSellQty) ?? 0) -
+        (parseOptionalPortfolioNumber(row.flBuyQty) ?? 0)
+      : null;
+    const totalSellQuantity = hasPositionQuantities
+      ? (parseOptionalPortfolioNumber(row.cfSellQty) ?? 0) +
         (parseOptionalPortfolioNumber(row.flSellQty) ?? 0)
+      : null;
+    const positionQuantity = hasPositionQuantities
+      ? totalBuyQuantity! - totalSellQuantity!
       : parseOptionalPortfolioNumber(row.qty);
     const quantity = holding
       ? parseOptionalPortfolioNumber(row.quantity)
@@ -148,6 +153,43 @@ export function normalizePortfolioRows(
     ) {
       throw new Error("Invalid position scaling");
     }
+    /** Kotak's position contract defines the open average from cash amounts and
+     * quantities. `avgPrc` is not a reliable open-position cost basis. */
+    const precision = holding
+      ? null
+      : parseOptionalPortfolioNumber(row.precision);
+    if (
+      precision !== null &&
+      (!Number.isSafeInteger(precision) || precision < 0 || precision > 8)
+    ) {
+      throw new Error("Invalid position precision");
+    }
+    const calculatedAverageRaw =
+      !holding && hasAmounts && multiplier && priceScale
+        ? quantity > 0 && totalBuyQuantity
+          ? buyAmount! / (totalBuyQuantity * multiplier * priceScale)
+          : quantity < 0 && totalSellQuantity
+            ? sellAmount! / (totalSellQuantity * multiplier * priceScale)
+            : null
+        : null;
+    const calculatedAverage =
+      calculatedAverageRaw !== null && precision !== null
+        ? Number(calculatedAverageRaw.toFixed(precision))
+        : calculatedAverageRaw;
+    const reportedAverage = parseOptionalPortfolioNumber(
+      holding ? row.averagePrice : row.avgPrc,
+    );
+    const reportedMark = parseOptionalPortfolioNumber(
+      holding ? row.closingPrice : (row.ltp ?? row.lastTradedPrice),
+    );
+    const markPrice =
+      reportedMark !== null && reportedMark > 0 ? reportedMark : null;
+    const pnlBase = holding || !hasAmounts ? null : sellAmount! - buyAmount!;
+    const pnlPerMark = holding ? null : quantity * multiplier! * priceScale!;
+    const calculatedPnl =
+      markPrice !== null && pnlBase !== null && pnlPerMark !== null
+        ? pnlBase + markPrice * pnlPerMark
+        : null;
     return {
       symbol,
       isin: readPortfolioDisplayText(
@@ -174,31 +216,13 @@ export function normalizePortfolioRows(
       product: readPortfolioDisplayText(
         holding ? row.instrumentType : row.prod,
       ),
-      averagePrice: parseOptionalPortfolioNumber(
-        holding
-          ? row.averagePrice
-          : (row.avgPrc ??
-              (() => {
-                const openAmount =
-                  quantity > 0
-                    ? (parseOptionalPortfolioNumber(row.cfBuyAmt) ?? 0) +
-                      (parseOptionalPortfolioNumber(row.buyAmt) ?? 0)
-                    : (parseOptionalPortfolioNumber(row.cfSellAmt) ?? 0) +
-                      (parseOptionalPortfolioNumber(row.sellAmt) ?? 0);
-                const sideQuantity =
-                  quantity > 0
-                    ? (parseOptionalPortfolioNumber(row.cfBuyQty) ?? 0) +
-                      (parseOptionalPortfolioNumber(row.flBuyQty) ?? 0)
-                    : (parseOptionalPortfolioNumber(row.cfSellQty) ?? 0) +
-                      (parseOptionalPortfolioNumber(row.flSellQty) ?? 0);
-                return sideQuantity && multiplier && priceScale
-                  ? openAmount / (sideQuantity * multiplier * priceScale)
-                  : null;
-              })()),
-      ),
-      markPrice: parseOptionalPortfolioNumber(
-        holding ? row.closingPrice : (row.ltp ?? row.lastTradedPrice),
-      ),
+      averagePrice: holding
+        ? reportedAverage
+        : (calculatedAverage ??
+          (reportedAverage !== null && reportedAverage > 0
+            ? reportedAverage
+            : null)),
+      markPrice,
       pnl: parseOptionalPortfolioNumber(
         holding
           ? (row.unrealisedGainLoss ??
@@ -211,10 +235,13 @@ export function normalizePortfolioRows(
                   ? marketValue - holdingCost
                   : null;
               })())
-          : (row.unrealisedGainLoss ?? row.unrealizedPnl ?? row.unrealizedPnL),
+          : (calculatedPnl ??
+              row.unrealisedGainLoss ??
+              row.unrealizedPnl ??
+              row.unrealizedPnL),
       ),
-      pnlBase: holding || !hasAmounts ? null : sellAmount! - buyAmount!,
-      pnlPerMark: holding ? null : quantity * multiplier! * priceScale!,
+      pnlBase,
+      pnlPerMark,
       expiry: readPortfolioDisplayText(holding ? row.expiryDate : row.expDt),
       right: readPortfolioDisplayText(holding ? row.optType : row.optTp),
       strike: readPortfolioDisplayText(holding ? row.strikePrice : row.stkPrc),
