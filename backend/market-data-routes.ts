@@ -999,6 +999,13 @@ export function registerMarketDataRoutes(
           .array(z.string().regex(/^\d{1,15}$/))
           .max(50)
           .default([]),
+        // Separate from `instruments` (always nse_fo, the existing option-chain
+        // subscription) so a stock/index cash quote can never be mistaken for an
+        // F&O token; a live watchlist chart requests this one instead.
+        cashInstruments: z
+          .array(z.string().regex(/^\d{1,15}$/))
+          .max(50)
+          .default([]),
       })
       .strict()
       .parse(req.body);
@@ -1032,6 +1039,10 @@ export function registerMarketDataRoutes(
             exchange: "nse_fo" as const,
             instrument,
           })),
+          ...input.cashInstruments.map((instrument) => ({
+            exchange: "nse_cm" as const,
+            instrument,
+          })),
         ].map((row) => [`${row.exchange}|${row.instrument}`, row]),
       ).values(),
     ];
@@ -1042,7 +1053,12 @@ export function registerMarketDataRoutes(
       );
     }
     if (!instruments.length) {
-      fail(409, "No quoteable open positions were returned by Kotak.");
+      fail(
+        409,
+        input.instruments.length || input.cashInstruments.length
+          ? "None of the requested instruments could be subscribed."
+          : "No quoteable open positions were returned by Kotak.",
+      );
     }
     await requestCoordinator.runExclusiveForUser(session.user_id, async () => {
       await reserveBrokerRequestBudget(store, session.user_id, production);

@@ -350,7 +350,7 @@ export function WatchlistsScreen({ csrf }: { csrf: string }) {
       </aside>
       <div className={styles.chart} aria-label="Selected scrip chart">
         {selected?.id ? (
-          <Chart key={selected.id} eodId={selected.id} />
+          <Chart key={selected.id} eodId={selected.id} csrf={csrf} />
         ) : (
           <EmptyState
             title={selected ? "No stored history" : "Select a scrip"}

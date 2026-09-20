@@ -7,6 +7,12 @@
   font-size: var(--text-lg);
   color: var(--text-primary);
 }
+.viewRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
 .note {
   margin: 0;
   color: var(--text-muted);

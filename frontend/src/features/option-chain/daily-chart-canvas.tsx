@@ -12,8 +12,42 @@ import { Select } from "@/components/ui/field";
 import { useTheme } from "@/components/ui/theme-provider";
 import styles from "./daily-chart-canvas.module.css";
 
+export type ChartInterval =
+  "day" | "week" | "month" | "1m" | "5m" | "15m" | "30m" | "1h";
+
+const intervalLabels: Record<ChartInterval, string> = {
+  day: "Daily",
+  week: "Weekly",
+  month: "Monthly",
+  "1m": "1-minute",
+  "5m": "5-minute",
+  "15m": "15-minute",
+  "30m": "30-minute",
+  "1h": "1-hour",
+};
+
+/** Translate the friendly interval name to klinecharts' period shape. */
+function periodFor(interval: ChartInterval) {
+  switch (interval) {
+    case "1m":
+      return { type: "minute" as const, span: 1 };
+    case "5m":
+      return { type: "minute" as const, span: 5 };
+    case "15m":
+      return { type: "minute" as const, span: 15 };
+    case "30m":
+      return { type: "minute" as const, span: 30 };
+    case "1h":
+      return { type: "hour" as const, span: 1 };
+    default:
+      return { type: interval, span: 1 };
+  }
+}
+
 type Candle = {
   day: string;
+  /** Set for intraday bars, whose `day` is a full timestamp rather than a plain date. */
+  timestamp?: number;
   open: number;
   high: number;
   low: number;
@@ -123,7 +157,7 @@ export function DailyChartCanvas({
 }: {
   symbol: string;
   candles: Candle[];
-  interval?: "day" | "week" | "month";
+  interval?: ChartInterval;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const chart = useRef<Chart | null>(null);
@@ -181,13 +215,14 @@ export function DailyChartCanvas({
         pricePrecision: 2,
         volumePrecision: 0,
       });
-      instance.setPeriod({ type: interval, span: 1 });
+      instance.setPeriod(periodFor(interval));
       instance.setDataLoader({
         getBars: ({ type, callback }) =>
           callback(
             type === "init"
               ? candles.map((bar) => ({
-                  timestamp: Date.parse(`${bar.day}T00:00:00+05:30`),
+                  timestamp:
+                    bar.timestamp ?? Date.parse(`${bar.day}T00:00:00+05:30`),
                   open: bar.open,
                   high: bar.high,
                   low: bar.low,
@@ -390,7 +425,7 @@ export function DailyChartCanvas({
       <div
         ref={host}
         role="img"
-        aria-label={`${interval === "day" ? "Daily" : interval === "week" ? "Weekly" : "Monthly"} candlestick chart`}
+        aria-label={`${intervalLabels[interval]} candlestick chart`}
         data-candle-count={candles.length}
         className={styles.host}
       />
