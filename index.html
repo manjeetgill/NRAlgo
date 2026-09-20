@@ -1,0 +1,2186 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+  <title>NRIAlgo PRO - Institutional Quant Algorithmic Trading Platform</title>
+
+  <!-- Google Fonts & Material Symbols -->
+  <link href="https://fonts.googleapis.com" rel="preconnect"/>
+  <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            "primary": "#4cd7f6",
+            "primary-container": "#06b6d4",
+            "on-primary": "#003640",
+            "on-primary-container": "#00424f",
+            "primary-fixed": "#acedff",
+            "primary-fixed-dim": "#4cd7f6",
+            "secondary": "#4edea3",
+            "secondary-container": "#00a572",
+            "on-secondary": "#003824",
+            "on-secondary-container": "#00311f",
+            "secondary-fixed": "#6ffbbe",
+            "secondary-fixed-dim": "#4edea3",
+            "tertiary": "#ffb2b7",
+            "tertiary-container": "#ff7f8b",
+            "on-tertiary": "#67001b",
+            "error": "#ffb4ab",
+            "error-container": "#93000a",
+            "on-error": "#690005",
+            "on-error-container": "#ffdad6",
+            "surface": "#0f131b",
+            "surface-dim": "#0f131b",
+            "surface-bright": "#353941",
+            "surface-container-lowest": "#0a0e15",
+            "surface-container-low": "#181c23",
+            "surface-container": "#1c2027",
+            "surface-container-high": "#262a32",
+            "surface-container-highest": "#31353d",
+            "on-surface": "#dfe2ed",
+            "on-surface-variant": "#bcc9cd",
+            "outline": "#869397",
+            "outline-variant": "#3d494c",
+            "background": "#0f131b",
+            "on-background": "#dfe2ed"
+          },
+          borderRadius: {
+            DEFAULT: "0.125rem",
+            sm: "0.125rem",
+            lg: "0.25rem",
+            xl: "0.5rem",
+            full: "9999px"
+          },
+          spacing: {
+            "space-xs": "0.125rem",
+            "space-sm": "0.25rem",
+            "space-md": "0.5rem",
+            "space-lg": "0.75rem",
+            "space-xl": "1rem",
+            "margin": "0.75rem"
+          },
+          fontFamily: {
+            "headline": ["Space Grotesk", "sans-serif"],
+            "body": ["Inter", "sans-serif"],
+            "mono": ["JetBrains Mono", "monospace"]
+          }
+        }
+      }
+    };
+  </script>
+
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #0f131b;
+      color: #dfe2ed;
+      font-family: 'Inter', sans-serif;
+      overflow-x: hidden;
+    }
+    ::-webkit-scrollbar { display: none; }
+    * { -ms-overflow-style: none; scrollbar-width: none; }
+    .font-headline { font-family: 'Space Grotesk', sans-serif; }
+    .font-mono-code { font-family: 'JetBrains Mono', monospace; }
+  </style>
+
+  <!-- React & React Router Global Scripts (v18 & v6.3.0) -->
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/history@5/umd/history.development.js"></script>
+  <script src="https://unpkg.com/react-router@6.3.0/umd/react-router.development.js"></script>
+  <script src="https://unpkg.com/react-router-dom@6.3.0/umd/react-router-dom.development.js"></script>
+  <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
+</head>
+<body class="bg-surface text-on-surface antialiased selection:bg-primary-container selection:text-on-primary-container">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+    const { createRoot } = ReactDOM;
+    const { MemoryRouter, Routes, Route, Link, useNavigate, useLocation } = ReactRouterDOM;
+
+    // --- SHARED APP SHELL: SIDEBAR & HEADER ---
+    function AppLayout({ children }) {
+      const location = useLocation();
+      const navigate = useNavigate();
+      const currentPath = location.pathname;
+
+      const [orderModalOpen, setOrderModalOpen] = useState(false);
+      const [haltTriggered, setHaltTriggered] = useState(false);
+      const [haltAlert, setHaltAlert] = useState(false);
+
+      const navItems = [
+        { label: "Overview", path: "/", icon: "grid_view", group: "Core Platform" },
+        { label: "Portfolio & Equity", path: "/portfolio", icon: "pie_chart", group: "Core Platform" },
+        { label: "Watchlists", path: "/watchlists", icon: "format_list_bulleted", group: "Core Platform" },
+        { label: "Option Chain", path: "/option-chain", icon: "view_column", group: "Core Platform" },
+
+        { label: "Spread Builder", path: "/spread-builder", icon: "tune", group: "Quant Execution" },
+        { label: "Strategies Lab", path: "/strategies-lab", icon: "science", group: "Quant Execution" },
+        { label: "Backtest Studio", path: "/backtest-studio", icon: "query_stats", group: "Quant Execution" },
+        { label: "Live Orders", path: "/live-orders", icon: "receipt_long", group: "Quant Execution", badge: "3" },
+
+        { label: "Brokers", path: "/brokers", icon: "dns", group: "Infrastructure", pulse: true },
+        { label: "Risk & Security", path: "/risk-and-security", icon: "shield", group: "Infrastructure" }
+      ];
+
+      const handleHaltClick = () => {
+        if (!haltTriggered) {
+          if (window.confirm("EMERGENCY SAFETY HALT: Trigger immediate fail-closed circuit? All live working orders will be pulled.")) {
+            setHaltTriggered(true);
+            setHaltAlert(true);
+            setTimeout(() => setHaltAlert(false), 4500);
+          }
+        } else {
+          setHaltTriggered(false);
+          alert("Trading desk unhalted. Normal routing restored.");
+        }
+      };
+
+      return (
+        <div class="min-h-screen bg-surface flex text-on-surface">
+          {/* Emergency Alert Toast */}
+          {haltAlert && (
+            <div class="fixed top-20 right-6 z-50 bg-error-container text-on-error-container p-4 rounded shadow-2xl border border-error/40 flex items-center gap-3">
+              <span class="material-symbols-outlined text-2xl text-error animate-pulse">warning</span>
+              <div>
+                <div class="font-bold font-headline text-sm uppercase">FAIL-CLOSED CIRCUIT ENGAGED</div>
+                <div class="text-xs">All desks locked. Working orders cancelled. Positions held safe.</div>
+              </div>
+            </div>
+          )}
+
+          {/* Quick New Order Modal (F1) */}
+          {orderModalOpen && (
+            <div class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div class="bg-surface-container-low border border-outline-variant/50 rounded-lg p-5 max-w-md w-full shadow-2xl">
+                <div class="flex items-center justify-between border-b border-outline-variant/30 pb-3 mb-4">
+                  <div class="flex items-center gap-2">
+                    <span class="material-symbols-outlined text-primary">bolt</span>
+                    <span class="font-headline font-bold text-base">Quick Order Entry [F1]</span>
+                  </div>
+                  <button onClick={() => setOrderModalOpen(false)} class="text-outline hover:text-on-surface">
+                    <span class="material-symbols-outlined">close</span>
+                  </button>
+                </div>
+                <div class="space-y-3 font-body text-sm">
+                  <div>
+                    <label class="block text-xs uppercase text-outline mb-1 font-mono-code">Symbol / Instrument</label>
+                    <input type="text" defaultValue="NIFTY 26SEP 25400 CE" class="w-full bg-surface-container px-3 py-1.5 rounded border border-outline-variant/40 text-on-surface text-sm focus:outline-none focus:border-primary font-mono-code" />
+                  </div>
+                  <div class="grid grid-cols-2 gap-3">
+                    <div>
+                      <label class="block text-xs uppercase text-outline mb-1 font-mono-code">Lots (1 Lot = 25)</label>
+                      <input type="number" defaultValue="2" class="w-full bg-surface-container px-3 py-1.5 rounded border border-outline-variant/40 text-on-surface text-sm focus:outline-none font-mono-code" />
+                    </div>
+                    <div>
+                      <label class="block text-xs uppercase text-outline mb-1 font-mono-code">Price (LTP: 142.50)</label>
+                      <input type="number" defaultValue="142.50" step="0.05" class="w-full bg-surface-container px-3 py-1.5 rounded border border-outline-variant/40 text-on-surface text-sm focus:outline-none font-mono-code" />
+                    </div>
+                  </div>
+                  <div class="grid grid-cols-2 gap-3 pt-3">
+                    <button onClick={() => { alert("Buy order dispatched to Kotak Neo DMA"); setOrderModalOpen(false); }} class="py-2.5 rounded bg-secondary hover:bg-secondary-container text-on-secondary font-headline font-bold text-sm transition-all shadow">
+                      BUY (Market/Limit)
+                    </button>
+                    <button onClick={() => { alert("Sell order dispatched to Kotak Neo DMA"); setOrderModalOpen(false); }} class="py-2.5 rounded bg-error hover:bg-error-container text-on-error font-headline font-bold text-sm transition-all shadow">
+                      SELL (Market/Limit)
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Left Fixed Sidebar */}
+          <aside class="fixed left-0 top-0 h-full w-64 bg-surface-container-lowest z-50 flex flex-col justify-between select-none border-r border-outline-variant/20">
+            <div class="flex flex-col">
+              {/* Logo / Brand Header */}
+              <div class="h-16 px-space-lg flex items-center gap-2 bg-surface-container-lowest border-b border-outline-variant/20 cursor-pointer" onClick={() => navigate("/")}>
+                <div class="w-8 h-8 rounded bg-primary-container flex items-center justify-center font-headline font-bold text-on-primary-container text-lg">
+                  N
+                </div>
+                <span class="font-headline text-lg tracking-tight font-bold text-on-surface">
+                  NRIAlgo <span class="text-primary font-headline">PRO</span>
+                </span>
+                <span class="ml-auto px-1.5 py-0.5 rounded text-[10px] font-mono-code bg-secondary-container text-on-secondary-container font-semibold">v3.4</span>
+              </div>
+
+              {/* Navigation Links */}
+              <nav class="flex flex-col gap-1 px-3 py-3 overflow-y-auto max-h-[calc(100vh-170px)]">
+                {["Core Platform", "Quant Execution", "Infrastructure"].map((grp, gIdx) => {
+                  const items = navItems.filter(item => item.group === grp);
+                  return (
+                    <div key={grp} class={gIdx > 0 ? "pt-3" : ""}>
+                      <div class="px-2 pb-1 text-[10px] uppercase tracking-wider text-outline font-semibold font-mono-code">
+                        {grp}
+                      </div>
+                      {items.map(item => {
+                        const isActive = currentPath === item.path || (item.path !== "/" && currentPath.startsWith(item.path));
+                        return (
+                          <Link
+                            key={item.path}
+                            to={item.path}
+                            class={`flex items-center justify-between px-3 py-1.5 rounded transition-all text-xs font-medium ${
+                              isActive
+                                ? "bg-primary-container text-on-primary-container font-semibold shadow-sm"
+                                : "text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface"
+                            }`}
+                          >
+                            <div class="flex items-center gap-2.5">
+                              <span class="material-symbols-outlined text-[18px]">{item.icon}</span>
+                              <span class="font-body">{item.label}</span>
+                            </div>
+                            {item.badge && (
+                              <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono-code bg-surface-container-highest text-primary font-bold">
+                                {item.badge}
+                              </span>
+                            )}
+                            {item.pulse && (
+                              <span class="h-1.5 w-1.5 rounded-full bg-secondary animate-pulse"></span>
+                            )}
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </nav>
+            </div>
+
+            {/* Bottom Broker Status Pill */}
+            <div class="p-3 m-3 rounded bg-surface-container-low border border-outline-variant/30 flex flex-col gap-1 text-xs">
+              <div class="flex items-center justify-between text-outline">
+                <span class="font-mono-code uppercase text-[10px] font-semibold tracking-wide">Brokers Live</span>
+                <span class="font-mono-code text-secondary font-medium">2/2 Active</span>
+              </div>
+              <div class="flex items-center justify-between pt-1 text-xs">
+                <div class="flex items-center gap-1.5">
+                  <span class="h-1.5 w-1.5 rounded-full bg-secondary"></span>
+                  <span class="text-on-surface">Kotak Neo</span>
+                </div>
+                <span class="font-mono-code text-outline">18ms</span>
+              </div>
+              <div class="flex items-center justify-between text-xs">
+                <div class="flex items-center gap-1.5">
+                  <span class="h-1.5 w-1.5 rounded-full bg-secondary"></span>
+                  <span class="text-on-surface">Zerodha Kite</span>
+                </div>
+                <span class="font-mono-code text-outline">22ms</span>
+              </div>
+            </div>
+          </aside>
+
+          {/* Top Fixed Header */}
+          <div class="pl-64 flex flex-col flex-1 min-h-screen w-full">
+            <header class="fixed top-0 left-64 right-0 h-16 bg-surface-container-lowest/90 backdrop-blur-md z-40 px-6 flex items-center justify-between border-b border-outline-variant/20 shadow-sm">
+              <div class="flex items-center gap-4">
+                <button class="flex items-center gap-1.5 px-3 py-1.5 rounded bg-surface-container-high hover:bg-surface-container-highest text-on-surface text-xs font-medium transition-colors border border-outline-variant/30">
+                  <span class="material-symbols-outlined text-primary text-[18px]">desktop_windows</span>
+                  <span>Desk A • NIFTY Deriv</span>
+                  <span class="material-symbols-outlined text-outline text-[16px]">expand_more</span>
+                </button>
+
+                <div class="hidden xl:flex items-center gap-5 text-xs">
+                  <div class="flex items-baseline gap-1 font-mono-code">
+                    <span class="text-[10px] font-semibold text-outline uppercase">NIFTY</span>
+                    <span class="font-bold text-on-surface">25,418.30</span>
+                    <span class="text-secondary font-medium">+0.56%</span>
+                  </div>
+                  <div class="flex items-baseline gap-1 font-mono-code">
+                    <span class="text-[10px] font-semibold text-outline uppercase">BANKNIFTY</span>
+                    <span class="font-bold text-on-surface">52,890.15</span>
+                    <span class="text-secondary font-medium">+0.59%</span>
+                  </div>
+                  <div class="flex items-baseline gap-1 font-mono-code">
+                    <span class="text-[10px] font-semibold text-outline uppercase">INDIA VIX</span>
+                    <span class="font-bold text-on-surface">12.84</span>
+                    <span class="text-tertiary font-medium">-3.16%</span>
+                  </div>
+                  <div class="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-secondary-container/20 text-secondary text-[11px]">
+                    <span class="h-1.5 w-1.5 rounded-full bg-secondary animate-pulse"></span>
+                    <span>NSE Open • All Systems Nominal</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="flex items-center gap-3">
+                <button
+                  onClick={() => setOrderModalOpen(true)}
+                  class="flex items-center gap-1.5 px-3 py-1.5 rounded bg-primary-container text-on-primary-container font-headline text-xs font-semibold hover:bg-primary hover:text-on-primary transition-all shadow-sm active:scale-95"
+                >
+                  <span class="material-symbols-outlined text-[18px]">add</span>
+                  <span>+ New Order [F1]</span>
+                </button>
+
+                <button
+                  onClick={handleHaltClick}
+                  class={`flex items-center gap-1 px-3 py-1.5 rounded font-headline text-xs font-semibold transition-all shadow-sm ${
+                    haltTriggered
+                      ? "bg-error text-on-error animate-pulse"
+                      : "bg-error-container text-on-error-container hover:bg-error hover:text-on-error"
+                  }`}
+                >
+                  <span class="material-symbols-outlined text-[18px]">emergency_home</span>
+                  <span>{haltTriggered ? "RESUME" : "Halt"}</span>
+                </button>
+
+                <div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center font-headline text-xs font-bold text-on-primary shadow ring-1 ring-primary/40 cursor-pointer" title="CQ Quantitative Account">
+                  CQ
+                </div>
+              </div>
+            </header>
+
+            {/* Main Outlet */}
+            <main class="w-full pt-16 bg-surface px-6 pb-12 flex-1">
+              {children}
+            </main>
+          </div>
+        </div>
+      );
+    }
+
+    // ==========================================
+    // SCREEN 1: OVERVIEW DASHBOARD
+    // ==========================================
+    function ScreenOverview() {
+      const navigate = useNavigate();
+      return (
+        <div class="flex flex-col w-full gap-6 pt-2">
+          {/* Header Action Bar */}
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h1 class="font-headline text-2xl text-on-surface font-bold tracking-tight">Trading Desk Overview</h1>
+              <p class="text-xs text-on-surface-variant font-body mt-0.5">Real-time positions, strategy metrics and risk allocation at a glance.</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <button onClick={() => navigate("/option-chain")} class="flex items-center gap-1.5 px-3 py-1.5 rounded bg-surface-container hover:bg-surface-container-high text-on-surface text-xs font-medium transition-all shadow-sm border border-outline-variant/30">
+                <span class="material-symbols-outlined text-[16px] text-primary">data_exploration</span>
+                <span>Deep Telemetry & Greeks</span>
+              </button>
+              <button onClick={() => alert("Audit log export started (CSV/JSON).")} class="flex items-center gap-1.5 px-3 py-1.5 rounded bg-surface-container hover:bg-surface-container-high text-on-surface text-xs font-medium transition-all shadow-sm border border-outline-variant/30">
+                <span class="material-symbols-outlined text-[16px] text-outline">file_download</span>
+                <span>Export</span>
+              </button>
+            </div>
+          </div>
+
+          {/* 4 KPI Metric Cards */}
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div class="p-4 rounded bg-surface-container-low border border-outline-variant/20 flex flex-col justify-between shadow-sm relative overflow-hidden">
+              <div class="flex items-center justify-between">
+                <span class="text-[10px] uppercase font-semibold text-outline font-mono-code tracking-wider">Total Portfolio Value</span>
+                <span class="px-1.5 py-0.5 rounded bg-secondary/10 text-secondary text-[11px] font-mono-code font-semibold">+0.78% today</span>
+              </div>
+              <div class="my-3 flex items-baseline gap-1">
+                <span class="font-headline text-3xl font-bold text-on-surface tracking-tight">₹1.84</span>
+                <span class="font-headline text-sm font-semibold text-outline">Cr</span>
+              </div>
+              <div class="flex items-center justify-between text-[11px] font-mono-code text-outline">
+                <span>Peak NAV: <span class="text-on-surface-variant font-medium">₹1.85 Cr</span></span>
+                <span>Max DD: <span class="text-on-surface-variant font-medium">0.18%</span></span>
+              </div>
+            </div>
+
+            <div class="p-4 rounded bg-surface-container-low border border-outline-variant/20 flex flex-col justify-between shadow-sm relative overflow-hidden">
+              <div class="flex items-center justify-between">
+                <span class="text-[10px] uppercase font-semibold text-outline font-mono-code tracking-wider">Realized P&L (Intraday)</span>
+                <span class="px-1.5 py-0.5 rounded bg-surface-container-highest text-primary text-[11px] font-mono-code font-semibold">14 Trades</span>
+              </div>
+              <div class="my-3 flex items-baseline">
+                <span class="font-headline text-3xl font-bold text-secondary tracking-tight">+₹1,42,850</span>
+              </div>
+              <div class="flex items-center justify-between text-[11px] font-mono-code text-outline">
+                <span>Win Rate: <span class="text-on-surface font-medium">76.5% (11W - 3L)</span></span>
+                <span>Profit Factor: <span class="text-on-surface font-medium">3.82</span></span>
+              </div>
+            </div>
+
+            <div class="p-4 rounded bg-surface-container-low border border-outline-variant/20 flex flex-col justify-between shadow-sm">
+              <div class="flex items-center justify-between">
+                <span class="text-[10px] uppercase font-semibold text-outline font-mono-code tracking-wider">Available Margin</span>
+                <span class="text-[11px] font-mono-code text-outline">34.2% used</span>
+              </div>
+              <div class="my-3 flex items-baseline gap-1">
+                <span class="font-headline text-3xl font-bold text-on-surface tracking-tight">₹42.85</span>
+                <span class="font-headline text-sm font-semibold text-outline">L</span>
+              </div>
+              <div class="w-full h-1.5 rounded-full bg-surface-container-highest overflow-hidden">
+                <div class="h-full bg-primary rounded-full transition-all duration-500" style={{ width: "34.2%" }}></div>
+              </div>
+            </div>
+
+            <div class="p-4 rounded bg-surface-container-low border border-outline-variant/20 flex flex-col justify-between shadow-sm">
+              <div class="flex items-center justify-between">
+                <span class="text-[10px] uppercase font-semibold text-outline font-mono-code tracking-wider">System Health</span>
+                <div class="flex items-center gap-1 px-1.5 py-0.5 rounded bg-secondary/10 text-secondary text-[11px] font-mono-code">
+                  <span class="h-1.5 w-1.5 rounded-full bg-secondary animate-pulse"></span>
+                  <span>Nominal</span>
+                </div>
+              </div>
+              <div class="my-3 flex items-baseline">
+                <span class="font-headline text-xl font-bold text-on-surface tracking-tight">2 Brokers Active</span>
+              </div>
+              <div class="flex items-center justify-between text-[11px] font-mono-code text-outline">
+                <span>Socket: <span class="text-on-surface-variant">Kotak (18ms)</span></span>
+                <span>Engine: <span class="text-secondary font-medium">0ms Lag</span></span>
+              </div>
+            </div>
+          </div>
+
+          {/* Positions Master Table */}
+          <div class="flex flex-col bg-surface-container-low rounded border border-outline-variant/20 shadow-md overflow-hidden">
+            <div class="px-4 py-3 flex flex-col md:flex-row md:items-center justify-between gap-3 bg-surface-container border-b border-outline-variant/20">
+              <div class="flex items-center gap-1.5 overflow-x-auto">
+                <button class="px-3 py-1 rounded bg-surface-container-highest text-primary text-xs font-semibold shadow-sm flex items-center gap-1.5">
+                  <span>Active Positions</span>
+                  <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono-code bg-primary/20 text-primary">4</span>
+                </button>
+                <button onClick={() => navigate("/live-orders")} class="px-3 py-1 rounded text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface text-xs font-medium transition-colors flex items-center gap-1.5">
+                  <span>Open Orders</span>
+                  <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono-code bg-surface-container-highest text-outline">3</span>
+                </button>
+                <button onClick={() => navigate("/option-chain")} class="px-3 py-1 rounded text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface text-xs font-medium transition-colors">
+                  Risk & Greeks Summary
+                </button>
+                <button onClick={() => navigate("/live-orders")} class="px-3 py-1 rounded text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface text-xs font-medium transition-colors">
+                  Recent Fills
+                </button>
+              </div>
+
+              <div class="flex items-center gap-2">
+                <div class="relative flex items-center">
+                  <span class="material-symbols-outlined text-[16px] text-outline absolute left-2.5 pointer-events-none">search</span>
+                  <input class="h-7 pl-8 pr-3 rounded bg-surface text-on-surface text-xs placeholder:text-outline focus:outline-none focus:bg-surface-container-highest transition-colors w-48 border border-outline-variant/30" placeholder="Filter symbol..." type="text"/>
+                </div>
+                <button onClick={() => navigate("/spread-builder")} class="h-7 px-3 rounded bg-surface-container-high hover:bg-surface-container-highest text-on-surface text-xs font-medium flex items-center gap-1 transition-colors border border-outline-variant/30">
+                  <span class="material-symbols-outlined text-[15px] text-outline">tune</span>
+                  <span>Spread Builder</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-xs">
+                <thead>
+                  <tr class="bg-surface-container-lowest/70 text-outline uppercase font-mono-code text-[11px] tracking-wider">
+                    <th class="py-2.5 px-4 font-semibold">Instrument</th>
+                    <th class="py-2.5 px-3 font-semibold">Strategy</th>
+                    <th class="py-2.5 px-3 text-right font-semibold">Net Qty</th>
+                    <th class="py-2.5 px-3 text-right font-semibold">Avg Entry</th>
+                    <th class="py-2.5 px-3 text-right font-semibold">LTP</th>
+                    <th class="py-2.5 px-3 text-right font-semibold">Unrealized P&L</th>
+                    <th class="py-2.5 px-4 text-right font-semibold">Actions</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y-0 text-on-surface font-body">
+                  <tr class="hover:bg-surface-container-high/40 transition-colors cursor-pointer border-b border-outline-variant/10">
+                    <td class="py-3 px-4 whitespace-nowrap">
+                      <div class="flex items-center gap-2">
+                        <span class="h-2 w-2 rounded-full bg-secondary"></span>
+                        <span class="font-headline font-bold text-on-surface">NIFTY 26SEP 25400 CE</span>
+                        <span class="px-1.5 py-0.5 rounded text-[9px] font-mono-code bg-surface-container-highest text-outline">OPT</span>
+                      </div>
+                    </td>
+                    <td class="py-3 px-3 whitespace-nowrap">
+                      <span class="px-1.5 py-0.5 rounded bg-surface-container-highest font-mono-code text-[11px] text-on-surface-variant">Iron Fly Sept</span>
+                    </td>
+                    <td class="py-3 px-3 text-right whitespace-nowrap font-mono-code">
+                      <span class="text-tertiary font-semibold">-600</span>
+                      <span class="text-outline text-[10px]"> (8L)</span>
+                    </td>
+                    <td class="py-3 px-3 text-right whitespace-nowrap font-mono-code text-on-surface-variant">182.40</td>
+                    <td class="py-3 px-3 text-right whitespace-nowrap font-mono-code font-semibold text-on-surface">146.10</td>
+                    <td class="py-3 px-3 text-right whitespace-nowrap font-mono-code">
+                      <span class="text-secondary font-bold block">+₹21,780.00</span>
+                      <span class="text-secondary text-[10px]">+19.90%</span>
+                    </td>
+                    <td class="py-3 px-4 text-right whitespace-nowrap">
+                      <button onClick={() => navigate("/option-chain")} class="px-2 py-1 rounded bg-surface-container-high hover:bg-surface-container-highest text-on-surface-variant text-[11px] mr-1">Inspect</button>
+                      <button onClick={() => alert("Square off trigger acknowledged for 25400 CE")} class="px-2 py-1 rounded bg-error-container/40 hover:bg-error-container text-tertiary text-[11px]">Close</button>
+                    </td>
+                  </tr>
+
+                  <tr class="hover:bg-surface-container-high/40 transition-colors cursor-pointer bg-surface-container/20 border-b border-outline-variant/10">
+                    <td class="py-3 px-4 whitespace-nowrap">
+                      <div class="flex items-center gap-2">
+                        <span class="h-2 w-2 rounded-full bg-secondary"></span>
+                        <span class="font-headline font-bold text-on-surface">NIFTY 26SEP 25400 PE</span>
+                        <span class="px-1.5 py-0.5 rounded text-[9px] font-mono-code bg-surface-container-highest text-outline">OPT</span>
+                      </div>
+                    </td>
+                    <td class="py-3 px-3 whitespace-nowrap">
+                      <span class="px-1.5 py-0.5 rounded bg-surface-container-highest font-mono-code text-[11px] text-on-surface-variant">Iron Fly Sept</span>
+                    </td>
+                    <td class="py-3 px-3 text-right whitespace-nowrap font-mono-code">
+                      <span class="text-tertiary font-semibold">-600</span>
+                      <span class="text-outline text-[10px]"> (8L)</span>
+                    </td>
+                    <td class="py-3 px-3 text-right whitespace-nowrap font-mono-code text-on-surface-variant">194.20</td>
+                    <td class="py-3 px-3 text-right whitespace-nowrap font-mono-code font-semibold text-on-surface">168.00</td>
+                    <td class="py-3 px-3 text-right whitespace-nowrap font-mono-code">
+                      <span class="text-secondary font-bold block">+₹15,720.00</span>
+                      <span class="text-secondary text-[10px]">+13.49%</span>
+                    </td>
+                    <td class="py-3 px-4 text-right whitespace-nowrap">
+                      <button onClick={() => navigate("/option-chain")} class="px-2 py-1 rounded bg-surface-container-high hover:bg-surface-container-highest text-on-surface-variant text-[11px] mr-1">Inspect</button>
+                      <button onClick={() => alert("Square off trigger acknowledged for 25400 PE")} class="px-2 py-1 rounded bg-error-container/40 hover:bg-error-container text-tertiary text-[11px]">Close</button>
+                    </td>
+                  </tr>
+
+                  <tr class="hover:bg-surface-container-high/40 transition-colors cursor-pointer border-b border-outline-variant/10">
+                    <td class="py-3 px-4 whitespace-nowrap">
+                      <div class="flex items-center gap-2">
+                        <span class="h-2 w-2 rounded-full bg-primary"></span>
+                        <span class="font-headline font-bold text-on-surface">BANKNIFTY 25SEP 52800 PE</span>
+                        <span class="px-1.5 py-0.5 rounded text-[9px] font-mono-code bg-surface-container-highest text-outline">OPT</span>
+                      </div>
+                    </td>
+                    <td class="py-3 px-3 whitespace-nowrap">
+                      <span class="px-1.5 py-0.5 rounded bg-surface-container-highest font-mono-code text-[11px] text-on-surface-variant">Gamma Scalp</span>
+                    </td>
+                    <td class="py-3 px-3 text-right whitespace-nowrap font-mono-code">
+                      <span class="text-secondary font-semibold">+150</span>
+                      <span class="text-outline text-[10px]"> (5L)</span>
+                    </td>
+                    <td class="py-3 px-3 text-right whitespace-nowrap font-mono-code text-on-surface-variant">320.00</td>
+                    <td class="py-3 px-3 text-right whitespace-nowrap font-mono-code font-semibold text-on-surface">348.50</td>
+                    <td class="py-3 px-3 text-right whitespace-nowrap font-mono-code">
+                      <span class="text-secondary font-bold block">+₹4,275.00</span>
+                      <span class="text-secondary text-[10px]">+8.90%</span>
+                    </td>
+                    <td class="py-3 px-4 text-right whitespace-nowrap">
+                      <button onClick={() => navigate("/option-chain")} class="px-2 py-1 rounded bg-surface-container-high hover:bg-surface-container-highest text-on-surface-variant text-[11px] mr-1">Inspect</button>
+                      <button onClick={() => alert("Square off trigger acknowledged for 52800 PE")} class="px-2 py-1 rounded bg-error-container/40 hover:bg-error-container text-tertiary text-[11px]">Close</button>
+                    </td>
+                  </tr>
+
+                  <tr class="hover:bg-surface-container-high/40 transition-colors cursor-pointer bg-surface-container/20">
+                    <td class="py-3 px-4 whitespace-nowrap">
+                      <div class="flex items-center gap-2">
+                        <span class="h-2 w-2 rounded-full bg-outline"></span>
+                        <span class="font-headline font-bold text-on-surface">NIFTY 26SEP 25700 CE</span>
+                        <span class="px-1.5 py-0.5 rounded text-[9px] font-mono-code bg-surface-container-highest text-outline">OPT</span>
+                      </div>
+                    </td>
+                    <td class="py-3 px-3 whitespace-nowrap">
+                      <span class="px-1.5 py-0.5 rounded bg-surface-container-highest font-mono-code text-[11px] text-on-surface-variant">Wing Protection</span>
+                    </td>
+                    <td class="py-3 px-3 text-right whitespace-nowrap font-mono-code">
+                      <span class="text-secondary font-semibold">+600</span>
+                      <span class="text-outline text-[10px]"> (8L)</span>
+                    </td>
+                    <td class="py-3 px-3 text-right whitespace-nowrap font-mono-code text-on-surface-variant">32.10</td>
+                    <td class="py-3 px-3 text-right whitespace-nowrap font-mono-code font-semibold text-on-surface">31.70</td>
+                    <td class="py-3 px-3 text-right whitespace-nowrap font-mono-code">
+                      <span class="text-tertiary font-bold block">-₹240.00</span>
+                      <span class="text-tertiary text-[10px]">-1.24%</span>
+                    </td>
+                    <td class="py-3 px-4 text-right whitespace-nowrap">
+                      <button onClick={() => navigate("/option-chain")} class="px-2 py-1 rounded bg-surface-container-high hover:bg-surface-container-highest text-on-surface-variant text-[11px] mr-1">Inspect</button>
+                      <button onClick={() => alert("Square off trigger acknowledged for 25700 CE")} class="px-2 py-1 rounded bg-error-container/40 hover:bg-error-container text-tertiary text-[11px]">Close</button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="px-4 py-2.5 bg-surface-container border-t border-outline-variant/20 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs font-mono-code">
+              <div class="flex items-center gap-1.5 text-outline">
+                <span class="material-symbols-outlined text-[16px] text-primary">touch_app</span>
+                <span>Click position rows to inspect live Greeks, stop triggers and DMA order IDs.</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-outline">Total Open P&L:</span>
+                <span class="text-secondary font-bold text-sm">+₹41,550.00</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Bottom Analytical Deck */}
+          <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+            <div class="lg:col-span-8 p-4 rounded bg-surface-container-low border border-outline-variant/20 flex flex-col justify-between shadow-md">
+              <div class="flex items-center justify-between mb-3">
+                <div class="flex flex-col">
+                  <div class="flex items-center gap-2">
+                    <span class="font-headline font-bold text-sm text-on-surface">Intraday P&L Performance Curve</span>
+                    <span class="px-1.5 py-0.5 rounded bg-secondary/15 text-secondary text-[11px] font-mono-code font-semibold">+₹1.84L Today</span>
+                  </div>
+                  <span class="text-xs text-outline font-body">Cumulative MTM trajectory today vs Benchmark</span>
+                </div>
+                <div class="flex items-center gap-1 text-xs font-mono-code">
+                  <span class="text-outline">Alpha:</span>
+                  <span class="text-secondary font-bold">+0.75%</span>
+                </div>
+              </div>
+
+              <div class="w-full h-52 relative flex flex-col justify-end">
+                <svg class="w-full h-full overflow-visible" preserveAspectRatio="none" viewBox="0 0 700 200">
+                  <defs>
+                    <linearGradient id="ovMtmGrad" x1="0" x2="0" y1="0" y2="1">
+                      <stop offset="0%" stopColor="#4cd7f6" stopOpacity="0.35"/>
+                      <stop offset="100%" stopColor="#4cd7f6" stopOpacity="0.0"/>
+                    </linearGradient>
+                  </defs>
+                  <line stroke="#262a32" strokeDasharray="3,3" strokeWidth="1" x1="0" x2="700" y1="40" y2="40"/>
+                  <line stroke="#262a32" strokeDasharray="3,3" strokeWidth="1" x1="0" x2="700" y1="90" y2="90"/>
+                  <line stroke="#262a32" strokeDasharray="3,3" strokeWidth="1" x1="0" x2="700" y1="140" y2="140"/>
+                  <line stroke="#31353d" strokeWidth="1" x1="0" x2="700" y1="190" y2="190"/>
+                  <path d="M 0,190 Q 180,180 350,150 T 700,120" fill="none" stroke="#869397" strokeDasharray="4,4" strokeWidth="1.5"/>
+                  <path d="M 0,190 Q 150,175 320,110 T 670,42 L 670,190 L 0,190 Z" fill="url(#ovMtmGrad)"/>
+                  <path d="M 0,190 Q 150,175 320,110 T 670,42" fill="none" stroke="#4cd7f6" strokeWidth="2.5"/>
+                  <circle cx="670" cy="42" fill="#4cd7f6" r="4"/>
+                  <circle class="animate-ping" cx="670" cy="42" fill="#4cd7f6" opacity="0.3" r="8"/>
+                </svg>
+                <div class="flex items-center justify-between text-outline text-[11px] font-mono-code pt-1">
+                  <span>09:15</span>
+                  <span>11:00</span>
+                  <span>13:00</span>
+                  <span class="text-primary font-medium">14:24 (Live)</span>
+                  <span>15:30</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="lg:col-span-4 p-4 rounded bg-surface-container-low border border-outline-variant/20 flex flex-col justify-between gap-3 shadow-md">
+              <div class="flex items-center justify-between">
+                <span class="font-headline font-bold text-sm text-on-surface">Active Strategy Decks</span>
+                <span class="px-1.5 py-0.5 rounded bg-surface-container-highest text-primary text-[10px] font-mono-code font-medium">2 Running</span>
+              </div>
+              <div class="flex flex-col gap-2 flex-1 justify-center">
+                <div onClick={() => navigate("/strategies-lab")} class="p-3 rounded bg-surface-container flex items-center justify-between hover:bg-surface-container-high transition-colors cursor-pointer border border-outline-variant/20">
+                  <div class="flex flex-col">
+                    <div class="flex items-center gap-1.5">
+                      <span class="h-2 w-2 rounded-full bg-secondary"></span>
+                      <span class="text-xs font-bold text-on-surface">NIFTY Weekly Condor</span>
+                    </div>
+                    <span class="text-[10px] text-outline font-mono-code">Target 85% hit</span>
+                  </div>
+                  <div class="flex flex-col items-end">
+                    <span class="text-xs font-mono-code text-secondary font-bold">+₹38,200</span>
+                    <span class="text-[10px] text-outline font-mono-code">Risk: ₹45K</span>
+                  </div>
+                </div>
+
+                <div onClick={() => navigate("/strategies-lab")} class="p-3 rounded bg-surface-container flex items-center justify-between hover:bg-surface-container-high transition-colors cursor-pointer border border-outline-variant/20">
+                  <div class="flex flex-col">
+                    <div class="flex items-center gap-1.5">
+                      <span class="h-2 w-2 rounded-full bg-primary animate-pulse"></span>
+                      <span class="text-xs font-bold text-on-surface">BankNifty Straddle</span>
+                    </div>
+                    <span class="text-[10px] text-outline font-mono-code">Trailing SL locked</span>
+                  </div>
+                  <div class="flex flex-col items-end">
+                    <span class="text-xs font-mono-code text-secondary font-bold">+₹45,100</span>
+                    <span class="text-[10px] text-secondary font-mono-code">Active</span>
+                  </div>
+                </div>
+              </div>
+
+              <button onClick={() => alert("FAIL-CLOSED EMERGENCY: All strategy desks flattened.")} class="w-full py-2.5 rounded bg-error-container/20 hover:bg-error-container text-tertiary hover:text-on-error-container text-xs font-headline font-bold flex items-center justify-center gap-1.5 transition-all border border-error/30">
+                <span class="material-symbols-outlined text-[18px]">power_settings_new</span>
+                <span>Emergency Square-Off (Fail Closed)</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ==========================================
+    // SCREEN 2: PORTFOLIO & EQUITY
+    // ==========================================
+    function ScreenPortfolio() {
+      const [filterText, setFilterText] = useState("");
+      const [syncing, setSyncing] = useState(false);
+
+      const holdings = [
+        { sym: "HDFCBANK", sec: "Banking & Fin • 2,200 Qty • Avg ₹1,510.40", val: "₹36,19,000.00", ltp: "₹1,645.00", day: "+1.42%", pnl: "+₹2,96,120.00", pnlPct: "+8.91%", broker: "Kotak Neo (P-109)", pledge: "Pledged (15% HC)", hc: true },
+        { sym: "RELIANCE", sec: "Energy & Petrochem • 1,000 Qty • Avg ₹2,820.00", val: "₹29,95,000.00", ltp: "₹2,995.00", day: "+0.68%", pnl: "+₹1,75,000.00", pnlPct: "+6.21%", broker: "Zerodha (ZF892)", pledge: "Pledged (12.5% HC)", hc: true },
+        { sym: "INFY", sec: "Technology / IT • 1,400 Qty • Avg ₹1,910.00", val: "₹26,88,000.00", ltp: "₹1,920.00", day: "-0.45%", pnl: "+₹14,000.00", pnlPct: "+0.52%", broker: "Kotak Neo (P-109)", pledge: "Free Stock", hc: false },
+        { sym: "ICICIBANK", sec: "Banking & Fin • 1,850 Qty • Avg ₹1,120.00", val: "₹23,75,400.00", ltp: "₹1,284.00", day: "+1.85%", pnl: "+₹3,03,400.00", pnlPct: "+14.64%", broker: "Zerodha (ZF892)", pledge: "Pledged (15% HC)", hc: true },
+        { sym: "TATASTEEL", sec: "Metals & Mining • 6,000 Qty • Avg ₹155.00", val: "₹9,33,800.00", ltp: "₹155.63", day: "-0.82%", pnl: "+₹3,800.00", pnlPct: "+0.41%", broker: "Kotak Neo (P-109)", pledge: "Free Stock", hc: false },
+        { sym: "NIFTYBEES", sec: "Index ETF • 5,400 Qty • Avg ₹260.10", val: "₹14,90,400.00", ltp: "₹276.00", day: "+0.56%", pnl: "+₹85,860.00", pnlPct: "+6.11%", broker: "Kotak Neo (P-109)", pledge: "Pledged (10% HC)", hc: true }
+      ];
+
+      const filteredHoldings = holdings.filter(h =>
+        h.sym.toLowerCase().includes(filterText.toLowerCase()) ||
+        h.broker.toLowerCase().includes(filterText.toLowerCase())
+      );
+
+      const triggerSync = () => {
+        setSyncing(true);
+        setTimeout(() => setSyncing(false), 800);
+      };
+
+      return (
+        <div class="flex flex-col w-full gap-6 pt-2">
+          {/* Header */}
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <div class="flex items-center gap-3">
+                <h1 class="font-headline text-2xl text-on-surface font-bold">Portfolio & Equity Holdings</h1>
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-secondary-container/20 text-secondary text-[11px] font-mono-code font-semibold">
+                  <span class="material-symbols-outlined text-[14px]">verified_user</span>
+                  SEBI 50:50 COMPLIANT
+                </span>
+              </div>
+              <p class="text-xs text-outline font-body mt-0.5">Consolidated assets across multi-broker gateways with SEBI 50:50 cash-collateral compliance.</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <button onClick={() => alert("CDSL Pledge Manager opened.")} class="flex items-center gap-1.5 px-3 py-1.5 rounded bg-surface-container hover:bg-surface-container-high text-on-surface text-xs font-medium border border-outline-variant/30">
+                <span class="material-symbols-outlined text-primary text-[18px]">lock_reset</span>
+                <span>Pledge Manager</span>
+              </button>
+              <button onClick={triggerSync} class="flex items-center gap-1.5 px-3 py-1.5 rounded bg-surface-container hover:bg-surface-container-high text-on-surface text-xs font-medium border border-outline-variant/30">
+                <span class={`material-symbols-outlined text-secondary text-[18px] ${syncing ? "animate-spin" : ""}`}>sync</span>
+                <span>{syncing ? "Syncing..." : "Sync Gateways"}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Metric Deck */}
+          <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+            <div class="p-4 rounded bg-surface-container-low border border-outline-variant/20 shadow-sm flex flex-col justify-between">
+              <span class="text-[10px] uppercase font-mono-code text-outline tracking-wider">Consolidated Net Worth</span>
+              <div class="my-2 flex items-baseline gap-1">
+                <span class="font-headline text-3xl font-bold text-on-surface">₹1.84</span>
+                <span class="font-headline text-sm text-outline">Cr</span>
+              </div>
+              <div class="text-[11px] font-mono-code text-outline flex justify-between">
+                <span>Eq: ₹1.41 Cr</span>
+                <span>Liquid: ₹42.85 L</span>
+              </div>
+            </div>
+
+            <div class="p-4 rounded bg-surface-container-low border border-outline-variant/20 shadow-sm flex flex-col justify-between">
+              <span class="text-[10px] uppercase font-mono-code text-outline tracking-wider">Free Cash & Liquid</span>
+              <div class="my-2 flex items-baseline gap-1">
+                <span class="font-headline text-3xl font-bold text-secondary">₹42.85</span>
+                <span class="font-headline text-sm text-secondary">L</span>
+              </div>
+              <span class="text-[11px] text-outline font-body">Unencumbered margin for option selling & hedging</span>
+            </div>
+
+            <div class="p-4 rounded bg-surface-container-low border border-outline-variant/20 shadow-sm flex flex-col justify-between">
+              <div class="flex justify-between items-center text-[10px] font-mono-code uppercase text-outline">
+                <span>Margin Utilized</span>
+                <span class="text-primary font-bold">34.2% used</span>
+              </div>
+              <div class="my-2 flex items-baseline gap-1">
+                <span class="font-headline text-3xl font-bold text-on-surface">₹42.85</span>
+                <span class="text-xs font-mono-code text-outline">/ ₹1.25 Cr</span>
+              </div>
+              <div class="h-1.5 w-full bg-surface-container-highest rounded-full overflow-hidden">
+                <div class="h-full bg-primary rounded-full" style={{ width: "34.2%" }}></div>
+              </div>
+            </div>
+
+            <div class="p-4 rounded bg-surface-container-low border border-outline-variant/20 shadow-sm flex flex-col justify-between">
+              <div class="flex justify-between items-center">
+                <span class="text-[10px] uppercase font-mono-code text-outline tracking-wider">Multi-Broker Status</span>
+                <span class="w-2 h-2 rounded-full bg-secondary animate-pulse"></span>
+              </div>
+              <div class="my-2">
+                <span class="font-headline text-2xl font-bold text-on-surface">2 Nodes Live</span>
+              </div>
+              <div class="text-[11px] font-mono-code text-outline flex justify-between">
+                <span>Kotak (4s ago)</span>
+                <span>Zerodha (2s ago)</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Holdings Table */}
+          <div class="flex flex-col rounded bg-surface-container-low border border-outline-variant/20 shadow-sm overflow-hidden">
+            <div class="p-3 bg-surface-container flex flex-col md:flex-row items-center justify-between gap-3 border-b border-outline-variant/20">
+              <div class="flex items-center gap-1.5 overflow-x-auto w-full md:w-auto">
+                <button class="px-3 py-1 rounded bg-primary-container text-on-primary-container font-semibold text-xs">Holdings ({filteredHoldings.length})</button>
+                <button class="px-3 py-1 rounded text-on-surface-variant hover:text-on-surface text-xs font-medium">Capital Breakdown</button>
+                <button class="px-3 py-1 rounded text-on-surface-variant hover:text-on-surface text-xs font-medium">50:50 Buffer</button>
+              </div>
+              <div class="relative w-full md:w-64">
+                <span class="material-symbols-outlined absolute left-2.5 top-1.5 text-outline text-[16px]">search</span>
+                <input
+                  type="text"
+                  placeholder="Filter holdings or ISIN..."
+                  value={filterText}
+                  onChange={e => setFilterText(e.target.value)}
+                  class="w-full h-7 pl-8 pr-3 rounded bg-surface text-xs text-on-surface placeholder:text-outline border border-outline-variant/30 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-xs">
+                <thead>
+                  <tr class="bg-surface-container-lowest/80 text-outline uppercase font-mono-code text-[11px]">
+                    <th class="py-2.5 px-4 font-semibold">Instrument & Sector</th>
+                    <th class="py-2.5 px-3 text-right font-semibold">Holding Value</th>
+                    <th class="py-2.5 px-3 text-right font-semibold">Day Chg</th>
+                    <th class="py-2.5 px-3 text-right font-semibold">Unrealized P&L</th>
+                    <th class="py-2.5 px-3 font-semibold">Broker Gateway</th>
+                    <th class="py-2.5 px-3 font-semibold">Pledge / Haircut</th>
+                    <th class="py-2.5 px-4 text-center font-semibold">Action</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y-0 text-on-surface font-body">
+                  {filteredHoldings.map((h, i) => (
+                    <tr key={h.sym} class={`hover:bg-surface-container transition-colors border-b border-outline-variant/10 ${i % 2 === 1 ? "bg-surface-container/20" : ""}`}>
+                      <td class="py-2.5 px-4">
+                        <div class="flex items-center gap-2">
+                          <div class="w-1.5 h-6 rounded bg-primary"></div>
+                          <div>
+                            <div class="font-headline font-bold text-on-surface text-xs">{h.sym}</div>
+                            <div class="text-[10px] text-outline font-mono-code">{h.sec}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td class="py-2.5 px-3 text-right font-mono-code font-semibold">{h.val}</td>
+                      <td class={`py-2.5 px-3 text-right font-mono-code ${h.day.startsWith("+") ? "text-secondary" : "text-tertiary"}`}>{h.day}</td>
+                      <td class="py-2.5 px-3 text-right font-mono-code">
+                        <span class="text-secondary font-bold block">{h.pnl}</span>
+                        <span class="text-secondary text-[10px]">{h.pnlPct}</span>
+                      </td>
+                      <td class="py-2.5 px-3">
+                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-surface-container-high text-xs font-mono-code">
+                          <span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>
+                          {h.broker}
+                        </span>
+                      </td>
+                      <td class="py-2.5 px-3">
+                        <span class={`px-2 py-0.5 rounded text-[11px] font-mono-code ${h.hc ? "bg-primary-container/15 text-primary" : "bg-surface-container-highest text-outline"}`}>
+                          {h.pledge}
+                        </span>
+                      </td>
+                      <td class="py-2.5 px-4 text-center">
+                        <button onClick={() => alert(`Details for ${h.sym}`)} class="px-2 py-1 rounded bg-surface-container-high hover:bg-surface-container-highest text-[11px] font-mono-code">Details</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Bottom Compliance Deck */}
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div class="p-4 rounded bg-surface-container-low border border-outline-variant/20 shadow-sm flex flex-col justify-between">
+              <div>
+                <div class="flex items-center justify-between mb-2">
+                  <div class="flex items-center gap-2">
+                    <span class="material-symbols-outlined text-primary text-[20px]">shield_with_heart</span>
+                    <h3 class="font-headline font-semibold text-sm text-on-surface">SEBI 50:50 Margin Telemetry Engine</h3>
+                  </div>
+                  <span class="px-2 py-0.5 rounded bg-secondary-container/20 text-secondary text-[10px] font-mono-code font-bold">Compliant</span>
+                </div>
+                <p class="text-xs text-outline font-body mb-3">F&O derivative margins satisfy the minimum 50% cash equivalent collateral rule under SEBI peak margin norms.</p>
+
+                <div class="flex flex-col gap-1 mb-3 font-mono-code text-[11px]">
+                  <div class="flex justify-between">
+                    <span class="text-secondary">Cash Equivalent: 50.4% (₹21.59 L)</span>
+                    <span class="text-primary">Stock Collateral: 49.6% (₹21.26 L)</span>
+                  </div>
+                  <div class="h-2.5 w-full bg-surface-container-highest rounded-full overflow-hidden flex">
+                    <div class="h-full bg-secondary" style={{ width: "50.4%" }}></div>
+                    <div class="h-full bg-primary" style={{ width: "49.6%" }}></div>
+                  </div>
+                </div>
+              </div>
+              <div class="p-2.5 rounded bg-surface-container flex items-center justify-between text-xs font-mono-code">
+                <span class="text-secondary flex items-center gap-1">
+                  <span class="material-symbols-outlined text-[16px]">check_circle</span>
+                  Zero Shortfall Penalty Risk
+                </span>
+                <span class="text-secondary font-semibold">+₹37,500 surplus</span>
+              </div>
+            </div>
+
+            <div class="p-4 rounded bg-surface-container-low border border-outline-variant/20 shadow-sm flex flex-col justify-between">
+              <div>
+                <div class="flex items-center justify-between mb-2">
+                  <div class="flex items-center gap-2">
+                    <span class="material-symbols-outlined text-primary text-[20px]">bolt</span>
+                    <h3 class="font-headline font-semibold text-sm text-on-surface">CDSL Fast Pledging Desk</h3>
+                  </div>
+                  <span class="px-2 py-0.5 rounded bg-surface-container-high text-outline text-[10px] font-mono-code">v2.4 Gate</span>
+                </div>
+                <p class="text-xs text-outline font-body mb-3">Instantly commit free demat holdings to clearing corporations to expand algorithmic derivative margin headroom.</p>
+                <div class="grid grid-cols-2 gap-3 mb-3">
+                  <div class="p-2 rounded bg-surface-container font-mono-code">
+                    <span class="text-[10px] text-outline block">Eligible Free Stock</span>
+                    <span class="font-bold text-on-surface text-sm">₹36,21,800</span>
+                  </div>
+                  <div class="p-2 rounded bg-surface-container font-mono-code">
+                    <span class="text-[10px] text-outline block">Estimated Collateral</span>
+                    <span class="font-bold text-secondary text-sm">₹30,78,530</span>
+                  </div>
+                </div>
+              </div>
+              <div class="flex gap-2">
+                <button onClick={() => alert("CDSL OTP request sent to registered mobile.")} class="flex-1 py-2 rounded bg-primary-container hover:bg-primary text-on-primary-container text-xs font-headline font-bold transition-all shadow">
+                  Pledge Holdings (Instant OTP)
+                </button>
+                <button onClick={() => alert("Unpledge request initialized.")} class="px-3 py-2 rounded bg-surface-container-high hover:bg-surface-container-highest text-on-surface text-xs font-medium transition-all">
+                  Unpledge
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ==========================================
+    // SCREEN 3: WATCHLISTS & MARKET SCANNER
+    // ==========================================
+    function ScreenWatchlists() {
+      const navigate = useNavigate();
+      const [activeTab, setActiveTab] = useState("nifty");
+
+      return (
+        <div class="flex flex-col w-full gap-4 pt-2">
+          {/* Header */}
+          <div class="flex flex-col xl:flex-row xl:items-center justify-between gap-3 bg-surface-container-low p-3.5 rounded border border-outline-variant/20">
+            <div>
+              <div class="flex items-center gap-2">
+                <h1 class="font-headline text-xl font-bold tracking-tight text-on-surface">Watchlists & Market Scanner</h1>
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary-container/20 text-primary font-mono-code text-[10px]">
+                  <span class="w-1.5 h-1.5 rounded-full bg-primary animate-ping"></span>
+                  Sub-12ms Stream
+                </span>
+              </div>
+              <p class="text-xs text-outline font-body mt-0.5">Real-time multi-asset quotes, volatility radar, and algorithmic spike scanners.</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="relative w-72">
+                <span class="material-symbols-outlined absolute left-2.5 top-1.5 text-[16px] text-outline">search</span>
+                <input class="w-full bg-surface-container-lowest text-on-surface text-xs pl-8 pr-12 py-1.5 rounded border border-outline-variant/30 focus:outline-none focus:border-primary" placeholder="Search 8,400+ NSE/BSE Scrips... (⌘K)" type="text"/>
+                <span class="absolute right-2 top-1.5 px-1 py-0.2 rounded text-[9px] font-mono-code bg-surface-container-high text-outline">⌘K</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Tab Filter Strip */}
+          <div class="flex items-center gap-1.5 overflow-x-auto text-xs font-body">
+            <button onClick={() => setActiveTab("nifty")} class={`px-3 py-1.5 rounded font-semibold flex items-center gap-1.5 ${activeTab === "nifty" ? "bg-primary-container text-on-primary-container" : "bg-surface-container text-on-surface-variant hover:text-on-surface"}`}>
+              <span>NIFTY 50 Core</span>
+              <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono-code bg-surface-container-lowest/40">50</span>
+            </button>
+            <button onClick={() => setActiveTab("bank")} class={`px-3 py-1.5 rounded font-semibold flex items-center gap-1.5 ${activeTab === "bank" ? "bg-primary-container text-on-primary-container" : "bg-surface-container text-on-surface-variant hover:text-on-surface"}`}>
+              <span>Bank Index & Fin</span>
+              <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono-code bg-surface-container-lowest">18</span>
+            </button>
+            <button onClick={() => setActiveTab("iv")} class={`px-3 py-1.5 rounded font-semibold flex items-center gap-1.5 ${activeTab === "iv" ? "bg-primary-container text-on-primary-container" : "bg-surface-container text-on-surface-variant hover:text-on-surface"}`}>
+              <span class="material-symbols-outlined text-[14px] text-tertiary">bolt</span>
+              <span>High IV Radar</span>
+              <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono-code bg-surface-container-lowest text-tertiary">12</span>
+            </button>
+            <button onClick={() => setActiveTab("breakout")} class={`px-3 py-1.5 rounded font-semibold flex items-center gap-1.5 ${activeTab === "breakout" ? "bg-primary-container text-on-primary-container" : "bg-surface-container text-on-surface-variant hover:text-on-surface"}`}>
+              <span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>
+              <span>Algo Breakouts</span>
+              <span class="px-1.5 py-0.2 rounded-full text-[10px] font-mono-code bg-surface-container-lowest text-secondary">5</span>
+            </button>
+          </div>
+
+          {/* Split Cockpit: Feed (Left 58%) & Inspector (Right 42%) */}
+          <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+            <div class="lg:col-span-7 flex flex-col gap-3">
+              <div class="bg-surface-container-low rounded border border-outline-variant/20 overflow-hidden shadow-lg">
+                <div class="px-3 py-2 bg-surface-container flex items-center justify-between text-xs border-b border-outline-variant/20">
+                  <span class="font-mono-code text-[11px] text-outline">Sorted by: <strong class="text-on-surface">Activity Index (Desc)</strong></span>
+                  <span class="font-mono-code text-[11px] text-outline">5 of 50 Scrips Loaded</span>
+                </div>
+
+                <div class="overflow-x-auto">
+                  <table class="w-full text-left text-xs font-body">
+                    <thead>
+                      <tr class="bg-surface-container-lowest text-outline font-mono-code text-[10px] uppercase tracking-wider">
+                        <th class="py-2 px-3">Instrument</th>
+                        <th class="py-2 px-2">Derivative</th>
+                        <th class="py-2 px-2 text-right">LTP / Chg</th>
+                        <th class="py-2 px-2 text-right">VWAP</th>
+                        <th class="py-2 px-2 text-right">Volume</th>
+                        <th class="py-2 px-3 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y-0">
+                      <tr class="bg-surface-container-high/90 hover:bg-surface-container-highest cursor-pointer border-b border-outline-variant/20">
+                        <td class="py-2.5 px-3">
+                          <div class="flex items-center gap-2">
+                            <span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
+                            <div>
+                              <div class="font-headline font-bold text-on-surface">NIFTY 25400 CE</div>
+                              <span class="text-[10px] font-mono-code text-outline">26 SEP 2024</span>
+                            </div>
+                          </div>
+                        </td>
+                        <td class="py-2.5 px-2">
+                          <span class="px-1.5 py-0.5 rounded bg-surface-container text-primary font-mono-code text-[10px]">ATM Strike</span>
+                        </td>
+                        <td class="py-2.5 px-2 text-right font-mono-code">
+                          <div class="font-bold text-secondary">₹142.50</div>
+                          <span class="text-secondary text-[10px] font-semibold">+14.80%</span>
+                        </td>
+                        <td class="py-2.5 px-2 text-right font-mono-code text-on-surface">₹138.20</td>
+                        <td class="py-2.5 px-2 text-right font-mono-code">
+                          <span>4.82M</span>
+                          <span class="block text-[9px] text-primary">Spike 4.2x</span>
+                        </td>
+                        <td class="py-2.5 px-3 text-right">
+                          <button class="px-2 py-1 rounded bg-primary text-on-primary text-[10px] font-bold font-mono-code">Inspecting</button>
+                        </td>
+                      </tr>
+
+                      <tr class="bg-surface-container-low hover:bg-surface-container cursor-pointer border-b border-outline-variant/10">
+                        <td class="py-2.5 px-3">
+                          <div class="flex items-center gap-2">
+                            <span class="w-1.5 h-1.5 rounded-full bg-outline"></span>
+                            <div>
+                              <div class="font-headline font-bold text-on-surface">NIFTY 25300 PE</div>
+                              <span class="text-[10px] font-mono-code text-outline">26 SEP 2024</span>
+                            </div>
+                          </div>
+                        </td>
+                        <td class="py-2.5 px-2">
+                          <span class="px-1.5 py-0.5 rounded bg-surface-container text-outline font-mono-code text-[10px]">OTM Strike</span>
+                        </td>
+                        <td class="py-2.5 px-2 text-right font-mono-code">
+                          <div class="font-bold text-tertiary">₹98.20</div>
+                          <span class="text-tertiary text-[10px] font-semibold">-12.50%</span>
+                        </td>
+                        <td class="py-2.5 px-2 text-right font-mono-code text-on-surface">₹104.50</td>
+                        <td class="py-2.5 px-2 text-right font-mono-code">3.12M</td>
+                        <td class="py-2.5 px-3 text-right">
+                          <button onClick={() => navigate("/option-chain")} class="px-2 py-1 rounded bg-surface-container hover:bg-surface-container-highest text-on-surface text-[10px] font-mono-code">Inspect</button>
+                        </td>
+                      </tr>
+
+                      <tr class="bg-surface-container-low hover:bg-surface-container cursor-pointer border-b border-outline-variant/10">
+                        <td class="py-2.5 px-3">
+                          <div class="flex items-center gap-2">
+                            <span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>
+                            <div>
+                              <div class="font-headline font-bold text-on-surface">BANKNIFTY 53000 CE</div>
+                              <span class="text-[10px] font-mono-code text-outline">01 OCT 2024</span>
+                            </div>
+                          </div>
+                        </td>
+                        <td class="py-2.5 px-2">
+                          <span class="px-1.5 py-0.5 rounded bg-tertiary-container/20 text-tertiary font-mono-code text-[10px]">HIGH VOL</span>
+                        </td>
+                        <td class="py-2.5 px-2 text-right font-mono-code">
+                          <div class="font-bold text-secondary">₹310.40</div>
+                          <span class="text-secondary text-[10px] font-semibold">+15.60%</span>
+                        </td>
+                        <td class="py-2.5 px-2 text-right font-mono-code text-on-surface">₹295.10</td>
+                        <td class="py-2.5 px-2 text-right font-mono-code">2.41M</td>
+                        <td class="py-2.5 px-3 text-right">
+                          <button onClick={() => navigate("/option-chain")} class="px-2 py-1 rounded bg-surface-container hover:bg-surface-container-highest text-on-surface text-[10px] font-mono-code">Inspect</button>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <div class="bg-surface-container-lowest p-3 flex items-center justify-between text-xs border-t border-outline-variant/20">
+                  <div class="flex items-center gap-2">
+                    <span class="px-1.5 py-0.5 rounded bg-secondary-container/20 text-secondary text-[9px] font-mono-code font-bold uppercase">Trigger</span>
+                    <span><strong class="text-primary font-headline">NIFTY 25400 CE</strong> volume spike 4.2x with institutional sweep</span>
+                  </div>
+                  <button onClick={() => navigate("/strategies-lab")} class="text-primary hover:underline text-[11px] font-mono-code">View Rule &gt;&gt;</button>
+                </div>
+              </div>
+            </div>
+
+            {/* Right Inspector Cockpit */}
+            <div class="lg:col-span-5 flex flex-col gap-3">
+              <div class="bg-surface-container-low rounded border border-outline-variant/20 p-4 flex flex-col gap-4 shadow-xl">
+                <div class="flex items-start justify-between">
+                  <div>
+                    <div class="flex items-center gap-2">
+                      <span class="px-1.5 py-0.5 rounded text-[10px] font-mono-code bg-primary text-on-primary font-bold">CE</span>
+                      <h2 class="font-headline text-lg font-bold text-on-surface">NIFTY 25400 CE</h2>
+                    </div>
+                    <span class="text-[11px] text-outline font-mono-code">Expiry: 26-Sep-2024 • ATM Cluster</span>
+                  </div>
+                  <div class="text-right">
+                    <div class="font-headline text-2xl font-bold text-secondary">₹142.50</div>
+                    <span class="text-xs font-mono-code text-secondary font-bold">+₹18.40 (+14.8%)</span>
+                  </div>
+                </div>
+
+                {/* Greeks Grid */}
+                <div>
+                  <span class="text-[10px] uppercase font-mono-code text-outline tracking-wider font-semibold block mb-1">Black-Scholes Greeks</span>
+                  <div class="grid grid-cols-4 gap-2 text-center font-mono-code">
+                    <div class="bg-surface-container p-2 rounded">
+                      <span class="text-[10px] text-outline block">Delta (Δ)</span>
+                      <span class="text-secondary font-bold text-xs">+0.52</span>
+                    </div>
+                    <div class="bg-surface-container p-2 rounded">
+                      <span class="text-[10px] text-outline block">Gamma (Γ)</span>
+                      <span class="text-on-surface font-bold text-xs">0.0018</span>
+                    </div>
+                    <div class="bg-surface-container p-2 rounded">
+                      <span class="text-[10px] text-outline block">Theta (Θ)</span>
+                      <span class="text-tertiary font-bold text-xs">-14.2/d</span>
+                    </div>
+                    <div class="bg-surface-container p-2 rounded">
+                      <span class="text-[10px] text-outline block">Vega (ν)</span>
+                      <span class="text-primary font-bold text-xs">+18.40</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 5-Level Depth Preview */}
+                <div class="p-3 rounded bg-surface-container-lowest border border-outline-variant/20 flex flex-col gap-1.5 text-xs font-mono-code">
+                  <div class="flex justify-between text-[10px] text-outline uppercase font-semibold">
+                    <span>Bid Qty (Buy)</span>
+                    <span>Bid Price</span>
+                    <span>Ask Price</span>
+                    <span>Ask Qty (Sell)</span>
+                  </div>
+                  <div class="flex justify-between text-secondary">
+                    <span>14,550</span>
+                    <span class="font-bold">142.45</span>
+                    <span class="text-tertiary font-bold">142.55</span>
+                    <span class="text-tertiary">18,200</span>
+                  </div>
+                  <div class="flex justify-between text-secondary">
+                    <span>22,100</span>
+                    <span class="font-bold">142.40</span>
+                    <span class="text-tertiary font-bold">142.60</span>
+                    <span class="text-tertiary">27,450</span>
+                  </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3 pt-1">
+                  <button onClick={() => alert("Quick Buy placed for 1 Lot NIFTY 25400 CE")} class="py-2 rounded bg-secondary hover:bg-secondary-container text-on-secondary font-headline font-bold text-xs transition-all shadow">
+                    Quick Buy (1 Lot) [F1]
+                  </button>
+                  <button onClick={() => alert("Quick Sell placed for 1 Lot NIFTY 25400 CE")} class="py-2 rounded bg-error hover:bg-error-container text-on-error font-headline font-bold text-xs transition-all shadow">
+                    Quick Sell (1 Lot) [F2]
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ==========================================
+    // SCREEN 4: OPTION CHAIN INTERACTIVE
+    // ==========================================
+    function ScreenOptionChain() {
+      const navigate = useNavigate();
+      const [selectedStrike, setSelectedStrike] = useState("25400");
+      const [selectedSide, setSelectedSide] = useState("CE");
+      const [selectedPrice, setSelectedPrice] = useState(142.50);
+
+      const strikes = [
+        { strike: "25150", callLtp: 288.40, callOi: "1.28M", callChg: "+14.2k", putLtp: 18.20, putOi: "840K", putChg: "-8.4k" },
+        { strike: "25200", callLtp: 246.10, callOi: "2.14M", callChg: "+42.0k", putLtp: 24.50, putOi: "1.62M", putChg: "+18.1k" },
+        { strike: "25250", callLtp: 208.75, callOi: "2.65M", callChg: "+88.5k", putLtp: 34.10, putOi: "2.05M", putChg: "+29.4k" },
+        { strike: "25300", callLtp: 174.20, callOi: "3.90M", callChg: "+195k", putLtp: 48.90, putOi: "3.88M", putChg: "+64.8k" },
+        { strike: "25350", callLtp: 158.30, callOi: "4.42M", callChg: "+312k", putLtp: 78.40, putOi: "4.10M", putChg: "+122k" },
+        { strike: "25400", callLtp: 142.50, callOi: "6.12M", callChg: "+520k", putLtp: 121.30, putOi: "6.98M", putChg: "+480k", atm: true },
+        { strike: "25450", callLtp: 111.00, callOi: "3.85M", callChg: "+140k", putLtp: 154.20, putOi: "3.22M", putChg: "+162k" },
+        { strike: "25500", callLtp: 84.60, callOi: "5.82M", callChg: "+680k", putLtp: 198.50, putOi: "2.41M", putChg: "-44k" },
+        { strike: "25550", callLtp: 61.20, callOi: "2.30M", callChg: "+95k", putLtp: 241.00, putOi: "1.10M", putChg: "-12k" },
+        { strike: "25600", callLtp: 43.15, callOi: "4.12M", callChg: "+210k", putLtp: 292.80, putOi: "720K", putChg: "-18k" }
+      ];
+
+      const handleStrikeClick = (s, side, price) => {
+        setSelectedStrike(s);
+        setSelectedSide(side);
+        setSelectedPrice(price);
+      };
+
+      return (
+        <div class="flex flex-col w-full gap-4 pt-2">
+          {/* Top Command Bar */}
+          <div class="flex flex-col gap-2 bg-surface-container-low p-4 rounded border border-outline-variant/20 shadow-sm">
+            <div class="flex flex-wrap items-center justify-between gap-4">
+              <div class="flex items-center gap-4 flex-wrap">
+                <div class="flex items-center gap-2">
+                  <div class="w-2.5 h-2.5 rounded-full bg-secondary animate-ping"></div>
+                  <span class="font-headline font-bold text-lg text-on-surface tracking-tight">NIFTY 50 INDEX</span>
+                  <span class="text-[10px] font-mono-code px-1.5 py-0.5 rounded bg-surface-container-high text-outline uppercase font-semibold">NSE DERIV</span>
+                </div>
+                <div class="flex items-baseline gap-2 font-mono-code">
+                  <span class="text-xl font-bold text-on-surface">25,418.30</span>
+                  <span class="text-xs text-secondary font-semibold">+142.10 (+0.56%)</span>
+                </div>
+              </div>
+
+              <div class="flex items-center gap-3">
+                <div class="flex items-center gap-2 px-3 py-1 rounded bg-surface-container font-mono-code text-xs">
+                  <span class="text-outline uppercase text-[10px]">PCR (OI)</span>
+                  <span class="font-bold text-secondary">1.14</span>
+                  <span class="text-[9px] px-1 rounded bg-secondary-container/20 text-secondary font-bold">BULLISH</span>
+                </div>
+                <div class="flex items-center gap-2 px-3 py-1 rounded bg-surface-container font-mono-code text-xs">
+                  <span class="text-outline uppercase text-[10px]">MAX PAIN</span>
+                  <span class="font-bold text-primary">25,400</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Ladder & Selected Strike Inspector Split */}
+          <div class="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
+            <div class="xl:col-span-8 flex flex-col bg-surface-container-low rounded border border-outline-variant/20 overflow-hidden shadow-sm">
+              <div class="grid grid-cols-12 bg-surface-container-lowest px-4 py-2 font-mono-code text-[11px] uppercase tracking-wider font-semibold text-center border-b border-outline-variant/20">
+                <div class="col-span-5 text-left text-secondary flex items-center gap-1">
+                  <span class="material-symbols-outlined text-[14px]">trending_up</span>CALLS (CE) • 57.9M OI
+                </div>
+                <div class="col-span-2 text-primary font-bold">STRIKE</div>
+                <div class="col-span-5 text-right text-tertiary flex items-center justify-end gap-1">
+                  66.1M OI • PUTS (PE)<span class="material-symbols-outlined text-[14px]">trending_down</span>
+                </div>
+              </div>
+
+              <div class="grid grid-cols-12 bg-surface-container px-4 py-1.5 font-mono-code text-[10px] text-outline uppercase font-semibold text-center select-none border-b border-outline-variant/10">
+                <div class="col-span-2 text-left">OI Depth</div>
+                <div class="col-span-1 text-right">OI Chg</div>
+                <div class="col-span-2 text-right text-on-surface">LTP (₹)</div>
+                <div class="col-span-2 text-center text-primary font-bold">Strike</div>
+                <div class="col-span-2 text-left text-on-surface">LTP (₹)</div>
+                <div class="col-span-1 text-left">OI Chg</div>
+                <div class="col-span-2 text-right">OI Depth</div>
+              </div>
+
+              <div class="flex flex-col font-mono-code text-xs">
+                {strikes.map((s) => {
+                  const isSelected = selectedStrike === s.strike;
+                  return (
+                    <div
+                      key={s.strike}
+                      class={`grid grid-cols-12 px-4 py-2 items-center transition-colors cursor-pointer border-b border-outline-variant/10 ${
+                        s.atm
+                          ? "bg-primary/10 hover:bg-primary/15 ring-1 ring-primary/40"
+                          : isSelected
+                          ? "bg-surface-container-highest"
+                          : "hover:bg-surface-container/60 bg-surface-container/20"
+                      }`}
+                    >
+                      <div class="col-span-2 flex items-center gap-1 text-left" onClick={() => handleStrikeClick(s.strike, "CE", s.callLtp)}>
+                        <span class="text-on-surface">{s.callOi}</span>
+                      </div>
+                      <div class="col-span-1 text-right text-secondary text-[11px]">{s.callChg}</div>
+                      <div class="col-span-2 text-right font-bold text-on-surface" onClick={() => handleStrikeClick(s.strike, "CE", s.callLtp)}>
+                        {s.callLtp.toFixed(2)}
+                      </div>
+                      <div class="col-span-2 text-center">
+                        <span class={`px-2 py-0.5 rounded font-bold ${s.atm ? "bg-primary text-on-primary shadow" : "bg-surface-container-high text-on-surface"}`}>
+                          {s.strike} {s.atm ? "ATM" : ""}
+                        </span>
+                      </div>
+                      <div class="col-span-2 text-left font-bold text-on-surface" onClick={() => handleStrikeClick(s.strike, "PE", s.putLtp)}>
+                        {s.putLtp.toFixed(2)}
+                      </div>
+                      <div class="col-span-1 text-left text-secondary text-[11px]">{s.putChg}</div>
+                      <div class="col-span-2 flex items-center justify-end text-right" onClick={() => handleStrikeClick(s.strike, "PE", s.putLtp)}>
+                        <span class="text-on-surface">{s.putOi}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Selected Strike Inspector & 1-Click Spreads */}
+            <div class="xl:col-span-4 flex flex-col gap-4">
+              <div class="bg-surface-container-low p-4 rounded border border-outline-variant/20 shadow-sm flex flex-col gap-3">
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-2">
+                    <span class={`px-2 py-0.5 rounded font-mono-code text-xs font-bold ${selectedSide === "CE" ? "bg-primary text-on-primary" : "bg-tertiary-container text-on-tertiary"}`}>
+                      {selectedSide}
+                    </span>
+                    <span class="font-headline font-bold text-base text-on-surface">{selectedStrike} {selectedSide}</span>
+                  </div>
+                  <span class="font-mono-code text-xs text-secondary font-medium">SEP 26 EXP</span>
+                </div>
+
+                <div class="flex items-baseline justify-between pt-1">
+                  <div>
+                    <div class="text-[10px] font-mono-code uppercase text-outline">Last Traded Price</div>
+                    <div class="font-headline text-3xl font-bold text-on-surface">₹{selectedPrice.toFixed(2)}</div>
+                  </div>
+                  <div class="text-right">
+                    <span class="px-2 py-0.5 rounded bg-secondary/15 text-secondary font-mono-code font-bold text-xs">+18.4%</span>
+                    <div class="text-[10px] text-outline font-mono-code pt-1">IV: <strong class="text-primary">12.4%</strong></div>
+                  </div>
+                </div>
+
+                <div class="grid grid-cols-4 gap-2 pt-1 text-center font-mono-code">
+                  <div class="bg-surface-container p-2 rounded">
+                    <div class="text-[10px] text-outline">DELTA</div>
+                    <div class="font-bold text-xs text-on-surface pt-0.5">{selectedSide === "CE" ? "+0.50" : "-0.50"}</div>
+                  </div>
+                  <div class="bg-surface-container p-2 rounded">
+                    <div class="text-[10px] text-outline">GAMMA</div>
+                    <div class="font-bold text-xs text-on-surface pt-0.5">0.0034</div>
+                  </div>
+                  <div class="bg-surface-container p-2 rounded">
+                    <div class="text-[10px] text-outline">THETA</div>
+                    <div class="font-bold text-xs text-tertiary pt-0.5">-14.2</div>
+                  </div>
+                  <div class="bg-surface-container p-2 rounded">
+                    <div class="text-[10px] text-outline">VEGA</div>
+                    <div class="font-bold text-xs text-primary pt-0.5">+18.4</div>
+                  </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-2 pt-2 font-headline">
+                  <button onClick={() => alert(`Buy order sent for ${selectedStrike} ${selectedSide}`)} class="py-2 rounded bg-secondary hover:bg-secondary-container text-on-secondary font-bold text-xs transition-all shadow">
+                    BUY [B] ₹{selectedPrice.toFixed(2)}
+                  </button>
+                  <button onClick={() => alert(`Sell order sent for ${selectedStrike} ${selectedSide}`)} class="py-2 rounded bg-error-container hover:bg-error text-on-error-container hover:text-on-error font-bold text-xs transition-all shadow">
+                    SELL [S] ₹{selectedPrice.toFixed(2)}
+                  </button>
+                </div>
+
+                <button onClick={() => navigate("/spread-builder")} class="w-full py-2 rounded bg-surface-container-high hover:bg-surface-bright text-primary font-headline text-xs font-semibold transition-colors mt-1 border border-outline-variant/30 flex items-center justify-center gap-1">
+                  <span class="material-symbols-outlined text-[16px]">tune</span>
+                  <span>Send Leg to Spread Builder &gt;&gt;</span>
+                </button>
+              </div>
+
+              {/* Quant Presets */}
+              <div class="bg-surface-container-low p-4 rounded border border-outline-variant/20 shadow-sm flex flex-col gap-2">
+                <div class="flex items-center justify-between mb-1">
+                  <span class="font-headline font-bold text-sm text-on-surface">1-Click Quant Presets</span>
+                  <span class="text-[10px] font-mono-code uppercase text-outline">Desk A Mode</span>
+                </div>
+                <div onClick={() => navigate("/spread-builder")} class="p-2.5 rounded bg-surface-container hover:bg-surface-container-high cursor-pointer transition-all border border-outline-variant/20">
+                  <div class="flex items-center justify-between text-xs font-headline font-bold">
+                    <span class="text-on-surface">Bull Call Spread</span>
+                    <span class="px-1.5 py-0.2 rounded text-[10px] font-mono-code bg-secondary-container/20 text-secondary">DEBIT</span>
+                  </div>
+                  <div class="text-[11px] text-outline font-body mt-0.5">Buy 25400 CE + Sell 25550 CE • Net: ₹71.40</div>
+                </div>
+                <div onClick={() => navigate("/spread-builder")} class="p-2.5 rounded bg-surface-container hover:bg-surface-container-high cursor-pointer transition-all border border-outline-variant/20">
+                  <div class="flex items-center justify-between text-xs font-headline font-bold">
+                    <span class="text-on-surface">Iron Fly 25400</span>
+                    <span class="px-1.5 py-0.2 rounded text-[10px] font-mono-code bg-primary-container/20 text-primary">CREDIT</span>
+                  </div>
+                  <div class="text-[11px] text-outline font-body mt-0.5">Sell ATM Straddle ± Wings 200 pts • Credit: ₹263.80</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ==========================================
+    // SCREEN 5: SPREAD BUILDER
+    // ==========================================
+    function ScreenSpreadBuilder() {
+      const [legs, setLegs] = useState([
+        { id: 1, side: "BUY", strike: "25400 CE", type: "ATM ITM", lots: 1, delta: "+0.54", iv: "13.1%", ltp: 142.50, flow: -10687.50 },
+        { id: 2, side: "SELL", strike: "25550 CE", type: "OTM Wing", lots: 1, delta: "-0.36", iv: "12.6%", ltp: 91.30, flow: 6847.50 }
+      ]);
+      const [executing, setExecuting] = useState(false);
+
+      const handleExecute = () => {
+        setExecuting(true);
+        setTimeout(() => {
+          setExecuting(false);
+          alert("Basket executed across Kotak Neo DMA gateway (Acknowledged 21ms)");
+        }, 900);
+      };
+
+      return (
+        <div class="flex flex-col w-full gap-4 pt-2">
+          {/* Top Config Strip */}
+          <div class="bg-surface-container-low rounded p-4 border border-outline-variant/20 shadow-sm flex flex-wrap items-center justify-between gap-4">
+            <div class="flex items-center gap-4 flex-wrap">
+              <div class="flex items-center gap-2">
+                <span class="font-headline text-lg font-bold text-on-surface">NIFTY 50</span>
+                <span class="font-mono-code text-primary font-semibold text-sm">25,418.30</span>
+                <span class="text-secondary text-xs font-mono-code font-bold">+0.56%</span>
+              </div>
+              <div class="h-6 w-px bg-outline-variant/40 hidden md:block"></div>
+              <div class="flex items-center gap-2 text-xs font-mono-code">
+                <span class="text-outline uppercase">Strategy:</span>
+                <span class="text-primary font-bold">Bull Call Spread (Debit)</span>
+              </div>
+            </div>
+            <div class="flex items-center gap-2 text-xs font-mono-code">
+              <span class="h-2 w-2 rounded-full bg-secondary animate-pulse"></span>
+              <span class="text-outline">Feed:</span>
+              <span class="text-on-surface font-semibold">Kotak DMA 18ms</span>
+            </div>
+          </div>
+
+          {/* Metric Strip */}
+          <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <div class="p-3 rounded bg-surface-container-low border border-outline-variant/20 font-mono-code">
+              <span class="text-[10px] uppercase text-outline block">Max Profit</span>
+              <span class="text-secondary font-bold text-base block mt-0.5">+₹7,410.00</span>
+              <span class="text-[10px] text-outline">At ≥ 25,550</span>
+            </div>
+            <div class="p-3 rounded bg-surface-container-low border border-outline-variant/20 font-mono-code">
+              <span class="text-[10px] uppercase text-outline block">Max Loss</span>
+              <span class="text-tertiary font-bold text-base block mt-0.5">-₹3,840.00</span>
+              <span class="text-[10px] text-outline">Capped at premium</span>
+            </div>
+            <div class="p-3 rounded bg-surface-container-low border border-outline-variant/20 font-mono-code">
+              <span class="text-[10px] uppercase text-outline block">Risk / Reward</span>
+              <span class="text-primary font-bold text-base block mt-0.5">1 : 1.93</span>
+              <span class="text-[10px] text-secondary">Asymmetric</span>
+            </div>
+            <div class="p-3 rounded bg-surface-container-low border border-outline-variant/20 font-mono-code">
+              <span class="text-[10px] uppercase text-outline block">Breakeven</span>
+              <span class="text-on-surface font-bold text-base block mt-0.5">25,451.20</span>
+              <span class="text-[10px] text-outline">+32.9 pts</span>
+            </div>
+            <div class="p-3 rounded bg-surface-container-low border border-outline-variant/20 font-mono-code col-span-2 md:col-span-1">
+              <span class="text-[10px] uppercase text-outline block">Net Outlay</span>
+              <span class="text-primary font-bold text-base block mt-0.5">₹51.20</span>
+              <span class="text-[10px] text-outline">Debit (1 Lot)</span>
+            </div>
+          </div>
+
+          {/* Workbench: Legs Table & Payoff Graph */}
+          <div class="grid grid-cols-1 xl:grid-cols-12 gap-4">
+            <div class="xl:col-span-7 flex flex-col gap-4">
+              <div class="bg-surface-container-low rounded border border-outline-variant/20 p-4 shadow-sm">
+                <div class="flex items-center justify-between pb-3 border-b border-outline-variant/20 mb-3">
+                  <div class="flex items-center gap-2">
+                    <span class="font-headline font-bold text-sm text-on-surface">Active Strategy Legs</span>
+                    <span class="px-2 py-0.5 rounded text-[10px] font-mono-code bg-surface-container-high text-primary font-bold">{legs.length} Legs</span>
+                  </div>
+                  <label class="flex items-center gap-1.5 cursor-pointer text-xs font-body text-outline select-none">
+                    <input type="checkbox" defaultChecked class="w-3.5 h-3.5 accent-primary rounded cursor-pointer" />
+                    <span>Auto-Hedge Wings</span>
+                  </label>
+                </div>
+
+                <div class="overflow-x-auto">
+                  <table class="w-full text-left text-xs font-body">
+                    <thead>
+                      <tr class="bg-surface-container text-outline font-mono-code text-[10px] uppercase">
+                        <th class="py-2 px-3">Side</th>
+                        <th class="py-2 px-3">Strike / Type</th>
+                        <th class="py-2 px-2 text-center">Lots</th>
+                        <th class="py-2 px-2 text-right">Delta</th>
+                        <th class="py-2 px-2 text-right">LTP (₹)</th>
+                        <th class="py-2 px-3 text-right">Cash Flow</th>
+                        <th class="py-2 px-2 text-center">Del</th>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y-0">
+                      {legs.map(leg => (
+                        <tr key={leg.id} class="hover:bg-surface-container transition-colors border-b border-outline-variant/10">
+                          <td class="py-2.5 px-3">
+                            <span class={`px-2 py-0.5 rounded font-mono-code font-bold text-[10px] ${leg.side === "BUY" ? "bg-secondary-container/30 text-secondary" : "bg-error-container/40 text-tertiary"}`}>
+                              {leg.side}
+                            </span>
+                          </td>
+                          <td class="py-2.5 px-3">
+                            <div class="font-headline font-bold text-on-surface">{leg.strike}</div>
+                            <span class="text-[10px] text-outline font-mono-code">{leg.type}</span>
+                          </td>
+                          <td class="py-2.5 px-2 text-center font-mono-code">{leg.lots} (75)</td>
+                          <td class="py-2.5 px-2 text-right font-mono-code text-secondary">{leg.delta}</td>
+                          <td class="py-2.5 px-2 text-right font-mono-code font-semibold text-on-surface">{leg.ltp.toFixed(2)}</td>
+                          <td class={`py-2.5 px-3 text-right font-mono-code font-semibold ${leg.flow > 0 ? "text-secondary" : "text-tertiary"}`}>
+                            {leg.flow > 0 ? `+₹${leg.flow.toFixed(2)}` : `-₹${Math.abs(leg.flow).toFixed(2)}`}
+                          </td>
+                          <td class="py-2.5 px-2 text-center">
+                            <button onClick={() => setLegs(legs.filter(l => l.id !== leg.id))} class="text-outline hover:text-error">
+                              <span class="material-symbols-outlined text-[16px]">close</span>
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            {/* Payoff Graph & Execution */}
+            <div class="xl:col-span-5 flex flex-col gap-4">
+              <div class="bg-surface-container-low rounded border border-outline-variant/20 p-4 shadow-sm flex flex-col">
+                <div class="flex items-center justify-between mb-2">
+                  <span class="font-headline font-bold text-sm text-on-surface">Payoff Visualizer</span>
+                  <span class="px-2 py-0.5 rounded text-[10px] font-mono-code bg-secondary-container/20 text-secondary font-bold">POP: 58.4%</span>
+                </div>
+                <div class="w-full bg-surface-container-lowest rounded p-2 overflow-hidden">
+                  <svg class="w-full h-44 text-outline select-none" viewBox="0 0 460 220">
+                    <line stroke="#31353d" strokeDasharray="3 3" strokeWidth="1.2" x1="20" x2="440" y1="130" y2="130"/>
+                    <polyline fill="none" points="30,175 190,175 330,55 430,55" stroke="#4cd7f6" strokeWidth="2.5"/>
+                    <path d="M 30,158 Q 140,154 220,135 T 350,75 T 430,68" fill="none" stroke="#4edea3" strokeDasharray="4 2" strokeWidth="1.8"/>
+                    <line stroke="#4cd7f6" strokeDasharray="2 2" strokeWidth="1.2" x1="230" x2="230" y1="20" y2="195"/>
+                    <circle cx="230" cy="132" fill="#4cd7f6" r="4"/>
+                    <text fill="#4cd7f6" fontFamily="JetBrains Mono" fontSize="9" fontWeight="600" x="235" y="35">Spot 25,418</text>
+                    <text fill="#4edea3" fontFamily="JetBrains Mono" fontSize="9" fontWeight="bold" x="340" y="45">+₹7,410 Max</text>
+                    <text fill="#ffb2b7" fontFamily="JetBrains Mono" fontSize="9" fontWeight="bold" x="45" y="190">-₹3,840 Max</text>
+                  </svg>
+                </div>
+                <div class="grid grid-cols-2 gap-2 mt-3 text-xs font-mono-code">
+                  <button onClick={() => alert("Simulation added to paper desk")} class="py-2 rounded bg-surface-container-high hover:bg-surface-bright text-on-surface font-headline font-semibold">
+                    Paper Simulate
+                  </button>
+                  <button onClick={handleExecute} class="py-2 rounded bg-primary hover:bg-primary-container text-on-primary font-headline font-bold shadow">
+                    {executing ? "Routing DMA..." : "Execute Basket (2 Legs)"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ==========================================
+    // SCREEN 6: STRATEGIES LAB
+    // ==========================================
+    function ScreenStrategiesLab() {
+      const navigate = useNavigate();
+      const [selectedStrat, setSelectedStrat] = useState("bn_straddle");
+      const [entryTime, setEntryTime] = useState("09:20 AM");
+      const [stopLoss, setStopLoss] = useState(25);
+
+      const strategies = [
+        { id: "bn_straddle", title: "9:20 AM BankNifty Short Straddle", tag: "DELTA NEUTRAL", sub: "Intraday 09:20", cagr: "+312.4%", sharpe: "2.14", dd: "6.2%", win: "74.2%" },
+        { id: "nifty_iron_condor", title: "Nifty Weekly Iron Condor", tag: "RANGE BOUND", sub: "Weekly Expiry", cagr: "+248.1%", sharpe: "1.96", dd: "4.1%", win: "81.5%" },
+        { id: "ema_breakout", title: "Multi-EMA Trend Breakout", tag: "MOMENTUM", sub: "Futures & Cash", cagr: "+388.9%", sharpe: "2.48", dd: "8.4%", win: "58.7%" },
+        { id: "iv_crush", title: "IV Crush Earnings Arbitrage", tag: "VOL ARBITRAGE", sub: "Event Driven", cagr: "+194.2%", sharpe: "2.05", dd: "5.9%", win: "71.0%" }
+      ];
+
+      return (
+        <div class="flex flex-col w-full gap-5 pt-2">
+          {/* Header */}
+          <div class="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+            <div>
+              <div class="flex items-center gap-2">
+                <span class="px-2 py-0.5 rounded bg-surface-container-high text-primary font-mono-code text-[10px] tracking-wider font-semibold">QUANT ENGINE READY • V4.2</span>
+                <span class="text-[10px] font-mono-code text-outline">CYCLE: 42μs</span>
+              </div>
+              <h1 class="font-headline text-2xl font-bold text-on-surface tracking-tight mt-1">Strategies Lab & Quantitative Rule Library</h1>
+              <p class="text-xs text-outline font-body mt-0.5">Production-validated algorithmic strategies. Tune execution parameters via sliders or arm directly on live desks.</p>
+            </div>
+            <div class="flex items-center gap-3">
+              <button onClick={() => navigate("/backtest-studio")} class="px-3 py-1.5 rounded bg-surface-container hover:bg-surface-container-high text-on-surface text-xs font-medium border border-outline-variant/30 flex items-center gap-1.5">
+                <span class="material-symbols-outlined text-primary text-[16px]">query_stats</span>
+                <span>Run Historical Backtest</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Cards & Tuning Grid */}
+          <div class="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
+            <div class="xl:col-span-7 grid grid-cols-1 md:grid-cols-2 gap-4">
+              {strategies.map((st) => (
+                <div
+                  key={st.id}
+                  onClick={() => setSelectedStrat(st.id)}
+                  class={`p-4 rounded bg-surface-container border transition-all cursor-pointer shadow-md ${
+                    selectedStrat === st.id ? "ring-1 ring-primary border-primary/50 bg-surface-container-high" : "border-outline-variant/20 hover:bg-surface-container-high"
+                  }`}
+                >
+                  <div class="flex items-center gap-2 mb-2 font-mono-code text-[10px]">
+                    <span class="px-1.5 py-0.5 rounded bg-surface-container-lowest text-primary font-bold">{st.tag}</span>
+                    <span class="text-outline">{st.sub}</span>
+                  </div>
+                  <h2 class="font-headline font-bold text-sm text-on-surface">{st.title}</h2>
+                  <div class="my-3 p-2 rounded bg-surface-container-lowest flex items-center justify-between font-mono-code">
+                    <div>
+                      <span class="text-[9px] uppercase text-outline block">5Y CAGR</span>
+                      <span class="text-secondary font-bold text-sm">{st.cagr}</span>
+                    </div>
+                    <div class="text-right">
+                      <span class="text-[9px] uppercase text-outline block">Sharpe</span>
+                      <span class="text-primary font-bold text-sm">{st.sharpe}</span>
+                    </div>
+                  </div>
+                  <div class="flex items-center justify-between text-[11px] font-mono-code text-outline pt-1">
+                    <span>Max DD: <strong class="text-tertiary">{st.dd}</strong></span>
+                    <span>Win Rate: <strong class="text-secondary">{st.win}</strong></span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Tuning Panel (Right 5 cols) */}
+            <div class="xl:col-span-5 bg-surface-container p-4 rounded border border-outline-variant/20 shadow-xl flex flex-col gap-4">
+              <div class="flex items-center justify-between border-b border-outline-variant/20 pb-3">
+                <div>
+                  <span class="text-[10px] font-mono-code uppercase text-primary font-bold">Selected Model Parameter Tuning</span>
+                  <h3 class="font-headline font-bold text-sm text-on-surface mt-0.5">
+                    {strategies.find(s => s.id === selectedStrat)?.title}
+                  </h3>
+                </div>
+                <button onClick={() => { setEntryTime("09:20 AM"); setStopLoss(25); }} class="text-[11px] text-primary hover:underline font-mono-code">Reset</button>
+              </div>
+
+              <div class="space-y-3 font-body text-xs">
+                <div class="bg-surface-container-low p-3 rounded flex flex-col gap-1.5">
+                  <div class="flex justify-between font-mono-code">
+                    <span class="text-outline">Entry Time Trigger</span>
+                    <span class="text-primary font-bold">{entryTime}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="555"
+                    max="660"
+                    step="5"
+                    defaultValue="560"
+                    onChange={(e) => {
+                      const mins = parseInt(e.target.value, 10);
+                      const h = Math.floor(mins / 60);
+                      const m = mins % 60;
+                      setEntryTime(`0${h}:${m < 10 ? "0" + m : m} AM`);
+                    }}
+                    class="w-full accent-primary cursor-pointer"
+                  />
+                </div>
+
+                <div class="bg-surface-container-low p-3 rounded flex flex-col gap-1.5">
+                  <div class="flex justify-between font-mono-code">
+                    <span class="text-outline">Stop-Loss Per Leg</span>
+                    <span class="text-tertiary font-bold">{stopLoss}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="10"
+                    max="60"
+                    step="1"
+                    value={stopLoss}
+                    onChange={(e) => setStopLoss(e.target.value)}
+                    class="w-full accent-tertiary cursor-pointer"
+                  />
+                </div>
+              </div>
+
+              <div class="p-3 rounded bg-surface-container-lowest font-mono-code text-[11px] text-on-surface-variant overflow-x-auto space-y-1">
+                <div class="text-outline">// Event Trigger Pseudocode</div>
+                <div><span class="text-primary">ON</span> timestamp == <span class="text-secondary">"{entryTime}:00"</span>:</div>
+                <div class="pl-3">atm = NSE.get_atm_strike(<span class="text-tertiary">"BANKNIFTY"</span>)</div>
+                <div class="pl-3">route_order(atm, <span class="text-tertiary">"CE"</span>, qty=15, sl={stopLoss}%)</div>
+                <div class="pl-3">route_order(atm, <span class="text-tertiary">"PE"</span>, qty=15, sl={stopLoss}%)</div>
+              </div>
+
+              <div class="flex flex-col gap-2 pt-1">
+                <button onClick={() => alert("Strategy armed for live execution across Kotak Neo DMA gateway")} class="w-full py-2.5 rounded bg-error-container hover:bg-error text-on-error-container hover:text-on-error font-headline font-bold text-xs transition-all shadow">
+                  Arm Live Broker Execution (2 Nodes)
+                </button>
+                <button onClick={() => navigate("/backtest-studio")} class="w-full py-2 rounded bg-surface-container-high hover:bg-surface-bright text-on-surface font-headline font-semibold text-xs transition-colors">
+                  Run Studio Backtest
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ==========================================
+    // SCREEN 7: BACKTEST STUDIO
+    // ==========================================
+    function ScreenBacktestStudio() {
+      const [simulating, setSimulating] = useState(false);
+
+      const handleRun = () => {
+        setSimulating(true);
+        setTimeout(() => setSimulating(false), 900);
+      };
+
+      return (
+        <div class="flex flex-col w-full gap-5 pt-2">
+          {/* Header */}
+          <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-surface-container-low p-4 rounded border border-outline-variant/20">
+            <div>
+              <div class="flex items-center gap-2">
+                <span class="material-symbols-outlined text-primary text-[20px]">query_stats</span>
+                <h1 class="font-headline text-xl font-bold text-on-surface">Backtest Studio & Quantitative Research</h1>
+              </div>
+              <p class="text-xs text-outline font-body mt-0.5">High-fidelity historical simulation with tick-level slippage & dynamic margin allocation</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <button onClick={handleRun} class="flex items-center gap-1.5 px-4 py-1.5 rounded bg-primary hover:bg-primary-container text-on-primary font-headline text-xs font-bold transition-all shadow">
+                <span class={`material-symbols-outlined text-[16px] ${simulating ? "animate-spin" : ""}`}>
+                  {simulating ? "refresh" : "play_arrow"}
+                </span>
+                <span>{simulating ? "Simulating Ticks..." : "Run Backtest"}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* 3 Executive Metric Cards */}
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="bg-surface-container-low p-4 rounded border border-outline-variant/20 shadow-sm font-mono-code">
+              <span class="text-[10px] uppercase text-outline block">Net Absolute Performance</span>
+              <div class="my-2 flex items-baseline gap-2">
+                <span class="font-headline text-3xl font-bold text-secondary">+184.6%</span>
+                <span class="text-xs text-on-surface-variant">(+₹46,15,000)</span>
+              </div>
+              <div class="text-[11px] text-outline flex justify-between border-t border-outline-variant/20 pt-2">
+                <span>CAGR: <strong class="text-on-surface">29.8%</strong></span>
+                <span>Alpha: <strong class="text-secondary">+13.4%</strong></span>
+              </div>
+            </div>
+
+            <div class="bg-surface-container-low p-4 rounded border border-outline-variant/20 shadow-sm font-mono-code">
+              <span class="text-[10px] uppercase text-outline block">Risk & Volatility Profile</span>
+              <div class="my-2 grid grid-cols-2 gap-2">
+                <div>
+                  <span class="text-[10px] text-outline block">Sharpe</span>
+                  <span class="font-headline text-2xl font-bold text-primary">2.31</span>
+                </div>
+                <div>
+                  <span class="text-[10px] text-outline block">Sortino</span>
+                  <span class="font-headline text-2xl font-bold text-primary">3.12</span>
+                </div>
+              </div>
+              <div class="text-[11px] text-outline flex justify-between border-t border-outline-variant/20 pt-2">
+                <span>Max DD: <strong class="text-tertiary">-7.4%</strong></span>
+                <span>Recovery: <strong class="text-on-surface">18 Days</strong></span>
+              </div>
+            </div>
+
+            <div class="bg-surface-container-low p-4 rounded border border-outline-variant/20 shadow-sm font-mono-code">
+              <span class="text-[10px] uppercase text-outline block">Trade Efficiency</span>
+              <div class="my-2 flex items-baseline gap-2">
+                <span class="font-headline text-3xl font-bold text-on-surface">72.8%</span>
+                <span class="text-xs text-secondary font-bold">Win Rate</span>
+              </div>
+              <div class="text-[11px] text-outline flex justify-between border-t border-outline-variant/20 pt-2">
+                <span>Profit Factor: <strong class="text-secondary">2.45</strong></span>
+                <span>Total Fills: <strong class="text-on-surface">412</strong></span>
+              </div>
+            </div>
+          </div>
+
+          {/* Cumulative Equity Chart */}
+          <div class="bg-surface-container-low p-4 rounded border border-outline-variant/20 shadow-sm flex flex-col gap-3">
+            <div class="flex items-center justify-between">
+              <div>
+                <h3 class="font-headline font-bold text-sm text-on-surface">Cumulative Equity Trajectory (2021 — 2024)</h3>
+                <span class="text-xs text-outline font-body">NIFTY Weekly Iron Condor vs Buy & Hold Benchmark</span>
+              </div>
+              <div class="flex items-center gap-3 text-xs font-mono-code">
+                <span class="flex items-center gap-1"><span class="w-2.5 h-0.5 bg-primary"></span> Strategy Net</span>
+                <span class="flex items-center gap-1"><span class="w-2.5 h-0.5 bg-outline"></span> NIFTY TRI</span>
+              </div>
+            </div>
+
+            <div class="w-full h-64 bg-surface-container-lowest rounded p-2 relative overflow-hidden">
+              <svg class="w-full h-full" preserveAspectRatio="none" viewBox="0 0 1000 280">
+                <defs>
+                  <linearGradient id="eqGrad" x1="0" x2="0" y1="0" y2="1">
+                    <stop offset="0%" stopColor="#4cd7f6" stopOpacity="0.3"/>
+                    <stop offset="100%" stopColor="#4cd7f6" stopOpacity="0"/>
+                  </linearGradient>
+                </defs>
+                <line stroke="#262a32" strokeDasharray="3 3" x1="0" x2="1000" y1="60" y2="60"/>
+                <line stroke="#262a32" strokeDasharray="3 3" x1="0" x2="1000" y1="130" y2="130"/>
+                <line stroke="#262a32" strokeDasharray="3 3" x1="0" x2="1000" y1="200" y2="200"/>
+                <path d="M 40,240 C 120,230 260,200 480,210 C 700,170 850,150 960,130" fill="none" stroke="#869397" strokeDasharray="4 4" strokeWidth="1.5"/>
+                <path d="M 40,240 C 120,210 260,160 480,140 C 530,170 650,110 850,55 L 960,30 L 960,270 L 40,270 Z" fill="url(#eqGrad)"/>
+                <path d="M 40,240 C 120,210 260,160 480,140 C 530,170 650,110 850,55 L 960,30" fill="none" stroke="#4cd7f6" strokeWidth="2.5"/>
+                <circle cx="960" cy="30" fill="#4cd7f6" r="4"/>
+              </svg>
+            </div>
+            <div class="flex justify-between text-[11px] font-mono-code text-outline px-2">
+              <span>Jan 2021 (₹25L Base)</span>
+              <span>Dec 2021</span>
+              <span>Nov 2022</span>
+              <span>Oct 2023</span>
+              <span class="text-secondary font-bold">Sep 2024 (₹71.15L Peak)</span>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ==========================================
+    // SCREEN 8: BROKER GATEWAYS
+    // ==========================================
+    function ScreenBrokers() {
+      const [pingKotak, setPingKotak] = useState("14.2ms");
+      const [pinging, setPinging] = useState(false);
+
+      const triggerPing = () => {
+        setPinging(true);
+        setTimeout(() => {
+          setPingKotak((12 + Math.random() * 4).toFixed(1) + "ms");
+          setPinging(false);
+        }, 600);
+      };
+
+      return (
+        <div class="flex flex-col w-full gap-5 pt-2">
+          {/* Header */}
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <div class="flex items-center gap-2">
+                <h1 class="font-headline text-2xl text-on-surface font-bold">Broker Connections & Multi-Gateway Authentication</h1>
+                <span class="px-2 py-0.5 rounded text-[10px] font-mono-code bg-secondary-container/20 text-secondary font-bold">SEBI Compliant</span>
+              </div>
+              <p class="text-xs text-outline font-body mt-0.5">Dual-active gateway architecture with instantaneous 0-latency failover and token persistence.</p>
+            </div>
+            <div class="flex gap-2">
+              <button onClick={() => alert("Simulated failover drill executed. Kite socket took primary traffic in 0.8ms.")} class="px-3 py-1.5 rounded bg-primary hover:bg-primary-container text-on-primary text-xs font-headline font-bold transition-all shadow">
+                Run Failover Drill
+              </button>
+            </div>
+          </div>
+
+          {/* Cards */}
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Kotak Neo */}
+            <div class="p-4 rounded bg-surface-container-low border border-outline-variant/20 shadow-sm flex flex-col justify-between gap-3">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <div class="w-8 h-8 rounded bg-surface-container-high flex items-center justify-center text-primary">
+                    <span class="material-symbols-outlined text-[20px]">bolt</span>
+                  </div>
+                  <div>
+                    <h2 class="font-headline font-bold text-sm text-on-surface">Kotak Neo Gateway</h2>
+                    <span class="text-[10px] font-mono-code text-secondary font-bold">PRIMARY ACTIVE • DMA LOW LATENCY</span>
+                  </div>
+                </div>
+                <span class="h-2.5 w-2.5 rounded-full bg-secondary animate-pulse"></span>
+              </div>
+
+              <div class="p-3 rounded bg-surface-container font-mono-code text-xs space-y-1.5">
+                <div class="flex justify-between">
+                  <span class="text-outline">UCC Code:</span>
+                  <span class="font-bold text-on-surface">KTK_904812</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-outline">Round-Trip Latency:</span>
+                  <span class="text-secondary font-bold">{pingKotak}</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-outline">Token Health:</span>
+                  <span class="text-on-surface">Valid (06:00 IST)</span>
+                </div>
+              </div>
+
+              <div class="flex gap-2 pt-1">
+                <button onClick={triggerPing} class="flex-1 py-1.5 rounded bg-surface-container-high hover:bg-surface-bright text-xs font-mono-code text-primary transition-all">
+                  {pinging ? "Pinging..." : `Test Ping (${pingKotak})`}
+                </button>
+                <button onClick={() => alert("Session token re-authenticated.")} class="px-3 py-1.5 rounded bg-surface-container-high hover:bg-surface-bright text-xs font-mono-code text-on-surface">
+                  Re-Auth
+                </button>
+              </div>
+            </div>
+
+            {/* Zerodha Kite */}
+            <div class="p-4 rounded bg-surface-container-low border border-outline-variant/20 shadow-sm flex flex-col justify-between gap-3">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <div class="w-8 h-8 rounded bg-surface-container-high flex items-center justify-center text-secondary">
+                    <span class="material-symbols-outlined text-[20px]">swap_calls</span>
+                  </div>
+                  <div>
+                    <h2 class="font-headline font-bold text-sm text-on-surface">Zerodha Kite Gateway</h2>
+                    <span class="text-[10px] font-mono-code text-primary font-bold">HOT STANDBY • NFO DERIV DESK</span>
+                  </div>
+                </div>
+                <span class="h-2.5 w-2.5 rounded-full bg-primary"></span>
+              </div>
+
+              <div class="p-3 rounded bg-surface-container font-mono-code text-xs space-y-1.5">
+                <div class="flex justify-between">
+                  <span class="text-outline">User ID:</span>
+                  <span class="font-bold text-on-surface">ZR_DA8821</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-outline">Standby Latency:</span>
+                  <span class="text-on-surface font-bold">21.8 ms</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-outline">Auto-Handoff:</span>
+                  <span class="text-tertiary">Trigger &gt; 150ms drop</span>
+                </div>
+              </div>
+
+              <div class="flex gap-2 pt-1">
+                <button onClick={() => alert("Switched primary routing to Zerodha Kite")} class="flex-1 py-1.5 rounded bg-primary-container hover:bg-primary text-on-primary-container text-xs font-headline font-bold transition-all">
+                  Promote to Primary Gateway
+                </button>
+                <button onClick={() => alert("Token refreshed")} class="px-3 py-1.5 rounded bg-surface-container-high hover:bg-surface-bright text-xs font-mono-code text-on-surface">
+                  Refresh
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ==========================================
+    // SCREEN 9: RISK & SECURITY AUDIT LOG
+    // ==========================================
+    function ScreenRiskAndSecurity() {
+      const [verifying, setVerifying] = useState(false);
+
+      const handleVerify = () => {
+        setVerifying(true);
+        setTimeout(() => {
+          setVerifying(false);
+          alert("All 1,842 Merkle proof tree leafs validated. ECDSA signatures intact.");
+        }, 1000);
+      };
+
+      return (
+        <div class="flex flex-col w-full gap-5 pt-2">
+          {/* Header */}
+          <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div>
+              <div class="flex items-center gap-2">
+                <span class="px-2 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-mono-code uppercase font-semibold">Security Grade Tier-1</span>
+                <span class="text-xs font-mono-code text-secondary flex items-center gap-1">
+                  <span class="w-1.5 h-1.5 rounded-full bg-secondary animate-pulse"></span> Merkle Tree Synchronized
+                </span>
+              </div>
+              <h1 class="font-headline text-2xl font-bold text-on-surface tracking-tight mt-1">Institutional Risk & Security Audit Log</h1>
+              <p class="text-xs text-outline font-body mt-0.5">Immutable tamper-evident operational logs, risk limit tripwires, and cryptographic Merkle proof forensic validation.</p>
+            </div>
+            <div class="flex gap-2">
+              <button onClick={handleVerify} class="flex items-center gap-1.5 px-3.5 py-1.5 rounded bg-primary-container hover:bg-primary text-on-primary-container text-xs font-headline font-bold transition-all shadow">
+                <span class={`material-symbols-outlined text-[16px] ${verifying ? "animate-spin" : ""}`}>
+                  {verifying ? "hourglass_empty" : "verified_user"}
+                </span>
+                <span>{verifying ? "Verifying Leaves..." : "Verify Merkle Proofs"}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* 4 Cards */}
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-4 font-mono-code">
+            <div class="p-4 rounded bg-surface-container-low border border-outline-variant/20 shadow-sm flex flex-col justify-between">
+              <span class="text-[10px] uppercase text-outline">Ledger Integrity</span>
+              <span class="font-headline text-xl font-bold text-secondary my-1">VERIFIED</span>
+              <span class="text-[11px] text-outline">0 Tamper Violations</span>
+            </div>
+            <div class="p-4 rounded bg-surface-container-low border border-outline-variant/20 shadow-sm flex flex-col justify-between">
+              <span class="text-[10px] uppercase text-outline">RMS Tripwires</span>
+              <span class="font-headline text-xl font-bold text-on-surface my-1">12 / 12 Active</span>
+              <span class="text-[11px] text-secondary">Zero Breaches</span>
+            </div>
+            <div class="p-4 rounded bg-surface-container-low border border-outline-variant/20 shadow-sm flex flex-col justify-between">
+              <span class="text-[10px] uppercase text-outline">Authentication</span>
+              <span class="font-headline text-xl font-bold text-on-surface my-1">FIDO2 + TOTP</span>
+              <span class="text-[11px] text-secondary">Hardware Token Armed</span>
+            </div>
+            <div class="p-4 rounded bg-surface-container-low border border-outline-variant/20 shadow-sm flex flex-col justify-between">
+              <span class="text-[10px] uppercase text-outline">Fail-Closed Relay</span>
+              <span class="font-headline text-xl font-bold text-error my-1">ARMED</span>
+              <span class="text-[11px] text-outline">Kill switch relay ready</span>
+            </div>
+          </div>
+
+          {/* Table */}
+          <div class="flex flex-col bg-surface-container-low rounded border border-outline-variant/20 overflow-hidden shadow-sm">
+            <div class="px-4 py-2.5 bg-surface-container flex items-center justify-between text-xs font-mono-code border-b border-outline-variant/20">
+              <span class="text-outline">Recent Cryptographic Audit Frames</span>
+              <span class="text-secondary flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-secondary animate-pulse"></span>Live Tail</span>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-xs font-body">
+                <thead>
+                  <tr class="bg-surface-container-lowest text-outline font-mono-code text-[10px] uppercase">
+                    <th class="py-2.5 px-4">Time (IST)</th>
+                    <th class="py-2.5 px-3">Event Type</th>
+                    <th class="py-2.5 px-3">Actor</th>
+                    <th class="py-2.5 px-3">Details</th>
+                    <th class="py-2.5 px-3">Merkle Root</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y-0 font-mono-code text-xs">
+                  <tr class="hover:bg-surface-container border-b border-outline-variant/10">
+                    <td class="py-2 px-4 text-primary">14:23:45.892</td>
+                    <td class="py-2 px-3 text-secondary font-bold">RMS_MARGIN_CHECK</td>
+                    <td class="py-2 px-3 text-on-surface">Desk A (Algo)</td>
+                    <td class="py-2 px-3 text-outline">Pre-trade passed for NIFTY 25450 CE</td>
+                    <td class="py-2 px-3 text-primary">0x4a9b...7f12</td>
+                  </tr>
+                  <tr class="hover:bg-surface-container border-b border-outline-variant/10">
+                    <td class="py-2 px-4 text-primary">14:20:10.140</td>
+                    <td class="py-2 px-3 text-primary font-bold">ORDER_EXEC_DISPATCH</td>
+                    <td class="py-2 px-3 text-on-surface">Kotak Neo</td>
+                    <td class="py-2 px-3 text-outline">Limit #ORD-KTK-89201948 dispatched</td>
+                    <td class="py-2 px-3 text-primary">0x8e21...3d90</td>
+                  </tr>
+                  <tr class="hover:bg-surface-container">
+                    <td class="py-2 px-4 text-primary">14:15:02.405</td>
+                    <td class="py-2 px-3 text-tertiary font-bold">BROKER_HEARTBEAT</td>
+                    <td class="py-2 px-3 text-on-surface">Gateway Monitor</td>
+                    <td class="py-2 px-3 text-outline">Ping jitter 82ms normalized to 14ms</td>
+                    <td class="py-2 px-3 text-primary">0x1c44...6b88</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ==========================================
+    // SCREEN 10: LIVE ORDERS
+    // ==========================================
+    function ScreenLiveOrders() {
+      const [filter, setFilter] = useState("all");
+
+      const orders = [
+        { id: "ORD-KTK-89201948", time: "09:42:18.102", broker: "Kotak Neo", sym: "NIFTY 25450 CE", side: "BUY", type: "LIMIT", filled: 100, total: 150, price: "₹142.50", status: "working" },
+        { id: "ORD-KTK-89201882", time: "09:38:04.912", broker: "Kotak Neo", sym: "BANKNIFTY 52800 PE", side: "SELL", type: "LIMIT", filled: 90, total: 90, price: "₹218.70", status: "filled" },
+        { id: "ORD-ZRD-40291104", time: "09:35:55.420", broker: "Zerodha Kite", sym: "NIFTY 25500 CE", side: "SELL", type: "SL-M", filled: 0, total: 300, price: "₹112.00", status: "working" },
+        { id: "ORD-KTK-89201419", time: "09:30:12.834", broker: "Kotak Neo", sym: "RELIANCE 3000 CE", side: "BUY", type: "LIMIT", filled: 500, total: 500, price: "₹38.25", status: "filled" },
+        { id: "ORD-KTK-89201102", time: "09:18:22.019", broker: "Kotak Neo", sym: "NIFTY 25300 PE", side: "BUY", type: "LIMIT", filled: 0, total: 150, price: "₹74.00", status: "cancelled" }
+      ];
+
+      const filteredOrders = orders.filter(o => filter === "all" || o.status === filter);
+
+      return (
+        <div class="flex flex-col w-full gap-5 pt-2">
+          {/* Header */}
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-surface-container-low p-4 rounded border border-outline-variant/20 shadow-sm">
+            <div class="flex items-center gap-3">
+              <span class="material-symbols-outlined text-primary text-[24px]">receipt_long</span>
+              <div>
+                <h1 class="font-headline text-xl font-bold text-on-surface">Live Orders Ledger & DMA Execution</h1>
+                <span class="text-xs font-mono-code text-secondary flex items-center gap-1">
+                  <span class="w-1.5 h-1.5 rounded-full bg-secondary animate-pulse"></span>
+                  Primary: Kotak Neo (14ms) • Standby: Zerodha Kite
+                </span>
+              </div>
+            </div>
+            <button onClick={() => alert("Halt signal sent to all execution gateways")} class="px-3 py-1.5 rounded bg-error-container hover:bg-error text-on-error-container hover:text-on-error text-xs font-headline font-semibold transition-all">
+              Halt Trading / Kill Desk
+            </button>
+          </div>
+
+          {/* 4 Cards */}
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 font-mono-code">
+            <div class="p-3 rounded bg-surface-container-low border border-outline-variant/20">
+              <span class="text-[10px] text-outline uppercase block">Total Orders</span>
+              <span class="font-headline text-2xl font-bold text-on-surface block mt-1">18 Fills</span>
+              <span class="text-[10px] text-secondary">14 Filled • 2 Working</span>
+            </div>
+            <div class="p-3 rounded bg-surface-container-low border border-outline-variant/20">
+              <span class="text-[10px] text-outline uppercase block">Intraday Turnover</span>
+              <span class="font-headline text-2xl font-bold text-secondary block mt-1">₹84.50 L</span>
+              <span class="text-[10px] text-outline">100% Cleared</span>
+            </div>
+            <div class="p-3 rounded bg-surface-container-low border border-outline-variant/20">
+              <span class="text-[10px] text-outline uppercase block">Taxes & Brokerage</span>
+              <span class="font-headline text-2xl font-bold text-on-surface block mt-1">₹1,420.00</span>
+              <span class="text-[10px] text-outline">₹20 flat / order</span>
+            </div>
+            <div class="p-3 rounded bg-surface-container-low border border-outline-variant/20">
+              <span class="text-[10px] text-outline uppercase block">Avg Latency</span>
+              <span class="font-headline text-2xl font-bold text-secondary block mt-1">18.2 ms</span>
+              <span class="text-[10px] text-secondary">Fastest tick 9.1ms</span>
+            </div>
+          </div>
+
+          {/* Orders Table */}
+          <div class="flex flex-col bg-surface-container-low rounded border border-outline-variant/20 overflow-hidden shadow-sm">
+            <div class="p-3 bg-surface-container flex items-center justify-between text-xs border-b border-outline-variant/20">
+              <div class="flex items-center gap-1.5 font-body">
+                <button onClick={() => setFilter("all")} class={`px-3 py-1 rounded font-semibold ${filter === "all" ? "bg-primary-container text-on-primary-container" : "bg-surface-container-high text-outline"}`}>All (18)</button>
+                <button onClick={() => setFilter("working")} class={`px-3 py-1 rounded font-semibold ${filter === "working" ? "bg-primary-container text-on-primary-container" : "bg-surface-container-high text-outline"}`}>Working (2)</button>
+                <button onClick={() => setFilter("filled")} class={`px-3 py-1 rounded font-semibold ${filter === "filled" ? "bg-primary-container text-on-primary-container" : "bg-surface-container-high text-outline"}`}>Filled (14)</button>
+                <button onClick={() => setFilter("cancelled")} class={`px-3 py-1 rounded font-semibold ${filter === "cancelled" ? "bg-primary-container text-on-primary-container" : "bg-surface-container-high text-outline"}`}>Cancelled (2)</button>
+              </div>
+            </div>
+
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-xs font-mono-code">
+                <thead>
+                  <tr class="bg-surface-container-lowest text-outline text-[10px] uppercase">
+                    <th class="py-2.5 px-4">Time</th>
+                    <th class="py-2.5 px-3">Order ID</th>
+                    <th class="py-2.5 px-3">Instrument</th>
+                    <th class="py-2.5 px-2">Side</th>
+                    <th class="py-2.5 px-2 text-right">Qty</th>
+                    <th class="py-2.5 px-3 text-right">Avg Price</th>
+                    <th class="py-2.5 px-3">Status</th>
+                    <th class="py-2.5 px-3 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y-0">
+                  {filteredOrders.map(o => (
+                    <tr key={o.id} class="hover:bg-surface-container border-b border-outline-variant/10">
+                      <td class="py-2.5 px-4 text-outline">{o.time}</td>
+                      <td class="py-2.5 px-3 text-on-surface font-semibold">#{o.id}</td>
+                      <td class="py-2.5 px-3 font-headline font-bold text-on-surface">{o.sym}</td>
+                      <td class="py-2.5 px-2">
+                        <span class={`px-1.5 py-0.5 rounded text-[10px] font-bold ${o.side === "BUY" ? "bg-secondary-container/20 text-secondary" : "bg-tertiary-container/20 text-tertiary"}`}>
+                          {o.side}
+                        </span>
+                      </td>
+                      <td class="py-2.5 px-2 text-right">{o.filled} / {o.total}</td>
+                      <td class="py-2.5 px-3 text-right font-bold text-on-surface">{o.price}</td>
+                      <td class="py-2.5 px-3">
+                        <span class={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          o.status === "filled" ? "bg-secondary/15 text-secondary" : o.status === "working" ? "bg-primary/15 text-primary animate-pulse" : "bg-error/15 text-error"
+                        }`}>
+                          {o.status.toUpperCase()}
+                        </span>
+                      </td>
+                      <td class="py-2.5 px-3 text-right">
+                        <button onClick={() => alert(`Details for ${o.id}`)} class="px-2 py-0.5 rounded bg-surface-container-high hover:bg-surface-bright text-xs">Inspect</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ==========================================
+    // TOP-LEVEL APPLICATION ROOT WITH MEMORY ROUTER
+    // ==========================================
+    function App() {
+      return (
+        <MemoryRouter initialEntries={["/"]} initialIndex={0}>
+          <AppLayout>
+            <Routes>
+              <Route path="/" element={<ScreenOverview />} />
+              <Route path="/portfolio" element={<ScreenPortfolio />} />
+              <Route path="/watchlists" element={<ScreenWatchlists />} />
+              <Route path="/option-chain" element={<ScreenOptionChain />} />
+              <Route path="/spread-builder" element={<ScreenSpreadBuilder />} />
+              <Route path="/strategies-lab" element={<ScreenStrategiesLab />} />
+              <Route path="/backtest-studio" element={<ScreenBacktestStudio />} />
+              <Route path="/live-orders" element={<ScreenLiveOrders />} />
+              <Route path="/brokers" element={<ScreenBrokers />} />
+              <Route path="/risk-and-security" element={<ScreenRiskAndSecurity />} />
+            </Routes>
+          </AppLayout>
+        </MemoryRouter>
+      );
+    }
+
+    const root = createRoot(document.getElementById("root"));
+    root.render(<App />);
+  </script>
+</body>
+</html>
