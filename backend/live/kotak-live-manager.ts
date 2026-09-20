@@ -178,8 +178,10 @@ export class KotakLiveManager {
     }
     const id = await this.store.transaction(async (query) => {
       if (limits) {
+        // The WHERE clause keeps this a no-op when broker_binding already belongs to a
+        // different user, instead of silently overwriting that user's account row.
         await query(
-          "INSERT INTO live_accounts(id,user_id,broker_binding,halt_reason,limits,broker_id) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(broker_binding) DO UPDATE SET broker_id=COALESCE(live_accounts.broker_id,EXCLUDED.broker_id)",
+          "INSERT INTO live_accounts(id,user_id,broker_binding,halt_reason,limits,broker_id) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(broker_binding) DO UPDATE SET broker_id=COALESCE(live_accounts.broker_id,EXCLUDED.broker_id) WHERE live_accounts.user_id=EXCLUDED.user_id",
           [
             randomUUID(),
             session.user_id,

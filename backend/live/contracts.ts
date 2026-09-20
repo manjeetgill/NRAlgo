@@ -129,6 +129,12 @@ export interface ExecutionBrokerAdapter {
  */
 export class DefinitiveOrderRejection extends Error {}
 
+/** An adapter rejected the intent during local validation, strictly before any broker
+ * request was attempted. Unlike DefinitiveOrderRejection (a broker-confirmed rejection),
+ * this guarantees the broker was never contacted, so the outcome is BLOCKED, not UNKNOWN.
+ */
+export class PreflightRejection extends Error {}
+
 /** Bound network work even if an adapter ignores abort. Its late result is never retried;
  * reconciliation must discover any late broker-side acceptance or fill.
  */

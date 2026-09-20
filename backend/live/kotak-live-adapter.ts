@@ -8,6 +8,7 @@ import {
   brokerOrderSchema,
   brokerSnapshotSchema,
   orderIntentSchema,
+  PreflightRejection,
   type BrokerOrder,
   type ExecutionBrokerAdapter,
   type OrderIntent,
@@ -131,7 +132,15 @@ export class KotakLiveAdapter implements ExecutionBrokerAdapter {
   }
   /** Send one LIMIT/DAY intent without retries; acknowledgement is not proof of fill. */
   public async placeOrder(intent: OrderIntent, signal: AbortSignal) {
-    const contract = this.validateIntent(intent);
+    let contract: CatalogInstrument;
+    try {
+      // Strictly before any network call: a failure here never reached the broker.
+      contract = this.validateIntent(intent);
+    } catch (error) {
+      throw new PreflightRejection(
+        error instanceof Error ? error.message : "Invalid order intent",
+      );
+    }
     const raw = success(
       await this.session.request(
         "/quick/order/rule/ms/place",

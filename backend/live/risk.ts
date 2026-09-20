@@ -11,6 +11,7 @@ import {
   type OrderIntent,
   type RiskLimits,
 } from "./contracts.js";
+import { regularMarketSessionOpen } from "../market-contracts.js";
 
 export interface RiskContext {
   snapshot: BrokerSnapshot;
@@ -53,6 +54,11 @@ export function evaluateLiveRisk(
     snapshot.capturedAt > context.now
   ) {
     throw new Error("Fresh complete broker state is required");
+  }
+  // Independent of broker session health: never expose new risk outside the regular
+  // NSE session, regardless of what the broker API reports.
+  if (!regularMarketSessionOpen(context.now)) {
+    throw new RiskLimitError("Regular market session is closed");
   }
   if (snapshot.dailyPnlPaise <= -limits.maxDailyLossPaise) {
     throw new Error("Daily loss limit reached");

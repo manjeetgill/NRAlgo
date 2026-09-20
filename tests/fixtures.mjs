@@ -13,15 +13,18 @@ export const limits = {
   maxOrdersPerMinute: 10,
   fundsDriftTolerancePaise: 0,
 };
+// Wednesday 2026-01-07 10:00 IST: a fixed, deterministic timestamp inside the regular
+// NSE session, so risk fixtures are not incidentally gated by market hours.
+const FIXTURE_NOW = 1767760200000;
 export function context() {
   return {
-    now: 100000,
+    now: FIXTURE_NOW,
     reservedPaise: 0,
     outstandingUnits: {},
     ordersLastMinute: 0,
     limits: { ...limits },
     snapshot: {
-      capturedAt: 100000,
+      capturedAt: FIXTURE_NOW,
       complete: true,
       sessionHealthy: true,
       orders: [],

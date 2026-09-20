@@ -9,6 +9,19 @@ test("valid order reserves exact integer-paise notional without mutating inputs"
   assert.equal(evaluateLiveRisk(intent, state), 10000);
   assert.deepEqual(state, before);
 });
+test("risk rejects intents outside the regular market session, independent of broker session health", () => {
+  const c = context();
+  // Fixture `now` is a Wednesday 10:00 IST; move it to the same day's midnight, well
+  // outside 09:15-15:30 IST, without touching snapshot freshness relative to it.
+  const closed = c.now - 10 * 60 * 60 * 1000;
+  c.now = closed;
+  c.snapshot.capturedAt = closed;
+  assert.throws(
+    () => evaluateLiveRisk(intent, c),
+    (error) =>
+      error instanceof RiskLimitError && /market session/.test(error.message),
+  );
+});
 for (const [name, change, message] of [
   ["stale snapshot", (c) => (c.snapshot.capturedAt -= 5001), /Fresh complete/],
   ["future snapshot", (c) => c.snapshot.capturedAt++, /Fresh complete/],

@@ -13,6 +13,7 @@ import {
   DefinitiveOrderRejection,
   maximumSnapshotAgeMs,
   orderIntentSchema,
+  PreflightRejection,
   riskLimitsSchema,
   terminalStates,
   withBrokerDeadline,
@@ -584,11 +585,15 @@ export class LiveExecutionService {
               [this.accountId],
             );
           } catch (error) {
-            const state = !dispatchStarted
-              ? "blocked"
-              : error instanceof DefinitiveOrderRejection
-                ? "rejected"
-                : "unknown";
+            // A PreflightRejection is guaranteed to precede any broker request, even once
+            // dispatchStarted is set: the adapter's own pre-flight validation runs
+            // synchronously before it issues one, so the broker was never contacted.
+            const state =
+              !dispatchStarted || error instanceof PreflightRejection
+                ? "blocked"
+                : error instanceof DefinitiveOrderRejection
+                  ? "rejected"
+                  : "unknown";
             await query("UPDATE live_orders SET state=$2 WHERE id=$1", [
               orderId,
               state,
