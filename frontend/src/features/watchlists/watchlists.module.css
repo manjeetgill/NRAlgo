@@ -5,6 +5,9 @@
   align-items: start;
   min-width: 0;
 }
+.mobileToggle {
+  display: none;
+}
 .sidebar,
 .chart {
   background: white;
@@ -128,6 +131,15 @@
   font-size: 12px;
 }
 @media (max-width: 850px) {
+  .mobileToggle {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+  }
+  .mobileHidden {
+    display: none;
+  }
   .workspace {
     grid-template-columns: minmax(0, 1fr);
   }

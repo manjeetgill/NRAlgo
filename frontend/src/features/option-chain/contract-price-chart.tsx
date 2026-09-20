@@ -23,7 +23,8 @@ export default function ContractPriceChart({
       }
     >
       <h3>
-        KLineChart · {dataset?.instrument?.symbol || symbol || "Daily history"}
+        {dataset?.instrument?.symbol || symbol || "Stored history"} · Daily
+        chart
       </h3>
       {instrument?.market === "options" && (
         <p role="note">
@@ -40,14 +41,14 @@ export default function ContractPriceChart({
       {error && <p role="alert">{error}</p>}
       {dataset && (
         <>
+          <p>
+            {dataset.candles.length} daily candles · {dataset.candles[0].day} to{" "}
+            {dataset.candles.at(-1)!.day} · Not live
+          </p>
           <DailyChartCanvas
             symbol={dataset.instrument!.symbol}
             candles={dataset.candles}
           />
-          <p>
-            {dataset.candles.length} daily candles · {dataset.candles[0].day} to{" "}
-            {dataset.candles.at(-1)!.day}
-          </p>
         </>
       )}
       <details>

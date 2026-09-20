@@ -43,6 +43,7 @@ export function WatchlistsScreen({ csrf }: { csrf: string }) {
   const [creating, setCreating] = useState(false);
   const [adding, setAdding] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [listVisible, setListVisible] = useState(true);
   const mounted = useRef(false);
   const pending = useRef(false);
   const active = lists.find((list) => list.id === activeId) ?? lists[0];
@@ -152,7 +153,22 @@ export function WatchlistsScreen({ csrf }: { csrf: string }) {
   }
   return (
     <section className={styles.workspace} aria-label="Watchlists and chart">
-      <aside className={styles.sidebar} aria-label="Personal watchlists">
+      <div className={styles.mobileToggle}>
+        <Button
+          variant="secondary"
+          aria-expanded={listVisible}
+          aria-controls="watchlist-sidebar"
+          onClick={() => setListVisible(!listVisible)}
+        >
+          {listVisible ? "Hide watchlist · expand chart" : "Show watchlist"}
+        </Button>
+        <span>{selected?.symbol ?? "No scrip selected"}</span>
+      </div>
+      <aside
+        id="watchlist-sidebar"
+        className={`${styles.sidebar} ${!listVisible ? styles.mobileHidden : ""}`}
+        aria-label="Personal watchlists"
+      >
         <div className={styles.toolbar}>
           <label className={styles.selector}>
             Watchlist
@@ -274,6 +290,7 @@ export function WatchlistsScreen({ csrf }: { csrf: string }) {
               <>
                 <p>Delete “{active.name}” and its saved scrips?</p>
                 <Button
+                  variant="danger"
                   disabled={busy}
                   onClick={() =>
                     void mutate(`/watchlists/${active.id}`, "DELETE", undefined)
