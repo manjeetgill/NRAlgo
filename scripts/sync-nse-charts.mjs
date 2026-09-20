@@ -64,19 +64,22 @@ export async function publishNseCharts(input, directory) {
   if (previous && !/^[a-f0-9-]{36}$/.test(previous.generation)) {
     throw new Error("Invalid previous NSE publication");
   }
+  const spillDirectory = await mkdtemp(join(tmpdir(), "nralgo-nse-spill-"));
   const instance = await DuckDBInstance.create(":memory:", {
     threads: "1",
-    max_memory: "256MB",
+    max_memory: "4GB",
+    temp_directory: spillDirectory,
   });
   const connection = await instance.connect();
   try {
     const fresh = `SELECT instrument_id,CAST(day AS DATE) AS day,CAST(open AS DOUBLE) AS open,CAST(high AS DOUBLE) AS high,CAST(low AS DOUBLE) AS low,CAST(close AS DOUBLE) AS close,CAST(volume AS DOUBLE) AS volume,source,CAST(imported_at AS VARCHAR) AS imported_at FROM read_json_auto(${literal(join(input, "candles.ndjson"))},format='newline_delimited')`;
+    // A fresh run always re-normalizes whole exchange sessions (every listed instrument for
+    // each fetched day), so a previous day fully covered by fresh data can be dropped outright
+    // instead of reconciled row-by-row — far cheaper than a window function over the full archive.
     const previousCandles = previous
-      ? ` UNION ALL SELECT ${canonicalId("instrument_id")} AS instrument_id,day,open,high,low,close,volume,source,imported_at FROM read_parquet(${literal(join(directory, previous.generation, "candles.parquet"))})`
+      ? ` UNION ALL SELECT ${canonicalId("instrument_id")} AS instrument_id,day,open,high,low,close,volume,source,imported_at FROM read_parquet(${literal(join(directory, previous.generation, "candles.parquet"))}) WHERE day NOT IN (SELECT DISTINCT day FROM (${fresh}))`
       : "";
-    await connection.run(
-      `CREATE TABLE candles AS SELECT * FROM (${fresh}${previousCandles}) QUALIFY row_number() OVER (PARTITION BY instrument_id,day ORDER BY imported_at DESC)=1`,
-    );
+    await connection.run(`CREATE TABLE candles AS ${fresh}${previousCandles}`);
     await connection.run(
       `COPY (SELECT * FROM candles ORDER BY instrument_id,day) TO ${literal(join(destination, "candles.parquet"))} (FORMAT PARQUET,COMPRESSION ZSTD)`,
     );
@@ -124,6 +127,7 @@ export async function publishNseCharts(input, directory) {
   } finally {
     connection.closeSync();
     instance.closeSync();
+    await rm(spillDirectory, { recursive: true, force: true });
   }
 }
 
