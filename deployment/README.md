@@ -88,6 +88,8 @@ sudo /usr/bin/node --env-file=.env scripts/host-operations.mjs install-monitor
 - Sign in through the public HTTPS hostname and complete the one-time setup.
 - Generate the TradingView URL in the app and send a draft-only test alert.
 - Confirm accepting the alert only prefills the guarded ticket and never submits.
+- Confirm live trading starts off, rejects an incorrect/reused 2FA code, expires
+  after five minutes and can always be disabled immediately without 2FA.
 - Run an actual encrypted Spaces backup/restore into a separate staging database.
 - Reboot the Droplet and verify services, firewall rules, TLS and outbound
   Reserved IPv4 persistence.

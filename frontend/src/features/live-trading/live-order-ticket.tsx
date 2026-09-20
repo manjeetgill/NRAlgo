@@ -189,6 +189,12 @@ export function LiveOrderTicket({
     setMessage(
       "Live trading disabled. Cancellation was requested but is not guaranteed; verify broker orders and positions.",
     );
+    toast({
+      tone: "success",
+      title: "Live trading is off",
+      description:
+        "New submissions are blocked. Verify pending orders and positions at the broker.",
+    });
   }
   /** Serialize the explicit disable action through the shared pending-action guard. */
   function handleLiveTradingDisable() {
@@ -267,12 +273,19 @@ export function LiveOrderTicket({
           . {status?.reason}
         </p>
         <p className={styles.statusLine}>
-          Enabling is temporary and requires reconciliation, an authenticator
-          code and explicit confirmation. Disabling blocks new submissions
-          first, then requests cancellation of non-terminal broker orders.
+          Live trading starts OFF for every server and broker session. Enabling
+          is temporary and requires reconciliation, a fresh 2FA code and
+          explicit confirmation. Disabling is an immediate kill switch: it needs
+          no 2FA, blocks new submissions first, then requests cancellation of
+          non-terminal broker orders.
         </p>
-        {configured && status?.enabled && (
-          <Button variant="danger" onClick={handleLiveTradingDisable}>
+        {configured && status?.enabled && status.armed && (
+          <Button
+            role="switch"
+            aria-checked="true"
+            variant="danger"
+            onClick={handleLiveTradingDisable}
+          >
             Disable live trading + cancel pending orders
           </Button>
         )}
@@ -382,53 +395,72 @@ export function LiveOrderTicket({
           {configured && (
             <>
               <fieldset disabled={busy}>
-                <legend>2. Enable live trading for five minutes</legend>
-                <Field
-                  label="Fresh app authenticator or unused recovery code"
-                  htmlFor="mfa-token"
-                >
-                  <Input
-                    id="mfa-token"
-                    type="password"
-                    autoComplete="one-time-code"
-                    maxLength={32}
-                    value={token}
-                    onChange={(e) => setToken(e.target.value)}
-                  />
-                </Field>
-                <p className={styles.statusLine}>
-                  Use a new code for each authorization. If you just changed
-                  brokers, wait for your authenticator to show its next code.
-                </p>
-                <Field label="Type ENABLE REAL MONEY" htmlFor="arm-proof">
-                  <Input
-                    id="arm-proof"
-                    value={armProof}
-                    onChange={(e) => setArmProof(e.target.value)}
-                    autoComplete="off"
-                  />
-                </Field>
+                <legend>2. Live trading access (2FA required)</legend>
+                {!status?.armed && (
+                  <>
+                    <Field
+                      label="Fresh app authenticator or unused recovery code"
+                      htmlFor="mfa-token"
+                    >
+                      <Input
+                        id="mfa-token"
+                        type="password"
+                        autoComplete="one-time-code"
+                        maxLength={32}
+                        value={token}
+                        onChange={(e) => setToken(e.target.value)}
+                      />
+                    </Field>
+                    <p className={styles.statusLine}>
+                      Use a new code for each authorization. If you just changed
+                      brokers, wait for your authenticator to show its next
+                      code.
+                    </p>
+                    <Field label="Type ENABLE REAL MONEY" htmlFor="arm-proof">
+                      <Input
+                        id="arm-proof"
+                        value={armProof}
+                        onChange={(e) => setArmProof(e.target.value)}
+                        autoComplete="off"
+                      />
+                    </Field>
+                  </>
+                )}
                 <div className={styles.actions}>
-                  <Button
-                    disabled={
-                      status?.armed ||
-                      armProof !== "ENABLE REAL MONEY" ||
-                      !token
-                    }
-                    onClick={() =>
-                      void action(async () => {
-                        try {
-                          await post("arm", { token, confirmation: armProof });
-                          await refresh();
-                        } finally {
-                          setToken("");
-                          setArmProof("");
-                        }
-                      })
-                    }
-                  >
-                    Enable live trading
-                  </Button>
+                  {!status?.armed && (
+                    <Button
+                      role="switch"
+                      aria-checked="false"
+                      disabled={armProof !== "ENABLE REAL MONEY" || !token}
+                      onClick={() =>
+                        void action(async () => {
+                          try {
+                            const result = await post("arm", {
+                              token,
+                              confirmation: armProof,
+                            });
+                            await refresh();
+                            toast({
+                              tone: "success",
+                              title: "Live trading enabled for five minutes",
+                              description: `Permission expires at ${new Date(result.armedUntil).toLocaleTimeString()}.`,
+                            });
+                          } finally {
+                            setToken("");
+                            setArmProof("");
+                          }
+                        })
+                      }
+                    >
+                      Enable live trading with 2FA
+                    </Button>
+                  )}
+                  {status?.armed && (
+                    <p role="status" className={styles.statusLine}>
+                      Live trading is temporarily ON. Use the red switch above
+                      to turn it off immediately.
+                    </p>
+                  )}
                   <Button
                     variant="secondary"
                     onClick={() =>
