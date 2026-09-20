@@ -68,12 +68,15 @@ export function LiveOrderTicket({
   csrf,
   activeBroker,
   brokerStatusUnavailable = false,
+  authorizationOnly = false,
   initialOrder,
   initialDraft,
 }: {
   csrf: string;
   activeBroker?: { id: string; provider: string; status: string };
   brokerStatusUnavailable?: boolean;
+  /** Hide order entry when this control is mounted beside a broker connection. */
+  authorizationOnly?: boolean;
   initialOrder?: { contract: BrokerInstrument; side: "buy" | "sell" };
   initialDraft?: {
     id: string;
@@ -338,8 +341,16 @@ export function LiveOrderTicket({
     >
       <div className={styles.heading}>
         <div>
-          <h2>Live execution</h2>
-          <p>Execution capability · LIMIT / DAY · NSE cash and long options</p>
+          <h2>
+            {authorizationOnly
+              ? "Live trading authorization"
+              : "Live execution"}
+          </h2>
+          <p>
+            {authorizationOnly
+              ? "Risk limits · reconciliation · five-minute 2FA permission"
+              : "Execution capability · LIMIT / DAY · NSE cash and long options"}
+          </p>
           {initialOrder && (
             <p className={styles.chainNote}>
               From option chain: {initialOrder.contract.symbol}. Search and
@@ -642,212 +653,222 @@ export function LiveOrderTicket({
                   </Button>
                 </div>
               </fieldset>
-              <fieldset disabled={busy || !status?.armed || uncertain}>
-                <legend>3. Review a live order</legend>
-                <div className="form-grid">
-                  <Field label="Market" htmlFor="market-select">
-                    <Select
-                      id="market-select"
-                      value={market}
-                      onChange={(e) => {
-                        setMarket(e.target.value as "cash" | "options");
-                        setItems([]);
-                        setSelected(null);
-                        invalidate();
-                      }}
-                    >
-                      <option value="cash">NSE cash (CNC)</option>
-                      <option value="options">NSE options (NRML)</option>
-                    </Select>
-                  </Field>
-                  <Field
-                    label="Search active broker contract"
-                    htmlFor="contract-query"
-                  >
-                    <Input
-                      id="contract-query"
-                      value={query}
-                      onChange={(e) => setQuery(e.target.value.toUpperCase())}
-                      placeholder="RELIANCE / NIFTY"
-                    />
-                  </Field>
-                  <Button
-                    variant="secondary"
-                    onClick={() =>
-                      void action(async () => {
-                        const result = await post("instruments", {
-                          market,
-                          query,
-                          offset: 0,
-                        });
-                        setItems(result.items);
-                        setSelected(null);
-                        invalidate();
-                      })
-                    }
-                  >
-                    Search contracts
-                  </Button>
-                  <Field label="Contract" htmlFor="contract-select">
-                    <Select
-                      id="contract-select"
-                      value={selected?.masterToken ?? ""}
-                      onChange={(e) => {
-                        const row =
-                          items.find((i) => i.masterToken === e.target.value) ??
-                          null;
-                        setSelected(row);
-                        setQuantity(
-                          initialDraft
-                            ? String(initialDraft.quantity)
-                            : row
-                              ? String(row.lotSize)
-                              : "",
-                        );
-                        invalidate();
-                      }}
-                    >
-                      <option value="">Select exact contract</option>
-                      {items.map((i) => (
-                        <option key={i.masterToken} value={i.masterToken}>
-                          {i.name} · lot {i.lotSize}
-                        </option>
-                      ))}
-                    </Select>
-                  </Field>
-                  <Field label="Side" htmlFor="side-select">
-                    <Select
-                      id="side-select"
-                      value={side}
-                      onChange={(e) => {
-                        setSide(e.target.value as "buy" | "sell");
-                        invalidate();
-                      }}
-                    >
-                      <option value="buy">Buy</option>
-                      <option value="sell">
-                        Sell — reduce tracked long only
-                      </option>
-                    </Select>
-                  </Field>
-                  <Field
-                    label="Quantity (exchange units)"
-                    htmlFor="quantity-input"
-                  >
-                    <Input
-                      id="quantity-input"
-                      type="number"
-                      min="1"
-                      value={quantity}
-                      onChange={(e) => {
-                        setQuantity(e.target.value);
-                        invalidate();
-                      }}
-                    />
-                  </Field>
-                  <Field label="Limit price ₹" htmlFor="price-input">
-                    <Input
-                      id="price-input"
-                      type="number"
-                      min="0.01"
-                      step="0.01"
-                      value={price}
-                      onChange={(e) => {
-                        setPrice(e.target.value);
-                        invalidate();
-                      }}
-                    />
-                  </Field>
-                </div>
-                <Button
-                  disabled={!selected || !quantity || !price}
-                  onClick={() =>
-                    void action(async () => {
-                      const result = await post("preview", {
-                        instrument: selected!.masterToken,
-                        side,
-                        quantity: Number(quantity),
-                        limitPaise: Math.round(Number(price) * 100),
-                        reduceOnly: side === "sell",
-                      });
-                      setPreview(result);
-                      setProof("");
-                    })
-                  }
-                >
-                  Preview real order
-                </Button>
-              </fieldset>
-              {preview && (
-                <fieldset disabled={busy || uncertain}>
-                  <legend>4. Confirm real-money submission</legend>
-                  <p className={styles.previewSummary}>
-                    {preview.intent.side.toUpperCase()}{" "}
-                    <span className={styles.mono}>
-                      {preview.intent.quantity} × {preview.tradingSymbol} at{" "}
-                      {money(preview.intent.limitPaise)}
-                    </span>
-                    . Notional{" "}
-                    <span className={styles.mono}>
-                      {money(preview.notionalPaise)}
-                    </span>{" "}
-                    before fees. Preview expires at{" "}
-                    {new Date(preview.expires).toLocaleTimeString()}.
-                  </p>
-                  <Field label="Type PLACE LIVE ORDER" htmlFor="submit-proof">
-                    <Input
-                      id="submit-proof"
-                      value={proof}
-                      onChange={(e) => setProof(e.target.value)}
-                      autoComplete="off"
-                    />
-                  </Field>
-                  <Button
-                    disabled={
-                      proof !== "PLACE LIVE ORDER" ||
-                      Date.now() >= preview.expires
-                    }
-                    onClick={() =>
-                      void action(async () => {
-                        try {
-                          const result = await post("orders", {
-                            previewId: preview.previewId,
-                            confirmation: proof,
-                          });
-                          setMessage(
-                            `Order status: ${result.state}. Check broker reconciliation for final fills.`,
-                          );
-                          if (
-                            ["unknown", "submitting"].includes(result.state)
-                          ) {
-                            setUncertain(true);
+              {!authorizationOnly && (
+                <>
+                  <fieldset disabled={busy || !status?.armed || uncertain}>
+                    <legend>3. Review a live order</legend>
+                    <div className="form-grid">
+                      <Field label="Market" htmlFor="market-select">
+                        <Select
+                          id="market-select"
+                          value={market}
+                          onChange={(e) => {
+                            setMarket(e.target.value as "cash" | "options");
+                            setItems([]);
+                            setSelected(null);
+                            invalidate();
+                          }}
+                        >
+                          <option value="cash">NSE cash (CNC)</option>
+                          <option value="options">NSE options (NRML)</option>
+                        </Select>
+                      </Field>
+                      <Field
+                        label="Search active broker contract"
+                        htmlFor="contract-query"
+                      >
+                        <Input
+                          id="contract-query"
+                          value={query}
+                          onChange={(e) =>
+                            setQuery(e.target.value.toUpperCase())
                           }
-                          invalidate();
-                          await refresh();
-                        } catch (e) {
-                          setUncertain(true);
-                          throw e;
+                          placeholder="RELIANCE / NIFTY"
+                        />
+                      </Field>
+                      <Button
+                        variant="secondary"
+                        onClick={() =>
+                          void action(async () => {
+                            const result = await post("instruments", {
+                              market,
+                              query,
+                              offset: 0,
+                            });
+                            setItems(result.items);
+                            setSelected(null);
+                            invalidate();
+                          })
                         }
-                      })
-                    }
-                  >
-                    Place live order
-                  </Button>
-                </fieldset>
+                      >
+                        Search contracts
+                      </Button>
+                      <Field label="Contract" htmlFor="contract-select">
+                        <Select
+                          id="contract-select"
+                          value={selected?.masterToken ?? ""}
+                          onChange={(e) => {
+                            const row =
+                              items.find(
+                                (i) => i.masterToken === e.target.value,
+                              ) ?? null;
+                            setSelected(row);
+                            setQuantity(
+                              initialDraft
+                                ? String(initialDraft.quantity)
+                                : row
+                                  ? String(row.lotSize)
+                                  : "",
+                            );
+                            invalidate();
+                          }}
+                        >
+                          <option value="">Select exact contract</option>
+                          {items.map((i) => (
+                            <option key={i.masterToken} value={i.masterToken}>
+                              {i.name} · lot {i.lotSize}
+                            </option>
+                          ))}
+                        </Select>
+                      </Field>
+                      <Field label="Side" htmlFor="side-select">
+                        <Select
+                          id="side-select"
+                          value={side}
+                          onChange={(e) => {
+                            setSide(e.target.value as "buy" | "sell");
+                            invalidate();
+                          }}
+                        >
+                          <option value="buy">Buy</option>
+                          <option value="sell">
+                            Sell — reduce tracked long only
+                          </option>
+                        </Select>
+                      </Field>
+                      <Field
+                        label="Quantity (exchange units)"
+                        htmlFor="quantity-input"
+                      >
+                        <Input
+                          id="quantity-input"
+                          type="number"
+                          min="1"
+                          value={quantity}
+                          onChange={(e) => {
+                            setQuantity(e.target.value);
+                            invalidate();
+                          }}
+                        />
+                      </Field>
+                      <Field label="Limit price ₹" htmlFor="price-input">
+                        <Input
+                          id="price-input"
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          value={price}
+                          onChange={(e) => {
+                            setPrice(e.target.value);
+                            invalidate();
+                          }}
+                        />
+                      </Field>
+                    </div>
+                    <Button
+                      disabled={!selected || !quantity || !price}
+                      onClick={() =>
+                        void action(async () => {
+                          const result = await post("preview", {
+                            instrument: selected!.masterToken,
+                            side,
+                            quantity: Number(quantity),
+                            limitPaise: Math.round(Number(price) * 100),
+                            reduceOnly: side === "sell",
+                          });
+                          setPreview(result);
+                          setProof("");
+                        })
+                      }
+                    >
+                      Preview real order
+                    </Button>
+                  </fieldset>
+                  {preview && (
+                    <fieldset disabled={busy || uncertain}>
+                      <legend>4. Confirm real-money submission</legend>
+                      <p className={styles.previewSummary}>
+                        {preview.intent.side.toUpperCase()}{" "}
+                        <span className={styles.mono}>
+                          {preview.intent.quantity} × {preview.tradingSymbol} at{" "}
+                          {money(preview.intent.limitPaise)}
+                        </span>
+                        . Notional{" "}
+                        <span className={styles.mono}>
+                          {money(preview.notionalPaise)}
+                        </span>{" "}
+                        before fees. Preview expires at{" "}
+                        {new Date(preview.expires).toLocaleTimeString()}.
+                      </p>
+                      <Field
+                        label="Type PLACE LIVE ORDER"
+                        htmlFor="submit-proof"
+                      >
+                        <Input
+                          id="submit-proof"
+                          value={proof}
+                          onChange={(e) => setProof(e.target.value)}
+                          autoComplete="off"
+                        />
+                      </Field>
+                      <Button
+                        disabled={
+                          proof !== "PLACE LIVE ORDER" ||
+                          Date.now() >= preview.expires
+                        }
+                        onClick={() =>
+                          void action(async () => {
+                            try {
+                              const result = await post("orders", {
+                                previewId: preview.previewId,
+                                confirmation: proof,
+                              });
+                              setMessage(
+                                `Order status: ${result.state}. Check broker reconciliation for final fills.`,
+                              );
+                              if (
+                                ["unknown", "submitting"].includes(result.state)
+                              ) {
+                                setUncertain(true);
+                              }
+                              invalidate();
+                              await refresh();
+                            } catch (e) {
+                              setUncertain(true);
+                              throw e;
+                            }
+                          })
+                        }
+                      >
+                        Place live order
+                      </Button>
+                    </fieldset>
+                  )}
+                  {uncertain && (
+                    <p role="alert" className={styles.alert}>
+                      Submission outcome needs review. New tickets are locked in
+                      this view. Reconcile and check the active broker before
+                      continuing; do not recreate this order.
+                    </p>
+                  )}
+                  <DataTable
+                    columns={orderColumns}
+                    rows={status?.orders ?? []}
+                    rowKey={(o) => o.id}
+                    emptyTitle="No live orders recorded in this session yet."
+                  />
+                </>
               )}
-              {uncertain && (
-                <p role="alert" className={styles.alert}>
-                  Submission outcome needs review. New tickets are locked in
-                  this view. Reconcile and check the active broker before
-                  continuing; do not recreate this order.
-                </p>
-              )}
-              <DataTable
-                columns={orderColumns}
-                rows={status?.orders ?? []}
-                rowKey={(o) => o.id}
-                emptyTitle="No live orders recorded in this session yet."
-              />
             </>
           )}
         </div>

@@ -608,7 +608,11 @@ button {
   border: 1px solid var(--sidebar-border);
   border-radius: 8px;
   padding: 15px 13px;
-  background: linear-gradient(140deg, var(--sidebar-bg-active), var(--sidebar-bg));
+  background: linear-gradient(
+    140deg,
+    var(--sidebar-bg-active),
+    var(--sidebar-bg)
+  );
 }
 .tiny-label {
   font-size: 8px;
@@ -1358,6 +1362,13 @@ footer > span {
   color: var(--ink);
   margin: auto;
   box-shadow: var(--shadow-lg);
+}
+
+/* Broker-side live authorization needs room for risk limits without exposing order entry. */
+.broker-live-authorization-dialog {
+  width: min(760px, calc(100vw - 32px));
+  max-height: min(860px, calc(100vh - 32px));
+  overflow: auto;
 }
 .strategy-dialog::backdrop {
   background: rgba(5, 8, 14, 0.6);

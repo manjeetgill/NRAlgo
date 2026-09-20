@@ -2,7 +2,8 @@
 /**
  * Broker connection views: active-provider selection, Kotak credential dialog and Zerodha setup.
  * Private views share the connection hooks; portfolio reports remain lazy and read-only.
- * This screen never mounts an execution ticket or submits a broker order.
+ * Connected execution-capable brokers expose the shared authorization control; order entry
+ * remains on the dedicated trading screens and every permission is enforced by the server.
  */
 import { useMemo, useState, type FormEvent } from "react";
 import {
@@ -25,6 +26,13 @@ import dynamic from "next/dynamic";
 const BrokerPortfolioPanel = dynamic(() =>
   import("@/components/broker-portfolio-panel").then(
     (module) => module.BrokerPortfolioPanel,
+  ),
+);
+
+/** Load the guarded authorization UI only after a connected broker action opens it. */
+const LiveOrderTicket = dynamic(() =>
+  import("@/features/live-trading/live-order-ticket").then(
+    (module) => module.LiveOrderTicket,
   ),
 );
 
@@ -89,6 +97,13 @@ export function BrokersScreen({ csrf }: { csrf: string }) {
   const [showPortfolio, setShowPortfolio] = useState(false);
   const [connectOpen, setConnectOpen] = useState(false);
   const [disconnectOpen, setDisconnectOpen] = useState(false);
+  const [liveProvider, setLiveProvider] = useState<"kotak" | "zerodha" | null>(
+    null,
+  );
+  const liveRegistry = useBrokerRegistry(csrf, connection.checkedAt);
+  const liveBroker = liveRegistry.brokers.find(
+    (broker) => broker.provider === liveProvider,
+  );
 
   /** Submit credentials once, then erase all input values even after a failed broker response. */
   async function onConnect(event: FormEvent<HTMLFormElement>) {
@@ -203,13 +218,21 @@ export function BrokersScreen({ csrf }: { csrf: string }) {
               {connection.connected ? "Reconnect" : "Connect broker"}
             </Button>
             {connection.connected && (
-              <Button
-                variant="secondary"
-                disabled={connection.busy}
-                onClick={() => setDisconnectOpen(true)}
-              >
-                Disconnect
-              </Button>
+              <>
+                <Button
+                  disabled={connection.busy}
+                  onClick={() => setLiveProvider("kotak")}
+                >
+                  Enable live trading…
+                </Button>
+                <Button
+                  variant="secondary"
+                  disabled={connection.busy}
+                  onClick={() => setDisconnectOpen(true)}
+                >
+                  Disconnect
+                </Button>
+              </>
             )}
           </div>
           <p>
@@ -224,7 +247,10 @@ export function BrokersScreen({ csrf }: { csrf: string }) {
             {showPortfolio ? "Hide broker portfolio" : "View broker portfolio"}
           </Button>
         </Card>
-        <ZerodhaConnectionCard csrf={csrf} />
+        <ZerodhaConnectionCard
+          csrf={csrf}
+          onOpenLiveAuthorization={() => setLiveProvider("zerodha")}
+        />
         <IciciConnectionCard csrf={csrf} />
       </div>
       {showPortfolio && connection.connected && (
@@ -332,6 +358,31 @@ export function BrokersScreen({ csrf }: { csrf: string }) {
             Confirm disconnect
           </Button>
         </DialogActions>
+      </Dialog>
+      <Dialog
+        open={liveProvider !== null}
+        onClose={() => setLiveProvider(null)}
+        title={`Authorize ${liveProvider ? providerNames[liveProvider] : "broker"} live trading`}
+        labelledBy="broker-live-authorization-title"
+        className="broker-live-authorization-dialog"
+      >
+        {liveProvider && (
+          <>
+            {liveBroker && liveRegistry.activeBrokerId !== liveBroker.id && (
+              <p role="alert" className="warning">
+                Select {providerNames[liveProvider]} under Active live broker
+                before enabling. Broker selection and five-minute live
+                authorization require separate fresh MFA codes.
+              </p>
+            )}
+            <LiveOrderTicket
+              csrf={csrf}
+              activeBroker={liveBroker}
+              brokerStatusUnavailable={Boolean(liveRegistry.error)}
+              authorizationOnly
+            />
+          </>
+        )}
       </Dialog>
     </section>
   );
@@ -527,7 +578,13 @@ function ActiveBrokerSelector({
 }
 
 /** Redirect authorization and setup view; credentials exist only in transient form state. */
-function ZerodhaConnectionCard({ csrf }: { csrf: string }) {
+function ZerodhaConnectionCard({
+  csrf,
+  onOpenLiveAuthorization,
+}: {
+  csrf: string;
+  onOpenLiveAuthorization: () => void;
+}) {
   const toast = useToast();
   const [setupOpen, setSetupOpen] = useState(false);
   const { connection, busy, error, action, configure } =
@@ -637,13 +694,18 @@ function ZerodhaConnectionCard({ csrf }: { csrf: string }) {
             Verify Zerodha session
           </Button>
           {connection?.connected && (
-            <Button
-              variant="secondary"
-              disabled={busy}
-              onClick={() => void runAction("disconnect")}
-            >
-              Disconnect Zerodha
-            </Button>
+            <>
+              <Button disabled={busy} onClick={onOpenLiveAuthorization}>
+                Enable live trading…
+              </Button>
+              <Button
+                variant="secondary"
+                disabled={busy}
+                onClick={() => void runAction("disconnect")}
+              >
+                Disconnect Zerodha
+              </Button>
+            </>
           )}
           <Button variant="secondary" onClick={() => setSetupOpen(true)}>
             Set up Zerodha
