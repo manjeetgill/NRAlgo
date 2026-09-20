@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BriefcaseBusiness, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { requestApiJson } from "@/lib/api";
 import {
@@ -182,12 +182,11 @@ export function PortfolioScreen({ csrf }: { csrf: string }) {
     <section className={styles.screen} aria-label="Portfolio">
       <header className={styles.header}>
         <div>
-          <h1>
-            <BriefcaseBusiness size={24} /> Portfolio
-          </h1>
           <p>
-            View one connected broker portfolio or club all connected real
-            accounts in a single read-only view.
+            {selection === "all"
+              ? "Combined read-only totals across connected accounts."
+              : "Read-only holdings and positions for your selected account."}{" "}
+            Changing this view does not change your execution broker.
           </p>
         </div>
         <div className={styles.selector}>
@@ -195,7 +194,7 @@ export function PortfolioScreen({ csrf }: { csrf: string }) {
             Portfolio
             <select
               value={selection}
-              disabled={registryLoading || loading}
+              disabled={registryLoading || loading || !providers.length}
               onChange={(event) => {
                 setSelection(event.target.value as "all" | PortfolioProvider);
                 setSnapshots([]);
@@ -206,7 +205,9 @@ export function PortfolioScreen({ csrf }: { csrf: string }) {
               <option value="" disabled>
                 Reconnect or select your active broker in Settings
               </option>
-              <option value="all">All connected portfolios</option>
+              <option value="all" disabled={!providers.length}>
+                All connected portfolios
+              </option>
               <optgroup label="Accounts">
                 {providers.map((provider) => (
                   <option key={provider} value={provider}>
@@ -230,8 +231,8 @@ export function PortfolioScreen({ csrf }: { csrf: string }) {
 
       {!registryLoading && !providers.length && (
         <p className={styles.empty}>
-          Connect Kotak Neo or Zerodha Kite in Broker connections to view a real
-          portfolio.
+          <a href="#/brokers">Connect a broker</a> to view its holdings and
+          positions here.
         </p>
       )}
       {error && (
