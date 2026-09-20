@@ -545,6 +545,11 @@ The supported topology is one Linux host, one API and **one calculator container
 
 ### CI release and first deployment
 
+The concise operator runbook and copy-safe configuration templates are in
+[`deployment/README.md`](deployment/README.md),
+[`deployment/digitalocean.env.example`](deployment/digitalocean.env.example)
+and [`deployment/secrets.example.json`](deployment/secrets.example.json).
+
 Every incoming commit runs the isolated build preflight. Successful pushes to `main` additionally build four Linux-amd64 runtime images, run the disposable recovery drill, and only then publish images to GHCR. The `release-<commit>` artifact contains `release.env`, including digests for app, PostgreSQL and Caddy images. Images are not automatically deployed.
 
 Provision one amd64 Ubuntu Droplet in DigitalOcean Bangalore (`blr1`) with at least 4 vCPU and 8 GiB RAM, Docker Compose, Node 22+, iptables, a Reserved IPv4, a real domain and a private DigitalOcean Space. The Cloud Firewall should expose only 80/443 publicly and restrict SSH to operator addresses. Configure the Reserved IPv4 as the outbound source before registering it with a broker, and verify that routing after every network change.

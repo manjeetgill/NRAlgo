@@ -53,6 +53,8 @@ function writeSecretsDocument(document, destination) {
     if (
       typeof value !== "string" ||
       value.includes("\n") ||
+      value.includes("<") ||
+      value.includes(">") ||
       value.length > 8192 ||
       (!optional.has(name) &&
         value.length <
