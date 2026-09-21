@@ -1012,9 +1012,13 @@ export class KotakMarketDataClient implements BrokerMarketDataReader {
         throw new Error();
       }
       return normalizePortfolioRows(kind, rows);
-    } catch {
+    } catch (cause) {
+      // Preserve the original throw site (never its message/data) so the request-failure
+      // log's stack-frame trace can distinguish a normalization bug from an empty/broker
+      // failure instead of always pointing at this generic catch.
       throw new Error(
         "Kotak portfolio unavailable. Verify session and account; no empty portfolio assumed.",
+        { cause },
       );
     }
   }

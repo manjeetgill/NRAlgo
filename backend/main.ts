@@ -1122,6 +1122,31 @@ export function createApiApplication(
       res.setHeader("X-Request-Id", requestId);
       // Stack locations diagnose failures without logging messages, SQL parameters,
       // query strings, headers, request bodies or provider payloads containing secrets.
+      const framesOf = (value: unknown) =>
+        value instanceof Error
+          ? (value.stack
+              ?.split("\n")
+              .filter((line) => /^\s+at /.test(line))
+              .map(
+                (line) =>
+                  line.match(
+                    /((?:file:\/\/\/|\/|node:)[^()\s]+:\d+:\d+)\)?$/,
+                  )?.[1],
+              )
+              .filter(Boolean)
+              .slice(0, 12) ?? [])
+          : [];
+      // A wrapped error (e.g. a broker call re-thrown with a safe public message) keeps its
+      // original throw site as `cause`; include it, bounded, so the real location is never
+      // hidden behind a generic catch-and-rethrow.
+      const causeFrames: unknown[] = [];
+      for (
+        let cause = err instanceof Error ? err.cause : undefined, depth = 0;
+        cause instanceof Error && depth < 3;
+        cause = cause.cause, depth++
+      ) {
+        causeFrames.push(...framesOf(cause));
+      }
       console.error("API request failed", {
         requestId,
         method: req.method,
@@ -1132,20 +1157,8 @@ export function createApiApplication(
         code: /^[A-Za-z0-9_]{1,40}$/.test(error.code ?? "")
           ? error.code
           : undefined,
-        frames:
-          err instanceof Error
-            ? err.stack
-                ?.split("\n")
-                .filter((line) => /^\s+at /.test(line))
-                .map(
-                  (line) =>
-                    line.match(
-                      /((?:file:\/\/\/|\/|node:)[^()\s]+:\d+:\d+)\)?$/,
-                    )?.[1],
-                )
-                .filter(Boolean)
-                .slice(0, 12)
-            : [],
+        frames: framesOf(err),
+        causeFrames,
       });
     }
     res.status(status).json({

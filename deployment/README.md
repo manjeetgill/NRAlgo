@@ -135,3 +135,25 @@ then remove only that stale lock/scratch, not the chart archive. PostgreSQL back
 do not include Parquet files: retain a separate verified archive copy or a documented
 re-download procedure. Confirm a known stock and index show the latest available
 session in Watchlists before declaring the deployment ready.
+
+### F&O option-chain history
+
+`make sync-option-data` is the containerized counterpart for stored option-chain
+history: same image, same `HISTORICAL_ARCHIVE_DIRECTORY` volume (its own
+`nse-options/` subdirectory), same 512 MiB / half-CPU bound, no database/broker
+secrets. It downloads and normalizes official F&O bhavcopy reports, then atomically
+publishes compact Parquet the same way as the cash/index sync. Schedule it in the
+host's scheduler alongside `sync-market-data`, outside live execution hours; capture
+its exit status and alert on failure. Defaults to the last seven days; for an
+explicit backfill range:
+
+```sh
+docker compose --env-file .env --env-file .env.release --profile maintenance \
+  run --rm --no-deps option-data --from 2021-01-01 --to 2021-12-31
+```
+
+This history is a fallback for off-market option-chain charts, not a requirement for
+live trading: option-chain browsing while connected to a broker is unaffected if this
+is never scheduled. The same recovery rules as the cash/index archive apply —
+`nse-options/current.json` is the only generation never to remove, and a hard-killed
+run can leave `nse-options/sync.lock` to clean up before retrying.

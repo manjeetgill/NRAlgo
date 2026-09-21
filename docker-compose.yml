@@ -160,6 +160,26 @@ services:
       - ${HISTORICAL_ARCHIVE_DIRECTORY:-./.runtime/historical-parquet}:/app/.runtime/historical-parquet
       - market_data_scratch:/tmp
     networks: [reference_egress]
+  # F&O option-chain counterpart to market-data; same image, same archive volume (a
+  # separate nse-options/ subdirectory), different entrypoint. Not a daemon either.
+  option-data:
+    <<: *app
+    profiles: [maintenance]
+    restart: "no"
+    image: ${MARKET_DATA_IMAGE:?Use the digest-pinned release manifest}
+    entrypoint: [node, scripts/sync-fno-charts.mjs]
+    mem_limit: 512m
+    memswap_limit: 512m
+    cpus: 0.5
+    cpu_shares: 128
+    environment:
+      NODE_OPTIONS: --max-old-space-size=128
+      HISTORICAL_ARCHIVE_DIRECTORY: /app/.runtime/historical-parquet
+    tmpfs: []
+    volumes:
+      - ${HISTORICAL_ARCHIVE_DIRECTORY:-./.runtime/historical-parquet}:/app/.runtime/historical-parquet
+      - market_data_scratch:/tmp
+    networks: [reference_egress]
   calculator:
     <<: *app
     mem_limit: 768m

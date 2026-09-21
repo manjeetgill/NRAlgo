@@ -34,14 +34,14 @@ CMD ["node", "--import", "./dist/backend/runtime-secrets.js", "dist/backend/main
 
 # Explicit, one-shot NSE maintenance job; no broker or database secrets are mounted.
 # Defaults to the cash/index chart sync; the F&O option-chain sync in the same
-# image is invoked with --entrypoint (see `make sync-option-data`), no extra
-# Python dependency required (download_fno_historical.py uses --legacy-provider
-# native, stdlib only).
+# image runs as the separate `option-data` Compose service, which overrides the
+# entrypoint to sync-fno-charts.mjs. No extra Python dependency required
+# (download_fno_historical.py uses --legacy-provider native, stdlib only).
 FROM backend AS market-data
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends python3 ca-certificates \
     && rm -rf /var/lib/apt/lists/*
-COPY scripts/sync-nse-charts.mjs scripts/download-nse.py scripts/download_fno_historical.py scripts/sync-option-eod-charts.mjs ./scripts/
+COPY scripts/sync-nse-charts.mjs scripts/download-nse.py scripts/download_fno_historical.py scripts/sync-option-eod-charts.mjs scripts/sync-fno-charts.mjs ./scripts/
 USER node
 ENTRYPOINT ["node", "scripts/sync-nse-charts.mjs"]
 CMD []

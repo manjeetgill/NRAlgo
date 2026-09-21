@@ -12,6 +12,7 @@
 !scripts/download-nse.py
 !scripts/download_fno_historical.py
 !scripts/sync-option-eod-charts.mjs
+!scripts/sync-fno-charts.mjs
 !calculation_engine/
 !calculation_engine/**
 !frontend/

@@ -50,17 +50,13 @@ recovery-check:
 sync-market-data:
 	$(MAKE) preflight
 	$(COMPOSE) --profile maintenance run --rm --no-deps market-data
-# Host-level F&O option-chain sync: downloads/normalizes via download_fno_historical.py
-# (raw archives are cached and reused on rerun), then publishes compact Parquet via
-# sync-option-eod-charts.mjs. Pass FNO_FROM/FNO_TO to control the date range; defaults
-# to the last 7 days. Containerized recurring sync needs a persistent volume for
-# .runtime/nse-fno (not yet wired into docker-compose.yml) — run this target on the
-# host, or under `docker compose run --entrypoint`, until that volume exists.
-FNO_FROM ?= $(shell date -u -v-7d +%Y-%m-%d 2>/dev/null || date -u -d '7 days ago' +%Y-%m-%d)
-FNO_TO ?= $(shell date -u +%Y-%m-%d)
-FNO_OUTPUT ?= .runtime/nse-fno
+# Containerized F&O option-chain sync: same image and archive volume as market-data,
+# a separate nse-options/ subdirectory, entrypoint overridden to sync-fno-charts.mjs
+# (downloads/normalizes via download_fno_historical.py, then publishes compact Parquet
+# via sync-option-eod-charts.mjs, in one process). Defaults to the last 7 days; pass
+# FNO_FROM/FNO_TO for an explicit backfill range, e.g.
+# `make sync-option-data FNO_FROM=2021-01-01 FNO_TO=2021-12-31`.
 sync-option-data:
-	.runtime/python-venv/bin/python3 scripts/download_fno_historical.py \
-		--from $(FNO_FROM) --to $(FNO_TO) --symbols ALL --legacy-provider native \
-		--skip-unavailable --continue-invalid --output $(FNO_OUTPUT)
-	node scripts/sync-option-eod-charts.mjs --source $(FNO_OUTPUT)/normalized
+	$(MAKE) preflight
+	$(COMPOSE) --profile maintenance run --rm --no-deps option-data \
+		$(if $(FNO_FROM),--from $(FNO_FROM)) $(if $(FNO_TO),--to $(FNO_TO))

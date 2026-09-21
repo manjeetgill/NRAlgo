@@ -268,6 +268,9 @@ export function PortfolioScreen({ csrf }: { csrf: string }) {
                   coverage?.missingAccountIds.includes(account.id),
                 )
                 .map((account) => account.label);
+              const coverageDetail = coverage
+                ? `${coverage.availableAccounts} of ${dashboard.coverage.totalAccounts} accounts${missing.length ? ` · Missing: ${missing.join(", ")}` : ""}`
+                : undefined;
               return (
                 <Metric
                   key={field}
@@ -276,9 +279,11 @@ export function PortfolioScreen({ csrf }: { csrf: string }) {
                   tone={field === "positionsPnl" ? value : undefined}
                   partial={partial}
                   detail={
-                    coverage
-                      ? `${coverage.availableAccounts} of ${dashboard.coverage.totalAccounts} accounts${missing.length ? ` · Missing: ${missing.join(", ")}` : ""}`
-                      : undefined
+                    // Distinct source from Overview/Live trading's P&L: this is the last
+                    // saved snapshot, not a live broker read, so the two can legitimately differ.
+                    field === "positionsPnl"
+                      ? `As of last synced snapshot, not live · see Live Trading for real-time marks${coverageDetail ? ` · ${coverageDetail}` : ""}`
+                      : coverageDetail
                   }
                 />
               );
