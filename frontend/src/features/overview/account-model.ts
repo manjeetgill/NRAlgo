@@ -41,6 +41,129 @@ export interface AccountHolding {
   markPrice: number | null;
   pnl: number | null;
 }
+
+/** Broker-scoped identity prevents identical contracts in separate accounts being merged. */
+export type BrokerPosition = AccountPosition & { brokerName: string };
+export type BrokerHolding = AccountHolding & { brokerName: string };
+
+/** Account-wide totals require fresh successful reads from every included provider.
+ * Retained holdings remain visible with broker identities but do not establish complete totals. */
+export function combineConnectedBalances(
+  accounts: {
+    id: string;
+    name: string;
+    snapshot: AccountSnapshot | null;
+    current: boolean;
+    holdingsCurrent: boolean;
+  }[],
+) {
+  // Some broker responses contain a position book in the holdings slot. Do not count it as demat.
+  const invalidHoldingBrokers = accounts
+    .filter(({ snapshot }) =>
+      snapshot?.holdings?.some(
+        (holding) =>
+          /(?:^|_)(?:fo|fno|cds|mcx)$|derivative/i.test(holding.exchange) ||
+          /option|future|nrml|mis/i.test(holding.product),
+      ),
+    )
+    .map((account) => account.name);
+  accounts = accounts.map((account) =>
+    invalidHoldingBrokers.includes(account.name)
+      ? {
+          ...account,
+          holdingsCurrent: false,
+          snapshot: account.snapshot
+            ? { ...account.snapshot, holdings: null }
+            : null,
+        }
+      : account,
+  );
+  const holdings: BrokerHolding[] = accounts.flatMap(({ id, name, snapshot }) =>
+    (snapshot?.holdings ?? []).map((holding) => ({
+      ...holding,
+      id: `${id}:${holding.id}`,
+      brokerName: name,
+    })),
+  );
+  const holdingsComplete =
+    accounts.length > 0 &&
+    accounts.every((account) => account.current && account.holdingsCurrent);
+  const knownHoldingBooks = accounts.filter((account) =>
+    Array.isArray(account.snapshot?.holdings),
+  ).length;
+  const funds =
+    accounts.length > 0 &&
+    accounts.every(
+      (account) =>
+        account.current &&
+        typeof account.snapshot?.availableFunds === "number" &&
+        Number.isFinite(account.snapshot.availableFunds),
+    )
+      ? accounts.reduce(
+          (total, account) => total + account.snapshot!.availableFunds!,
+          0,
+        )
+      : null;
+  const pledged =
+    holdingsComplete &&
+    holdings.every(
+      (holding) =>
+        typeof holding.pledgedQuantity === "number" &&
+        Number.isFinite(holding.pledgedQuantity),
+    )
+      ? holdings.reduce((total, holding) => total + holding.pledgedQuantity!, 0)
+      : null;
+  return {
+    invalidHoldingBrokers,
+    holdings,
+    holdingsComplete,
+    knownHoldingBooks,
+    availableFunds: funds !== null && Number.isFinite(funds) ? funds : null,
+    pledgedQuantity:
+      pledged !== null && Number.isFinite(pledged) ? pledged : null,
+  };
+}
+
+/** Missing books never count as flat. Known rows remain visible, but incomplete totals stay unknown. */
+export function combineConnectedPositions(
+  accounts: {
+    id: string;
+    name: string;
+    snapshot: AccountSnapshot | null;
+    current: boolean;
+  }[],
+) {
+  const positions: BrokerPosition[] = accounts.flatMap(
+    ({ id, name, snapshot }) =>
+      (snapshot?.positions ?? []).map((position) => ({
+        ...position,
+        id: `${id}:${position.id}`,
+        brokerName: name,
+      })),
+  );
+  const complete =
+    accounts.length > 0 &&
+    accounts.every(
+      (account) =>
+        account.current && Array.isArray(account.snapshot?.positions),
+    );
+  const knownBooks = accounts.filter((account) =>
+    Array.isArray(account.snapshot?.positions),
+  ).length;
+  const pnl =
+    complete &&
+    positions.every(
+      (position) => position.pnl !== null && Number.isFinite(position.pnl),
+    )
+      ? positions.reduce((total, position) => total + position.pnl!, 0)
+      : null;
+  return {
+    positions,
+    complete,
+    knownBooks,
+    pnl: pnl !== null && Number.isFinite(pnl) ? pnl : null,
+  };
+}
 /** A point-in-time account read. Null means unavailable; an empty list means verified empty. */
 export interface AccountSnapshot {
   mode: AccountMode;

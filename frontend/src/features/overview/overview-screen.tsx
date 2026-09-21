@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState, type ChangeEvent } from "react";
+import { useMemo, useState } from "react";
 import {
   Activity,
   ArrowRight,
@@ -17,8 +17,10 @@ import { useBrokerRegistry } from "@/features/brokers/broker-hooks";
 import {
   formatAccountMoney,
   formatActivityTime,
-  type AccountHolding,
-  type AccountPosition,
+  combineConnectedPositions,
+  combineConnectedBalances,
+  type BrokerHolding,
+  type BrokerPosition,
   type OverviewDestination,
   type OverviewWorkspace,
 } from "@/features/overview/account-model";
@@ -72,44 +74,65 @@ export function OverviewScreen({
       connectedProviders.has(adapter.id as "kotak" | "zerodha" | "icici"),
     );
   }, [registry.brokers]);
-  const [brokerId, setBrokerId] = useState("");
   const [showPositions, setShowPositions] = useState(false);
   const [showHoldings, setShowHoldings] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<
     OverviewWorkspace["events"][number] | null
   >(null);
   const [activityDialogOpen, setActivityDialogOpen] = useState(false);
-  /** Default to the saved broker; never substitute another account after expiry. */
-  useEffect(() => {
-    const activeProvider = registry.brokers.find(
-      (item) =>
-        item.id === registry.activeBrokerId && item.status === "connected",
-    )?.provider;
-    setBrokerId(
-      connectedBrokers.find((item) => item.id === activeProvider)?.id ?? "",
-    );
-  }, [connectedBrokers, registry.activeBrokerId, registry.brokers]);
-  const broker = connectedBrokers.find((item) => item.id === brokerId) ?? null;
-  const account = useOverviewAccount(broker, workspace.csrf);
-  const snapshot = account.live;
-  const pledgedQuantity = useMemo(() => {
-    if (
-      !snapshot?.holdings ||
-      snapshot.holdings.some((holding) => holding.pledgedQuantity === null)
-    ) {
-      return null;
-    }
-    return snapshot.holdings.reduce(
-      /** A verified empty book correctly totals to zero; unknown rows were rejected above. */ (
-        total,
-        holding,
-      ) => total + holding.pledgedQuantity!,
-      0,
-    );
-  }, [snapshot?.holdings]);
+  // Fixed hook order: each provider owns its snapshot/feed; MFA is read once per app session.
+  const security = useOverviewAccount(null, workspace.csrf);
+  const kotak = useOverviewAccount(
+    connectedBrokers.find((item) => item.id === "kotak") ?? null,
+    workspace.csrf,
+    false,
+  );
+  const zerodha = useOverviewAccount(
+    connectedBrokers.find((item) => item.id === "zerodha") ?? null,
+    workspace.csrf,
+    false,
+  );
+  const icici = useOverviewAccount(
+    connectedBrokers.find((item) => item.id === "icici") ?? null,
+    workspace.csrf,
+    false,
+  );
+  const accounts = { kotak, zerodha, icici };
+  const account = security;
+  const books = connectedBrokers.map((adapter) => ({
+    ...adapter,
+    account: accounts[adapter.id as keyof typeof accounts],
+  }));
+  const combined = combineConnectedPositions(
+    books.map(({ id, name, account: book }) => ({
+      id,
+      name,
+      snapshot: book.live,
+      current: book.positionsCurrent,
+    })),
+  );
+  const positionsLoading = books.some((book) => book.account.loading);
+  const balances = combineConnectedBalances(
+    books.map(({ id, name, account: book }) => ({
+      id,
+      name,
+      snapshot: book.live,
+      current: book.connected === true && !book.loading && !book.error,
+      holdingsCurrent: book.holdingsCurrent,
+    })),
+  );
+  const connectedCount = books.filter(
+    (book) => book.account.connected === true,
+  ).length;
   const recentEvents = orderAuditEvents(workspace.events).slice(0, 5);
-  const positionColumns = useMemo<DataTableColumn<AccountPosition>[]>(
+  const positionColumns = useMemo<DataTableColumn<BrokerPosition>[]>(
     () => [
+      {
+        key: "broker",
+        header: "Broker",
+        render: (position) => position.brokerName,
+        sortValue: (position) => position.brokerName,
+      },
       {
         key: "symbol",
         header: "Instrument",
@@ -163,8 +186,14 @@ export function OverviewScreen({
     ],
     [],
   );
-  const holdingColumns = useMemo<DataTableColumn<AccountHolding>[]>(
+  const holdingColumns = useMemo<DataTableColumn<BrokerHolding>[]>(
     () => [
+      {
+        key: "broker",
+        header: "Broker",
+        render: (holding) => holding.brokerName,
+        sortValue: (holding) => holding.brokerName,
+      },
       {
         key: "symbol",
         header: "Instrument",
@@ -271,29 +300,31 @@ export function OverviewScreen({
     return () => onNavigate(destination);
   };
 
-  /** Switch adapters; the account hook invalidates pending responses and reloads the baseline. */
-  function onBrokerChange(event: ChangeEvent<HTMLSelectElement>) {
-    setBrokerId(event.target.value);
-    setShowPositions(false);
-    setShowHoldings(false);
-  }
-  /** Explicitly request one snapshot; the hook owns promise rejection and loading state.
+  /** Explicitly refresh every connected account; hooks isolate failures and loading state.
    * Surfaces the outcome as a toast — the hook's own request/error handling is unchanged. */
   async function onRefreshSnapshot() {
-    const result = await account.loadAccountSnapshot();
-    if (result === true) {
+    const results = await Promise.all(
+      books.map((book) => book.account.loadAccountSnapshot()),
+    );
+    const errors = results.filter(
+      (result): result is string => typeof result === "string",
+    );
+    if (results.length && results.every((result) => result === true)) {
       toast({
         tone: "success",
         title: "Snapshot refreshed",
-        description: broker
-          ? `${broker.name} funds and positions are up to date.`
-          : undefined,
+        description:
+          "Connected broker reads completed. Review any partial-data warnings below.",
       });
-    } else if (typeof result === "string") {
-      toast({ tone: "error", title: "Refresh failed", description: result });
+    } else if (errors.length) {
+      toast({
+        tone: "error",
+        title: "Some accounts could not refresh",
+        description: errors.join(" "),
+      });
     }
   }
-  /** Expand/collapse the selected account's table without refetching reports. */
+  /** Expand/collapse the consolidated position table without refetching reports. */
   function onTogglePositions() {
     setShowPositions(!showPositions);
   }
@@ -321,41 +352,16 @@ export function OverviewScreen({
       className={styles.screen}
       aria-label="Trading workspace overview"
     >
-      {/* Broker selection controls the adapter; no provider API fields leak into this header. */}
+      {/* Overview never selects an execution account; every connected provider is included. */}
       <header className={styles.heading}>
         <div>
           <h1>Your trading workspace</h1>
           <p>Know what needs attention, then get back to your work.</p>
         </div>
-        <label className={styles.brokerSelect}>
-          Broker account
-          <select
-            value={brokerId}
-            onChange={onBrokerChange}
-            disabled={registry.loading || !connectedBrokers.length}
-          >
-            {!registry.loading && connectedBrokers.length > 0 && !brokerId && (
-              <option value="">
-                Reconnect or select your active broker in Settings
-              </option>
-            )}
-            {registry.loading ? (
-              <option value="">Loading connected brokers…</option>
-            ) : !connectedBrokers.length ? (
-              <option value="">No connected brokers</option>
-            ) : (
-              connectedBrokers.map(
-                /** Render only connected providers with implemented account adapters. */ (
-                  item,
-                ) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ),
-              )
-            )}
-          </select>
-        </label>
+        <p>
+          All connected brokers ·{" "}
+          {registry.loading ? "Loading…" : `${books.length} accounts`}
+        </p>
       </header>
 
       {/* Readiness is informative only; this screen cannot arm or submit orders. */}
@@ -385,15 +391,15 @@ export function OverviewScreen({
         </Button>
       </section>
 
-      {/* Headline values come from the selected account snapshot, never fabricated constants. */}
+      {/* Complete totals require every included account; unavailable values are never zero. */}
       <div className={styles.metrics}>
         <article className={styles.metric} aria-label="Available account funds">
           <div>
             Available margin
             <Wallet size={17} />
           </div>
-          <strong>{formatAccountMoney(snapshot?.availableFunds)}</strong>
-          <p>Broker buying power · not cash balance</p>
+          <strong>{formatAccountMoney(balances.availableFunds)}</strong>
+          <p>All connected brokers · buying power, not transferable cash</p>
         </article>
         <button
           className={`${styles.metric} ${styles.metricButton}`}
@@ -405,8 +411,15 @@ export function OverviewScreen({
             Open positions
             <Activity size={17} />
           </div>
-          <strong>{snapshot?.positions?.length ?? "—"}</strong>
-          <p>View positions and their latest marks</p>
+          <strong>
+            {combined.knownBooks
+              ? `${combined.positions.length}${combined.complete ? "" : "+"}`
+              : "—"}
+          </strong>
+          <p>
+            All connected brokers
+            {combined.complete ? "" : " · incomplete coverage"}
+          </p>
         </button>
         <article
           className={styles.metric}
@@ -415,15 +428,14 @@ export function OverviewScreen({
           <div>
             Live position P&amp;L <Activity size={17} />
           </div>
-          <strong className={getPnlClassName(account.live?.pnl)}>
-            {formatAccountMoney(account.live?.pnl)}
+          <strong className={getPnlClassName(combined.pnl)}>
+            {formatAccountMoney(combined.pnl)}
           </strong>
           <p>
-            {account.live
-              ? "Open broker positions · last known marks"
-              : account.connected
-                ? "Refresh snapshot to load broker positions"
-                : "Connect your broker to view"}
+            All connected brokers ·{" "}
+            {combined.pnl !== null
+              ? "last known marks"
+              : "complete valuation unavailable"}
           </p>
         </article>
         <button
@@ -436,9 +448,14 @@ export function OverviewScreen({
             Holdings
             <BriefcaseBusiness size={17} />
           </div>
-          <strong>{snapshot?.holdings?.length ?? "—"}</strong>
+          <strong>
+            {balances.knownHoldingBooks
+              ? `${balances.holdings.length}${balances.holdingsComplete ? "" : "+"}`
+              : "—"}
+          </strong>
           <p>
-            Pledged shares · {pledgedQuantity?.toLocaleString("en-IN") ?? "—"}
+            All connected brokers · pledged shares{" "}
+            {balances.pledgedQuantity?.toLocaleString("en-IN") ?? "—"}
           </p>
         </button>
         <button
@@ -450,108 +467,118 @@ export function OverviewScreen({
             Broker connection <Radio size={17} />
           </div>
           <strong>
-            {account.connected === null
-              ? "—"
-              : account.connected
-                ? "Connected"
-                : "Not connected"}
+            {registry.loading || positionsLoading
+              ? "Checking…"
+              : `${connectedCount} of ${books.length} connected`}
           </strong>
           <p>
-            {broker?.name ?? "No connected broker"} · session status{" "}
-            <ArrowRight size={12} />
+            Manage all broker sessions <ArrowRight size={12} />
           </p>
         </button>
       </div>
 
-      {/* Explicit snapshot controls and a single selected-book view prevent cross-mode mixing. */}
+      {/* Separate timestamps and failures explain which accounts contribute to the overview. */}
       <Card
         className={styles.accountStrip}
-        aria-label="Selected account summary"
+        aria-label="Connected accounts summary"
       >
         <div className={styles.accountToolbar}>
           <div>
-            <strong>Live account</strong>
+            <strong>All connected accounts</strong>
             <span>
-              {broker?.name ?? "No connected broker"} · Read-only broker
-              snapshot
+              Read-only snapshots · active broker is used only for live trading
             </span>
           </div>
           <button
             className={styles.refresh}
-            disabled={account.loading || !broker}
+            disabled={positionsLoading || !books.length}
             onClick={onRefreshSnapshot}
           >
             <RefreshCw size={14} />
-            {account.loading ? "Loading snapshot…" : "Refresh snapshot"}
+            {positionsLoading
+              ? "Loading snapshots…"
+              : "Refresh all connected accounts"}
           </button>
         </div>
-        {account.loading && !snapshot ? (
-          <SkeletonRows rows={1} columns={1} />
-        ) : (
-          <div className={styles.accountMetrics}>
-            <div>
-              <span>Account snapshot captured</span>
-              <strong className={styles.timestamp}>
-                {snapshot
-                  ? new Date(snapshot.capturedAt).toLocaleString("en-IN", {
-                      timeZone: "Asia/Kolkata",
-                    }) + " IST"
-                  : "Not loaded"}
-              </strong>
-              <small>
-                {snapshot?.positions?.length
-                  ? account.feedMessage
-                  : "Refresh explicitly to reload account data"}
-              </small>
-            </div>
+        {books.map(({ id, name, account: book }) => (
+          <div key={id} className={styles.notice}>
+            <strong>{name}</strong> ·{" "}
+            {book.loading
+              ? "Loading…"
+              : book.error || book.connected !== true
+                ? "Account unavailable; displayed exposure is last known."
+                : "Connected"}
+            <p>
+              Available margin: {formatAccountMoney(book.live?.availableFunds)}{" "}
+              · Snapshot:{" "}
+              {book.live
+                ? new Date(book.live.capturedAt).toLocaleString("en-IN", {
+                    timeZone: "Asia/Kolkata",
+                  }) + " IST"
+                : "Not loaded"}{" "}
+              · {book.feedMessage}
+            </p>
+            {book.live?.warnings.map((warning) => (
+              <p key={warning}>{warning}</p>
+            ))}
           </div>
-        )}
-        {!registry.loading && !broker && (
+        ))}
+        {balances.invalidHoldingBrokers.map((name) => (
+          <p key={name} className={styles.notice}>
+            {name}: holdings unavailable because the response contains
+            derivatives, not a verified demat book. Excluded from holdings
+            totals.
+          </p>
+        ))}
+        {!registry.loading && !books.length && (
           <p className={styles.notice}>
             <a href="#/brokers">Connect a broker</a> to load funds and
             positions.
           </p>
         )}
-        {broker && account.connected === false && (
-          <p className={styles.notice}>
-            Connect {broker.name} in Broker connections to load funds and
-            positions.
-          </p>
-        )}
-        {account.error && (
-          <p className={styles.error} role="alert">
-            {account.error} Values, if shown, are the last successful snapshot.
-          </p>
-        )}
-        {snapshot?.warnings.map(
-          /** Preserve partial-report warnings alongside any last known values. */ (
-            warning,
-          ) => (
-            <p className={styles.notice} key={warning}>
-              {warning}
-            </p>
-          ),
-        )}
         {showPositions && (
           <div id="overview-positions" className={styles.positionTable}>
-            {account.loading && !snapshot?.positions ? (
+            <p className={styles.tableCaption}>
+              Open positions · all connected brokers
+            </p>
+            {books.map(({ id, name, account: book }) => (
+              <div key={id} className={styles.notice}>
+                {name} ·{" "}
+                {book.loading
+                  ? "Loading…"
+                  : book.error ||
+                      book.connected !== true ||
+                      !book.live?.positions
+                    ? "Position data unavailable; any displayed rows are last known exposure."
+                    : `${book.live.positions.length} open positions · ${new Date(book.live.capturedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST · ${book.feedMessage}`}
+                {book.live?.warnings.map((warning) => (
+                  <p key={warning}>{warning}</p>
+                ))}
+              </div>
+            ))}
+            {positionsLoading && !combined.knownBooks ? (
               <SkeletonRows rows={3} columns={5} />
-            ) : !snapshot?.positions ? (
+            ) : !combined.knownBooks ? (
               <EmptyState
                 title="Position data is unavailable"
                 description="It is not assumed to be an empty account."
               />
             ) : (
               <>
-                <p className={styles.tableCaption}>
-                  Live open positions · {broker?.name ?? "No connected broker"}
-                </p>
                 <DataTable
                   columns={positionColumns}
-                  rows={snapshot.positions}
+                  rows={combined.positions}
                   rowKey={(position) => position.id}
-                  emptyTitle="No open positions"
-                  emptyDescription="No open positions in this live account."
+                  emptyTitle={
+                    combined.complete
+                      ? "No open positions"
+                      : "No known open positions"
+                  }
+                  emptyDescription={
+                    combined.complete
+                      ? "All connected brokers reported an empty position book."
+                      : "Some account data is unavailable; this does not confirm a flat portfolio."
+                  }
                 />
               </>
             )}
@@ -559,9 +586,9 @@ export function OverviewScreen({
         )}
         {showHoldings && (
           <div id="overview-holdings" className={styles.positionTable}>
-            {account.loading && !snapshot?.holdings ? (
+            {positionsLoading && !balances.knownHoldingBooks ? (
               <SkeletonRows rows={3} columns={8} />
-            ) : !snapshot?.holdings ? (
+            ) : !balances.knownHoldingBooks ? (
               <EmptyState
                 title="Holdings data is unavailable"
                 description="It is not assumed to be an empty demat account."
@@ -569,14 +596,25 @@ export function OverviewScreen({
             ) : (
               <>
                 <p className={styles.tableCaption}>
-                  Live holdings · {broker?.name ?? "No connected broker"}
+                  Holdings · all connected brokers
+                  {balances.holdingsComplete
+                    ? ""
+                    : " · incomplete coverage; some rows may be last known"}
                 </p>
                 <DataTable
                   columns={holdingColumns}
-                  rows={snapshot.holdings}
+                  rows={balances.holdings}
                   rowKey={(holding) => holding.id}
-                  emptyTitle="No holdings"
-                  emptyDescription="No holdings in this live account."
+                  emptyTitle={
+                    balances.holdingsComplete
+                      ? "No holdings"
+                      : "No known holdings"
+                  }
+                  emptyDescription={
+                    balances.holdingsComplete
+                      ? "All connected brokers reported an empty demat book."
+                      : "Some holdings are unavailable; this is not a confirmed empty portfolio."
+                  }
                 />
               </>
             )}
@@ -704,23 +742,23 @@ export function OverviewScreen({
               </li>
               <li>
                 <Radio size={17} />
-                <span>Broker session</span>
+                <span>Broker sessions</span>
                 <Badge
                   tone={
-                    registry.loading || account.connected === null
+                    registry.loading || positionsLoading
                       ? "neutral"
-                      : account.connected
+                      : connectedCount > 0
                         ? "success"
                         : "warning"
                   }
                 >
-                  {registry.loading || account.connected === null
+                  {registry.loading || positionsLoading
                     ? "Checking"
-                    : account.connected
-                      ? "Connected"
+                    : connectedCount > 0
+                      ? `${connectedCount} connected`
                       : "Required"}
                 </Badge>
-                {!registry.loading && account.connected === false && (
+                {!registry.loading && connectedCount === 0 && (
                   <Button
                     variant="secondary"
                     className={styles.readinessAction}
@@ -753,7 +791,7 @@ export function OverviewScreen({
       <footer className={styles.footer}>
         <span>NRIAlgo / Overview · Personal workspace</span>
         <span>
-          <Wallet size={13} /> {broker?.name ?? "No connected broker"}
+          <Wallet size={13} /> All connected brokers
         </span>
       </footer>
       <Dialog

@@ -15,6 +15,7 @@ import {
 export function useOverviewAccount(
   broker: BrokerAccountAdapter | null,
   csrf: string,
+  readMfa = true,
 ) {
   const [live, setLive] = useState<AccountSnapshot | null>(null);
   const [connected, setConnected] = useState<boolean | null>(null);
@@ -32,6 +33,9 @@ export function useOverviewAccount(
   /** MFA belongs to the app session, not the selected broker. Cancel old reads on
    * logout/unmount; a failed or malformed response must never imply MFA is disabled. */
   useEffect(() => {
+    if (!readMfa) {
+      return;
+    }
     const controller = new AbortController();
     setMfaEnabled(null);
     setMfaLoading(true);
@@ -61,7 +65,7 @@ export function useOverviewAccount(
         }
       });
     return () => controller.abort();
-  }, [csrf, mfaRevision]);
+  }, [csrf, mfaRevision, readMfa]);
 
   /** Retry only the read-only security check; never refresh or authorize a broker. */
   function refreshMfaStatus() {
@@ -248,6 +252,17 @@ export function useOverviewAccount(
   }, [broker, csrf, connected, liveSnapshotAt]);
   return {
     live,
+    // Retained exposure may be visible during an outage, but cannot establish a current total.
+    positionsCurrent:
+      connected === true &&
+      !loading &&
+      !error &&
+      Array.isArray(liveSnapshot.current?.positions),
+    holdingsCurrent:
+      connected === true &&
+      !loading &&
+      !error &&
+      Array.isArray(liveSnapshot.current?.holdings),
     connected,
     mfaEnabled,
     mfaLoading,

@@ -25,7 +25,7 @@
   outline: 3px solid var(--accent);
   outline-offset: 3px;
 }
-/* Screen heading and implemented broker selector. */
+/* Screen heading and consolidated account scope. */
 .heading {
   display: flex;
   align-items: center;
@@ -43,20 +43,6 @@
   margin-top: 9px;
   color: var(--text-muted);
   font-size: 13px;
-}
-.brokerSelect {
-  display: grid;
-  gap: 5px;
-  font-size: 11px;
-  color: var(--text-muted);
-}
-.brokerSelect select {
-  min-width: 150px;
-  background: var(--bg-raised);
-  border: 1px solid var(--border-default);
-  border-radius: 8px;
-  padding: 9px 12px;
-  color: var(--text-primary);
 }
 /* Server capability is informational, not an incident; warning is reserved for unmet checks. */
 .banner {
@@ -451,8 +437,5 @@
   }
   .metrics {
     gap: 12px;
-  }
-  .brokerSelect {
-    width: 100%;
   }
 }
