@@ -544,7 +544,7 @@ export async function runDatabaseMigrations(
         "GRANT SELECT ON eod_instruments,eod_candles,option_eod_instruments,option_eod_candles TO nexus_app",
       );
       await query(
-        "GRANT SELECT,INSERT,UPDATE,DELETE ON users,user_settings,user_security,broker_usage,sessions,strategies,jobs,events,broker_credentials,worker_health,settings,live_accounts,live_orders,live_spreads,live_events,live_permissions,live_previews,broker_rpc_windows,research_strategies,research_runs,user_brokers,calculation_jobs,option_chain_snapshots TO nexus_app",
+        "GRANT SELECT,INSERT,UPDATE,DELETE ON users,user_settings,user_security,broker_usage,sessions,strategies,jobs,events,broker_credentials,worker_health,settings,live_accounts,live_orders,live_spreads,live_events,live_permissions,live_previews,broker_rpc_windows,research_strategies,research_runs,user_brokers,calculation_jobs,option_chain_snapshots,tradingview_webhooks,tradingview_order_drafts TO nexus_app",
       );
       await query(
         "GRANT SELECT,INSERT,UPDATE,DELETE ON portfolio_accounts,portfolio_sync_runs,portfolio_snapshots,portfolio_snapshot_items,portfolio_cash_flows TO nexus_app",

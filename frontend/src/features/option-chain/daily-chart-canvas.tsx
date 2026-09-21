@@ -170,6 +170,8 @@ export function DailyChartCanvas({
   const [selectedDrawing, setSelectedDrawing] = useState<string | null>(null);
   const [drawingCount, setDrawingCount] = useState(0);
   const [range, setRange] = useState("");
+  const rangeRef = useRef(range);
+  rangeRef.current = range;
   const hasVolume = candles.every((bar) => bar.volume !== null);
   const fit = (count: number) => {
     const instance = chart.current;
@@ -186,6 +188,9 @@ export function DailyChartCanvas({
     );
     instance.scrollToRealTime();
   };
+  // A fresh chart instance only for a genuine instrument change; indicators/drawings/zoom
+  // are user state that must survive switching timeframe on the same symbol.
+  const seeded = useRef(false);
   useEffect(() => {
     const element = host.current;
     if (!element) {
@@ -199,6 +204,7 @@ export function DailyChartCanvas({
     setSelectedDrawing(null);
     setDrawingCount(0);
     pending.current = null;
+    seeded.current = false;
     try {
       const instance = init(element, {
         locale: "en-US",
@@ -215,29 +221,6 @@ export function DailyChartCanvas({
         pricePrecision: 2,
         volumePrecision: 0,
       });
-      instance.setPeriod(periodFor(interval));
-      instance.setDataLoader({
-        getBars: ({ type, callback }) =>
-          callback(
-            type === "init"
-              ? candles.map((bar) => ({
-                  timestamp:
-                    bar.timestamp ?? Date.parse(`${bar.day}T00:00:00+05:30`),
-                  open: bar.open,
-                  high: bar.high,
-                  low: bar.low,
-                  close: bar.close,
-                  ...(bar.volume === null ? {} : { volume: bar.volume }),
-                }))
-              : [],
-            false,
-          ),
-      });
-      instance.createIndicator({ name: "MA", paneId: "candle_pane" }, true);
-      if (hasVolume) {
-        instance.createIndicator("VOL");
-      }
-      setActive(hasVolume ? ["MA", "VOL"] : ["MA"]);
       observer = new ResizeObserver(() => instance.resize());
       observer.observe(element);
       instance.resize();
@@ -250,7 +233,48 @@ export function DailyChartCanvas({
       dispose(element);
       chart.current = null;
     };
-  }, [candles, symbol, hasVolume, interval]);
+  }, [symbol]);
+
+  // Refresh period/bars on the existing instance instead of tearing it down, so switching
+  // Daily/Weekly/Monthly/intraday spans never silently discards indicators or drawings.
+  useEffect(() => {
+    const instance = chart.current;
+    if (!instance || !ready) {
+      return;
+    }
+    instance.setPeriod(periodFor(interval));
+    instance.setDataLoader({
+      getBars: ({ type, callback }) =>
+        callback(
+          type === "init"
+            ? candles.map((bar) => ({
+                timestamp:
+                  bar.timestamp ?? Date.parse(`${bar.day}T00:00:00+05:30`),
+                open: bar.open,
+                high: bar.high,
+                low: bar.low,
+                close: bar.close,
+                ...(bar.volume === null ? {} : { volume: bar.volume }),
+              }))
+            : [],
+          false,
+        ),
+    });
+    if (!seeded.current) {
+      instance.createIndicator({ name: "MA", paneId: "candle_pane" }, true);
+      if (hasVolume) {
+        instance.createIndicator("VOL");
+      }
+      setActive(hasVolume ? ["MA", "VOL"] : ["MA"]);
+      seeded.current = true;
+    } else if (rangeRef.current) {
+      fit(
+        rangeRef.current === "all"
+          ? candles.length
+          : Math.min(250, candles.length),
+      );
+    }
+  }, [candles, hasVolume, interval, ready]);
 
   /** Re-read tokens and restyle in place when the viewer toggles light/dark, without a full re-init. */
   useEffect(() => {

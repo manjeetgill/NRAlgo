@@ -1,5 +1,6 @@
 /** ICICI Breeze normalization for the read-only Overview dashboard. */
 import { requestApiJson } from "../../../lib/api";
+import { portfolioContractLabel } from "../../portfolio/portfolio-model";
 import {
   calculatePositionPnl,
   type AccountSnapshot,
@@ -53,7 +54,13 @@ export const iciciAccountAdapter: BrokerAccountAdapter = {
             id: `${row.exchange}|${row.instrumentToken}|${index}`,
             instrument: String(row.instrumentToken ?? ""),
             exchange: String(row.exchange ?? ""),
-            symbol: String(row.symbol ?? "Unknown contract"),
+            symbol: portfolioContractLabel({
+              symbol: String(row.symbol ?? "Unknown contract"),
+              expiry: String(row.expiry ?? ""),
+              strike: String(row.strike ?? ""),
+              right: String(row.right ?? ""),
+              product: String(row.product ?? ""),
+            }),
             quantity: row.quantity as number,
             averagePrice: numberOrNull(row.averagePrice),
             markPrice: numberOrNull(row.markPrice),
@@ -67,7 +74,13 @@ export const iciciAccountAdapter: BrokerAccountAdapter = {
           id: `${row.exchange}|${row.instrumentToken || row.symbol}|${index}`,
           instrument: String(row.instrumentToken ?? ""),
           exchange: String(row.exchange ?? ""),
-          symbol: String(row.symbol ?? "Unknown holding"),
+          symbol: portfolioContractLabel({
+            symbol: String(row.symbol ?? "Unknown holding"),
+            expiry: String(row.expiry ?? ""),
+            strike: String(row.strike ?? ""),
+            right: String(row.right ?? ""),
+            product: String(row.product ?? ""),
+          }),
           product: String(row.product ?? ""),
           quantity: row.quantity as number,
           pledgedQuantity: numberOrNull(row.pledgedQuantity),

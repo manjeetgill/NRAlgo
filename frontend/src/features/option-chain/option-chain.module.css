@@ -259,4 +259,16 @@
   .workspace :global(.analytics-chain .chain-scroll) {
     height: max(320px, calc(100dvh - 300px));
   }
+  /* Equal thirds crowd the two premium columns against a narrow strike value;
+     give strike less width and let premiums/buttons breathe. */
+  .workspace :global(.analytics-chain table.chain-essentials th),
+  .workspace :global(.analytics-chain table.chain-essentials td) {
+    padding: 10px 6px;
+  }
+  .workspace :global(.analytics-chain table.chain-essentials .chain-strike) {
+    width: 24%;
+  }
+  .workspace :global(.chain-essentials .chain-price-button) {
+    padding: 8px 4px;
+  }
 }

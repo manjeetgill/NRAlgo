@@ -8,6 +8,7 @@ import { z } from "zod";
 import type { Store } from "./database.js";
 import type { HistoricalCandleStore } from "./historical-candle-store.js";
 import { registerStoredOptionCharts } from "./stored-option-chart.js";
+import { fail } from "./security.js";
 const instrumentSchema = z
   .object({
     id: z.string().min(1).max(120),
@@ -121,6 +122,16 @@ export function registerEodRoutes(
       items: rows.slice(0, 50),
       nextOffset: rows.length > 50 ? offset + 50 : null,
     });
+  });
+  app.get("/api/eod/instruments/:id", async (req, res) => {
+    const { id } = z
+      .object({ id: z.string().min(1).max(120) })
+      .parse(req.params);
+    const instrument = await history.readInstrument(id);
+    if (!instrument) {
+      fail(404, "Stored instrument not found.");
+    }
+    res.json({ item: instrument });
   });
   app.get("/api/eod/candles", async (req, res) => {
     const { id, from, to, source } = z

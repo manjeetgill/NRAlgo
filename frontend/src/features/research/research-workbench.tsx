@@ -20,7 +20,7 @@ import { useConfirm } from "@/components/ui/confirm";
 import { useToast } from "@/components/ui/toast";
 import { OptionChainPicker } from "@/components/option-chain-picker";
 import { StoredInstrumentPicker } from "@/components/stored-instrument-picker";
-import { storedInstrumentSearchSchema } from "@/lib/stored-market-data";
+import { fetchStoredInstrument } from "@/lib/stored-market-data";
 import { useUnsavedResearchWarning } from "@/features/workspace/workspace-views";
 import {
   usePayoffCalculation,
@@ -186,7 +186,34 @@ export function ResearchWorkbench({
   const confirm = useConfirm();
   const toast = useToast();
   useUnsavedResearchWarning(edited && !strategyId);
-  /** Default replay to actual stored coverage, never yesterday or an invented trading session. */
+  // This workbench's live preview only ever reads Kotak; a different connected broker (or none)
+  // must not leave the Kotak-labeled controls clickable and silently failing.
+  const [kotakConnected, setKotakConnected] = useState<boolean | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    void requestApiJson(
+      "/brokers/kotak/status",
+      "GET",
+      undefined,
+      undefined,
+      15000,
+      controller.signal,
+    )
+      .then((status) => {
+        if (!controller.signal.aborted) {
+          setKotakConnected(status?.connected === true);
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setKotakConnected(false);
+        }
+      });
+    return () => controller.abort();
+  }, []);
+  /** Default replay to actual stored coverage, never yesterday or an invented trading session.
+   * Resolved by exact ID: a saved strategy already carries a valid dataInstrumentId, and a fuzzy
+   * symbol search can miss it on a crowded results page, wrongly demanding reselection. */
   useEffect(() => {
     const controller = new AbortController();
     setCoverage(null);
@@ -195,21 +222,15 @@ export function ResearchWorkbench({
     if (!storedId || !storedSymbol) {
       return;
     }
-    void requestApiJson(
-      `/eod/instruments?q=${encodeURIComponent(storedSymbol)}&offset=0`,
-      "GET",
-      undefined,
-      undefined,
-      15000,
-      controller.signal,
-    )
-      .then((value) => {
-        const item = storedInstrumentSearchSchema
-          .parse(value)
-          .items.find((item) => item.id === storedId);
+    void fetchStoredInstrument(storedId, controller.signal)
+      .then((item) => {
         if (!controller.signal.aborted && item) {
           setCoverage({ first: item.first_day, last: item.last_day });
           setDay(item.last_day);
+        } else if (!controller.signal.aborted) {
+          setError(
+            "Stored coverage could not be loaded. Select the instrument again before replaying.",
+          );
         }
       })
       .catch(() => {
@@ -228,7 +249,12 @@ export function ResearchWorkbench({
     if (!kotakPolling) {
       return;
     }
-    if (tab !== "quotes" || !strategyId || definition.broker !== "kotak") {
+    if (
+      tab !== "quotes" ||
+      !strategyId ||
+      definition.broker !== "kotak" ||
+      !kotakConnected
+    ) {
       setKotakPolling(false);
       return;
     }
@@ -270,7 +296,7 @@ export function ResearchWorkbench({
       clearInterval(timer);
       document.removeEventListener("visibilitychange", stopHidden);
     };
-  }, [kotakPolling, strategyId, tab, definition.broker, csrf]);
+  }, [kotakPolling, strategyId, tab, definition.broker, kotakConnected, csrf]);
   /** Reload owner-scoped library metadata; large replay histories load only on selection. */
   async function reloadLibrary() {
     const result = await researchRequest("", csrf);
@@ -1627,8 +1653,16 @@ export function ResearchWorkbench({
             Basket prices are not atomic; old exchange timestamps are marked
             stale.
           </p>
+          {kotakConnected === false && (
+            <p role="note" className="research-note">
+              This preview only reads Kotak. Connect Kotak under Brokers to use
+              it; it will not work with a different connected broker.
+            </p>
+          )}
           <Button
-            disabled={busy || !strategyId || kotakPolling}
+            disabled={
+              busy || !strategyId || kotakPolling || kotakConnected !== true
+            }
             onClick={() =>
               void act(async () => {
                 setQuotes([]);
@@ -1645,7 +1679,12 @@ export function ResearchWorkbench({
             {
               <>
                 <Button
-                  disabled={busy || !strategyId || kotakPolling}
+                  disabled={
+                    busy ||
+                    !strategyId ||
+                    kotakPolling ||
+                    kotakConnected !== true
+                  }
                   onClick={() => {
                     setQuotes([]);
                     setKotakPolling(true);

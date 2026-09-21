@@ -48,6 +48,30 @@ const storedHistorySchema = z.object({
   fetchedAt: z.string().datetime(),
 });
 
+/** Resolve one stored instrument by its exact ID, never by a fuzzy symbol search that can miss
+ * the match on a crowded results page. Returns null when the ID no longer has stored candles. */
+export async function fetchStoredInstrument(
+  id: string,
+  signal: AbortSignal,
+): Promise<StoredInstrument | null> {
+  try {
+    const result = await requestApiJson(
+      `/eod/instruments/${encodeURIComponent(id)}`,
+      "GET",
+      undefined,
+      undefined,
+      15000,
+      signal,
+    );
+    return storedInstrumentSchema.parse(result.item);
+  } catch (error) {
+    if ((error as { status?: number } | undefined)?.status === 404) {
+      return null;
+    }
+    throw error;
+  }
+}
+
 /** Fetch one explicit range from stored data and preserve its stable identity in the report manifest. */
 export async function fetchStoredDailyHistory(
   instrument: StoredInstrument,
