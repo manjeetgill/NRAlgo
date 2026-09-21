@@ -137,6 +137,10 @@ export function LiveOptionChain({
   const [selectedToken, setSelectedToken] = useState("");
   const [showChart, setShowChart] = useState(false);
   const [draftError, setDraftError] = useState("");
+  // Removing/resetting legs changes the guard's premise; do not retain a rejected-add error.
+  useEffect(() => {
+    setDraftError("");
+  }, [activeLegs.length]);
   const [index, setIndex] = useState("NIFTY");
   const [members, setMembers] = useState<{
     index: string;
