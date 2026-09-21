@@ -98,15 +98,41 @@ DATASETS: dict[str, dict[str, Any]] = {
         "method": "get_most_active_stock_puts",
         "title": ("underlying", "symbol", "identifier"),
     },
+    # Unlike the calls/puts datasets above (one type per table), this table mixes both,
+    # so Type must be an explicit metric or same-underlying/strike rows are indistinguishable.
     "active-derivatives-oi": {
         "label": "Most active derivatives by OI",
         "method": "get_most_active_contracts_by_oi",
         "title": ("underlying", "symbol", "identifier"),
+        "metrics": {
+            "Type": ("optionType", "option_type"),
+            "Strike": ("strikePrice", "strike"),
+            "Expiry": ("expiryDate", "expiry"),
+            "OI": ("openInterest", "oi"),
+            "Volume": (
+                "totalTradedVolume",
+                "numberOfContractsTraded",
+                "volume",
+                "contracts",
+            ),
+        },
     },
     "active-derivatives-volume": {
         "label": "Most active derivatives by volume",
         "method": "get_most_active_contracts_by_volume",
         "title": ("underlying", "symbol", "identifier"),
+        "metrics": {
+            "Type": ("optionType", "option_type"),
+            "Strike": ("strikePrice", "strike"),
+            "Expiry": ("expiryDate", "expiry"),
+            "Volume": (
+                "totalTradedVolume",
+                "numberOfContractsTraded",
+                "volume",
+                "contracts",
+            ),
+            "OI": ("openInterest", "oi"),
+        },
     },
 }
 
